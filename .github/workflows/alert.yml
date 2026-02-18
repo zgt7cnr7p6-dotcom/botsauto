@@ -63,6 +63,9 @@ jobs:
         if: always()
         with:
           name: debug-screenshots
-          path: auto-alert/debug_*.png
+          path: |
+            auto-alert/debug_*.png
+            auto-alert/debug_*.html
+            auto-alert/debug_*.json
           retention-days: 3
           if-no-files-found: ignore

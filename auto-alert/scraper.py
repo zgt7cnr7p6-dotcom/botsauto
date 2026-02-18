@@ -15,8 +15,6 @@ import asyncio
 import logging
 from datetime import datetime
 from dataclasses import dataclass, field
-from urllib.parse import quote_plus
-
 import requests
 from playwright.async_api import async_playwright
 
@@ -236,6 +234,8 @@ def is_q3_sportback_hybrid(title: str, description: str = "") -> bool:
         r"plug[\s-]?in",          # "Plug-in Hybrid"
         r"phev",                  # PHEV
         r"hybrid",                # Hybrid
+        r"elektro.*benzin",       # Elektro/Benzin (AutoScout24 brandstoftype)
+        r"benzin.*elektro",       # Benzin/Elektro
     ]
 
     return any(re.search(p, text, re.IGNORECASE) for p in hybrid_patterns)
@@ -481,79 +481,212 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
     log.info("Scraping mobile.de ...")
     try:
         await human_delay(1, 3)
-        await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+        await page.goto(search_url, wait_until="networkidle", timeout=60000)
         await human_delay(2, 4)
 
-        # Debug: screenshot + page info
         log.info("mobile.de page title: %s", await page.title())
         log.info("mobile.de page URL: %s", page.url)
         await page.screenshot(path="debug_mobile.png", full_page=True)
-        log.info("Screenshot opgeslagen: debug_mobile.png")
 
-        # Accept cookies if popup appears
+        # Sla HTML op voor debug
         try:
-            consent = page.locator("button:has-text('Akzeptieren'), button:has-text('Accept'), [data-testid='gdpr-consent-accept-btn'], button[id*='consent'], button[id*='accept'], .mde-consent-accept-btn")
-            if await consent.count() > 0:
-                await human_delay(0.5, 1.5)
-                await consent.first.click()
-                await human_delay(2, 4)
-                await page.screenshot(path="debug_mobile_after_consent.png")
-                log.info("Cookies geaccepteerd, screenshot opgeslagen")
-        except Exception as e:
-            log.info("Geen cookie popup of fout: %s", e)
+            html = await page.content()
+            with open("debug_mobile.html", "w", encoding="utf-8") as f:
+                f.write(html[:500_000])
+        except Exception:
+            pass
 
-        # Wacht extra op dynamische content
-        await page.wait_for_timeout(5000)
+        # ── Consent handling — mobile.de gebruikt Sourcepoint CMP in IFRAME ──
+        consent_handled = False
 
-        # Find listing cards — meerdere mogelijke selectors
-        cards = page.locator(".cBox-body--resultitem, [data-testid='result-listing-entry'], .result-item, .cBox-body--resultInnerRow")
-        count = await cards.count()
-        log.info("mobile.de: %d resultaten gevonden", count)
+        # Methode 1: Sourcepoint CMP iframe (meest voorkomend op mobile.de)
+        for iframe_sel in [
+            "[id^='sp_message_iframe']",
+            "iframe[title*='SP Consent']",
+            "iframe[title*='consent']",
+            "iframe[src*='sourcepoint']",
+            "iframe[id*='sp_message']",
+        ]:
+            try:
+                iframe = page.frame_locator(iframe_sel)
+                accept_btn = iframe.locator(
+                    "button[title='Zustimmen'], "
+                    "button[title='Akzeptieren'], "
+                    "button:has-text('Zustimmen'), "
+                    "button:has-text('Akzeptieren'), "
+                    "button:has-text('Alle akzeptieren'), "
+                    "button:has-text('Alle akzeptieren und fortfahren')"
+                )
+                await accept_btn.first.wait_for(timeout=3000)
+                await human_delay(0.3, 1)
+                await accept_btn.first.click()
+                consent_handled = True
+                log.info("mobile.de: consent via iframe '%s' geaccepteerd!", iframe_sel)
+                await page.wait_for_timeout(3000)
+                break
+            except Exception:
+                continue
 
-        # Debug: als 0 resultaten, log page content
+        # Methode 2: Direct button (geen iframe)
+        if not consent_handled:
+            try:
+                consent = page.locator(
+                    "button:has-text('Akzeptieren'), "
+                    "button:has-text('Zustimmen'), "
+                    "button:has-text('Alle akzeptieren'), "
+                    "button:has-text('Einverstanden'), "
+                    "[data-testid='gdpr-consent-accept-btn'], "
+                    ".mde-consent-accept-btn, #consentAccept"
+                )
+                if await consent.count() > 0:
+                    await human_delay(0.3, 1)
+                    await consent.first.click()
+                    consent_handled = True
+                    log.info("mobile.de: consent via directe button geaccepteerd!")
+                    await page.wait_for_timeout(3000)
+            except Exception:
+                pass
+
+        # Methode 3: Doorzoek alle frames
+        if not consent_handled:
+            try:
+                for frame in page.frames:
+                    try:
+                        btn = frame.locator("button:has-text('Zustimmen'), button:has-text('Akzeptieren')")
+                        if await btn.count() > 0:
+                            await btn.first.click()
+                            consent_handled = True
+                            log.info("mobile.de: consent via frame gevonden!")
+                            await page.wait_for_timeout(3000)
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+        if consent_handled:
+            await page.screenshot(path="debug_mobile_after_consent.png", full_page=True)
+        else:
+            log.warning("mobile.de: GEEN consent gevonden/geklikt")
+
+        # Wacht op listing cards
+        try:
+            await page.wait_for_selector(
+                "a.result-item, .cBox-body--resultitem, [data-testid='result-listing-entry'], .result-item",
+                timeout=10000,
+            )
+        except Exception:
+            log.warning("mobile.de: timeout bij wachten op listings")
+            await page.wait_for_timeout(5000)
+
+        # Zoek listing cards met meerdere selectors
+        count = 0
+        cards = None
+        for sel in [
+            "a.result-item",
+            "a.link--muted.no--text--decoration.result-item",
+            ".cBox-body--resultitem",
+            "[data-testid='result-listing-entry']",
+            ".result-item",
+            ".cBox-body--resultInnerRow",
+        ]:
+            cards = page.locator(sel)
+            count = await cards.count()
+            if count > 0:
+                log.info("mobile.de: %d cards gevonden met '%s'", count, sel)
+                break
+
         if count == 0:
+            log.warning("mobile.de: 0 resultaten met alle selectors")
             body_text = await page.locator("body").inner_text()
-            log.info("mobile.de body text (eerste 1000 chars): %s", body_text[:1000])
+            log.info("mobile.de body (eerste 2000 chars): %s", body_text[:2000])
+            await page.screenshot(path="debug_mobile_no_results.png", full_page=True)
+            try:
+                html = await page.content()
+                with open("debug_mobile_final.html", "w", encoding="utf-8") as f:
+                    f.write(html[:500_000])
+            except Exception:
+                pass
 
         known_streak = 0  # Tel opeenvolgende bekende listings
 
         for i in range(min(count, 50)):
             try:
                 card = cards.nth(i)
-                title_el = card.locator("a.link--muted-secondary, .headline-block a, [data-testid='result-listing-entry-header'] a").first
-                title = (await title_el.inner_text()).strip()
 
-                if "q3" not in title.lower():
+                # Title — meerdere selectors op volgorde van betrouwbaarheid
+                title = ""
+                for title_sel in [
+                    "span.h3.u-text-break-word",
+                    "span.h3",
+                    "a.link--muted-secondary span",
+                    ".headline-block a span",
+                    "[data-testid='result-listing-entry-header'] a span",
+                    "h2", "h3",
+                ]:
+                    title_el = card.locator(title_sel)
+                    if await title_el.count() > 0:
+                        title = (await title_el.first.inner_text()).strip()
+                        if title:
+                            break
+
+                if not title:
+                    card_text = await card.inner_text()
+                    lines = [l.strip() for l in card_text.split("\n") if l.strip()]
+                    title = lines[0] if lines else ""
+
+                if not title or "q3" not in title.lower():
                     continue
 
-                href = await title_el.get_attribute("href")
+                # URL — card zelf kan een <a> zijn
+                href = await card.get_attribute("href")
+                if not href:
+                    for link_sel in ["a[href*='details'], a.link--muted-secondary", "a[href*='fahrzeuge']"]:
+                        link_el = card.locator(link_sel)
+                        if await link_el.count() > 0:
+                            href = await link_el.first.get_attribute("href")
+                            if href:
+                                break
                 if href and not href.startswith("http"):
                     href = "https://suchen.mobile.de" + href
 
                 listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{i}"
 
-                # SNELHEID: bekende listing? Skip detail pagina!
                 if listing_exists(conn, listing_id):
                     known_streak += 1
                     log.info("Bekende listing, skip: %s", title[:50])
-                    # Na 3 bekende op rij → rest is ook oud, stop
                     if known_streak >= 3:
                         log.info("3 bekende listings op rij — stoppen (nieuwste eerst)")
                         break
                     continue
-                known_streak = 0  # Reset bij nieuwe listing
+                known_streak = 0
 
-                price_el = card.locator(".price-block .h3, [data-testid='price-label'], .pricePrimaryCountryOfSale").first
-                price_text = await price_el.inner_text()
-                price = parse_price(price_text)
+                # Price
+                price = 0
+                for price_sel in [".price-block span", ".price-block .h3", "[data-testid='price-label']", ".pricePrimaryCountryOfSale", "span:has-text('€')"]:
+                    price_el = card.locator(price_sel)
+                    if await price_el.count() > 0:
+                        price = parse_price(await price_el.first.inner_text())
+                        if price:
+                            break
 
-                details_el = card.locator(".rbt-regMil498, .vehicle-data, [data-testid='regMilPow']").first
+                # Details (registratie, km, power)
                 details_text = ""
-                if await details_el.count() > 0:
-                    details_text = await details_el.inner_text()
+                for det_sel in [".rbt-regMilPow", "[data-testid='regMilPow']", ".vehicle-data"]:
+                    det_el = card.locator(det_sel)
+                    if await det_el.count() > 0:
+                        details_text = await det_el.first.inner_text()
+                        break
 
                 year = parse_year(details_text)
                 km = parse_km(details_text)
+
+                if not year or not km:
+                    card_text = await card.inner_text()
+                    if not year:
+                        year = parse_year(card_text)
+                    if not km:
+                        km = parse_km(card_text)
 
                 if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
@@ -616,102 +749,273 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
     """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland.
     Gesorteerd op nieuwste eerst — stopt bij bekende listings voor snelheid."""
     listings = []
-    # Audi Q3 Sportback, hybrid fuel, only Germany, year >= 2021, km <= 85000, price <= 38000
+    # Audi Q3 Sportback, Germany, year >= 2021, km <= 85000, price <= 38000
+    # GEEN fuel filter! fuel=E was FOUT (= puur elektrisch). We filteren zelf op hybrid.
     # sort=age = nieuwste eerst
     search_url = (
         "https://www.autoscout24.de/lst/audi/q3-sportback"
-        "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=E"
-        "&kmto=85000&priceto=38000&search_id=1&sort=age&source=listpage_pagination&ustate=N%2CU"
+        "?atype=C&cy=D&desc=0&fregfrom=2021"
+        "&kmto=85000&priceto=38000&sort=age&ustate=N%2CU"
     )
 
     log.info("Scraping AutoScout24 ...")
     try:
         await human_delay(1, 3)
-        await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+        await page.goto(search_url, wait_until="networkidle", timeout=60000)
         await human_delay(2, 4)
 
-        # Debug: screenshot + page info
         log.info("AutoScout24 page title: %s", await page.title())
         log.info("AutoScout24 page URL: %s", page.url)
         await page.screenshot(path="debug_autoscout.png", full_page=True)
-        log.info("Screenshot opgeslagen: debug_autoscout.png")
 
-        # Accept cookies
+        # Sla HTML op voor debug
+        html_content = await page.content()
         try:
-            consent = page.locator("button:has-text('Einverstanden'), button:has-text('Akzeptieren'), button:has-text('Agree'), #onetrust-accept-btn-handler, button[id*='accept']")
-            if await consent.count() > 0:
-                await human_delay(0.5, 1.5)
-                await consent.first.click()
-                await human_delay(2, 4)
-                await page.screenshot(path="debug_autoscout_after_consent.png")
-                log.info("Cookies geaccepteerd, screenshot opgeslagen")
-        except Exception as e:
-            log.info("Geen cookie popup of fout: %s", e)
+            with open("debug_autoscout.html", "w", encoding="utf-8") as f:
+                f.write(html_content[:500_000])
+        except Exception:
+            pass
 
-        # Wacht extra op dynamische content
-        await page.wait_for_timeout(5000)
+        # Accept cookies (OneTrust)
+        try:
+            consent = page.locator("#onetrust-accept-btn-handler, button:has-text('Einverstanden'), button:has-text('Akzeptieren'), button:has-text('Alle akzeptieren'), button:has-text('Accept All')")
+            await consent.first.wait_for(timeout=5000)
+            await human_delay(0.5, 1.5)
+            await consent.first.click()
+            log.info("AutoScout24: consent geaccepteerd")
+            await human_delay(2, 3)
+        except Exception:
+            log.info("AutoScout24: geen consent popup gevonden")
 
-        cards = page.locator("article[data-testid], .list-page-item, .cl-list-element, .ListItem_wrapper__TxHWu")
-        count = await cards.count()
-        log.info("AutoScout24: %d resultaten gevonden", count)
+        # ── METHODE 1: Parse __NEXT_DATA__ JSON (AutoScout24 is Next.js) ──
+        next_data = await page.evaluate("""() => {
+            const el = document.getElementById('__NEXT_DATA__');
+            if (el) { try { return JSON.parse(el.textContent); } catch(e) {} }
+            return null;
+        }""")
 
-        # Debug: als 0 resultaten, log page content
+        if next_data:
+            log.info("AutoScout24: __NEXT_DATA__ gevonden!")
+            try:
+                with open("debug_autoscout_nextdata.json", "w") as f:
+                    json.dump(next_data, f, indent=2, default=str)
+            except Exception:
+                pass
+
+            page_props = next_data.get("props", {}).get("pageProps", {})
+            log.info("AutoScout24 pageProps keys: %s", list(page_props.keys()))
+
+            # Zoek listings in JSON — meerdere mogelijke paden
+            listings_json = []
+            for key_path in [
+                lambda pp: pp.get("listings", []),
+                lambda pp: pp.get("listingSearchResult", {}).get("listings", []),
+                lambda pp: pp.get("searchResult", {}).get("listings", []),
+                lambda pp: pp.get("data", {}).get("listings", []),
+            ]:
+                try:
+                    result = key_path(page_props)
+                    if isinstance(result, list) and len(result) > 0:
+                        listings_json = result
+                        break
+                except Exception:
+                    continue
+
+            log.info("AutoScout24: %d listings in JSON gevonden", len(listings_json))
+
+            known_streak = 0
+            for item in listings_json:
+                try:
+                    raw_id = str(item.get("id", item.get("listingId", "")))
+                    if not raw_id:
+                        continue
+                    listing_id = f"as24_{raw_id}"
+
+                    # Title
+                    title = item.get("heading", "") or item.get("title", "")
+                    if not title:
+                        t = item.get("tracking", {})
+                        title = t.get("title", "")
+                    if not title:
+                        v = item.get("vehicle", {})
+                        title = f"{v.get('make', '')} {v.get('model', '')} {v.get('modelVersionInput', '')}".strip()
+
+                    if not title or "q3" not in title.lower():
+                        continue
+
+                    if listing_exists(conn, listing_id):
+                        known_streak += 1
+                        log.info("Bekende listing, skip: %s", title[:50])
+                        if known_streak >= 3:
+                            log.info("3 bekende op rij — stoppen")
+                            break
+                        continue
+                    known_streak = 0
+
+                    # Price
+                    price = 0
+                    pd = item.get("price", item.get("prices", {}))
+                    if isinstance(pd, dict):
+                        price = pd.get("amount", pd.get("price", pd.get("public", {}).get("priceRaw", 0)))
+                    elif isinstance(pd, (int, float)):
+                        price = int(pd)
+                    if not price:
+                        price = item.get("tracking", {}).get("price", 0)
+                    price = int(price) if price else 0
+
+                    # Mileage
+                    km = 0
+                    tracking = item.get("tracking", {})
+                    km_v = tracking.get("mileage", 0)
+                    if km_v:
+                        km = int(str(km_v).replace(".", "").replace(",", ""))
+                    if not km:
+                        v = item.get("vehicle", {})
+                        km = v.get("mileage", v.get("mileageInKmNumeric", 0))
+                    km = int(km) if km else 0
+
+                    # Year
+                    year = 0
+                    reg = tracking.get("first_registration", "")
+                    if not reg:
+                        v = item.get("vehicle", {})
+                        reg = v.get("firstRegistrationDate", v.get("firstRegistration", ""))
+                    year = parse_year(str(reg)) if reg else 0
+
+                    # URL
+                    url_path = item.get("url", "")
+                    if url_path and not url_path.startswith("http"):
+                        url = f"https://www.autoscout24.de{url_path}"
+                    else:
+                        url = url_path or search_url
+
+                    if price and price > SEARCH_CRITERIA["price_max"]:
+                        continue
+                    if km and km > SEARCH_CRITERIA["km_max"]:
+                        continue
+                    if year and year < SEARCH_CRITERIA["year_min"]:
+                        continue
+
+                    # Description uit JSON
+                    desc_parts = []
+                    for dk in ["description", "subtitle"]:
+                        val = item.get(dk, "")
+                        if val and isinstance(val, str):
+                            desc_parts.append(val)
+                    for ek in ["equipment", "features", "equipments"]:
+                        eq = item.get(ek, [])
+                        if isinstance(eq, list):
+                            desc_parts.extend(str(e) for e in eq)
+                        elif isinstance(eq, dict):
+                            for sub in eq.values():
+                                if isinstance(sub, list):
+                                    desc_parts.extend(str(e) for e in sub)
+                    # Fuel type
+                    fuel = item.get("vehicle", {}).get("fuelType", {})
+                    if isinstance(fuel, dict):
+                        desc_parts.append(fuel.get("translated", fuel.get("label", "")))
+                    fuel_t = tracking.get("fuel_type", "")
+                    if fuel_t:
+                        desc_parts.append(str(fuel_t))
+
+                    listing = Listing(
+                        id=listing_id, source="AutoScout24", title=title,
+                        price=price, year=year, km=km, url=url,
+                        description=" ".join(filter(None, desc_parts)),
+                    )
+
+                    # Detail pagina als beschrijving te kort is
+                    if len(listing.description.strip()) < 20 and url != search_url:
+                        try:
+                            dp = await page.context.new_page()
+                            await human_delay(1, 2)
+                            await dp.goto(url, wait_until="domcontentloaded", timeout=30000)
+                            await human_delay(1, 2)
+                            dd = await dp.evaluate("""() => {
+                                const el = document.getElementById('__NEXT_DATA__');
+                                if (el) { try { return JSON.parse(el.textContent); } catch(e) {} }
+                                return null;
+                            }""")
+                            if dd:
+                                dpp = dd.get("props", {}).get("pageProps", {})
+                                for dk in ["listingDetails", "listing", "data"]:
+                                    ld = dpp.get(dk, {})
+                                    if isinstance(ld, dict):
+                                        desc = ld.get("description", "")
+                                        if desc:
+                                            listing.description += " " + desc
+                                        feats = ld.get("equipment", ld.get("features", []))
+                                        if isinstance(feats, list):
+                                            listing.description += " " + " ".join(str(f) for f in feats)
+                            await dp.close()
+                        except Exception as e:
+                            log.warning("AS24 detail fout: %s", e)
+
+                    if not is_q3_sportback_hybrid(listing.title, listing.description):
+                        log.info("Overgeslagen (geen Sportback hybrid): %s", title[:60])
+                        continue
+
+                    log.info("MATCH: %s — €%s — %d km — %d", title[:60], f"{price:,}" if price else "?", km, year)
+                    listings.append(listing)
+                except Exception as e:
+                    log.warning("AS24 JSON item fout: %s", e)
+
+            if listings_json:
+                return listings
+
+        # ── METHODE 2: CSS selector fallback ──
+        log.info("AutoScout24: fallback naar CSS selectors ...")
+        await page.wait_for_timeout(3000)
+        await page.screenshot(path="debug_autoscout_fallback.png", full_page=True)
+
+        for sel in ["article[data-testid]", ".list-page-item", ".cl-list-element", "article", "[data-testid='listing-entry']"]:
+            cards = page.locator(sel)
+            count = await cards.count()
+            if count > 0:
+                log.info("AutoScout24 CSS: %d cards met '%s'", count, sel)
+                break
+        else:
+            count = 0
+
         if count == 0:
             body_text = await page.locator("body").inner_text()
-            log.info("AutoScout24 body text (eerste 1000 chars): %s", body_text[:1000])
+            log.info("AutoScout24 body (eerste 2000): %s", body_text[:2000])
+            return []
 
         known_streak = 0
-
         for i in range(min(count, 50)):
             try:
                 card = cards.nth(i)
-
-                title_el = card.locator("a h2, a[data-testid] span, .title a, a.ListItem_title__ndA4s").first
-                if await title_el.count() == 0:
+                title = ""
+                for ts in ["a h2", "h2", "a span", "a"]:
+                    te = card.locator(ts)
+                    if await te.count() > 0:
+                        title = (await te.first.inner_text()).strip()
+                        if title:
+                            break
+                if not title or "q3" not in title.lower():
                     continue
-                title = (await title_el.inner_text()).strip()
 
-                if "q3" not in title.lower():
-                    continue
-
-                link_el = card.locator("a[href*='/angebot/'], a[href*='/aanbod/'], a[href*='/offers/']").first
+                link_el = card.locator("a[href*='/angebot/'], a[href*='/aanbod/'], a[href*='/offers/'], a[href*='/listing/']")
                 href = ""
                 if await link_el.count() > 0:
-                    href = await link_el.get_attribute("href")
+                    href = await link_el.first.get_attribute("href")
                     if href and not href.startswith("http"):
                         href = "https://www.autoscout24.de" + href
 
                 listing_id = f"as24_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"as24_{i}"
 
-                # SNELHEID: bekende listing? Skip!
                 if listing_exists(conn, listing_id):
                     known_streak += 1
-                    log.info("Bekende listing, skip: %s", title[:50])
                     if known_streak >= 3:
-                        log.info("3 bekende listings op rij — stoppen (nieuwste eerst)")
                         break
                     continue
                 known_streak = 0
 
-                price_text = ""
-                price_el = card.locator("[data-testid='price'], .price, span:has-text('€')").first
-                if await price_el.count() > 0:
-                    price_text = await price_el.inner_text()
-                price = parse_price(price_text)
-
-                details_text = ""
-                details_el = card.locator("[data-testid='vehicle-details'], .vehicle-details, span:has-text('km')").first
-                if await details_el.count() > 0:
-                    details_text = await details_el.inner_text()
-
-                year = parse_year(details_text)
-                km = parse_km(details_text)
-
                 card_text = await card.inner_text()
-                if not year:
-                    year = parse_year(card_text)
-                if not km:
-                    km = parse_km(card_text)
+                price = parse_price(card_text.split("€")[1].split("\n")[0]) if "€" in card_text else 0
+                year = parse_year(card_text)
+                km = parse_km(card_text)
 
                 if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
@@ -721,51 +1025,38 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
                     continue
 
                 listing = Listing(
-                    id=listing_id,
-                    source="AutoScout24",
-                    title=title,
-                    price=price,
-                    year=year,
-                    km=km,
-                    url=href or search_url,
+                    id=listing_id, source="AutoScout24", title=title,
+                    price=price, year=year, km=km, url=href or search_url,
                 )
 
-                # Alleen detail pagina voor NIEUWE listings
                 if href:
                     try:
-                        detail_page = await page.context.new_page()
-                        await human_delay(1, 2.5)
-                        await detail_page.goto(href, wait_until="domcontentloaded", timeout=30000)
-                        await human_delay(1.5, 3)
-
-                        desc_el = detail_page.locator("[data-testid='description'], .vehicle-description, .cldt-stage-data, #description")
-                        if await desc_el.count() > 0:
-                            listing.description = await desc_el.first.inner_text()
-
-                        equip_el = detail_page.locator("[data-testid='equipments'], .equipment-list, .cldt-equipment, #equipment")
-                        if await equip_el.count() > 0:
-                            listing.description += " " + await equip_el.first.inner_text()
-
-                        tech_el = detail_page.locator("[data-testid='technical-data'], .cldt-technical-data, .StageArea_overviewContainer__UHhFb")
-                        if await tech_el.count() > 0:
-                            listing.description += " " + await tech_el.first.inner_text()
-
-                        await detail_page.close()
+                        dp = await page.context.new_page()
+                        await human_delay(1, 2)
+                        await dp.goto(href, wait_until="domcontentloaded", timeout=30000)
+                        await human_delay(1, 2)
+                        for sel2 in ["[data-testid='description']", ".vehicle-description", "#description"]:
+                            el = dp.locator(sel2)
+                            if await el.count() > 0:
+                                listing.description = await el.first.inner_text()
+                                break
+                        for sel2 in ["[data-testid='equipments']", ".equipment-list", "#equipment"]:
+                            el = dp.locator(sel2)
+                            if await el.count() > 0:
+                                listing.description += " " + await el.first.inner_text()
+                                break
+                        await dp.close()
                     except Exception as e:
-                        log.warning("Kon detail pagina niet laden: %s", e)
+                        log.warning("Detail fout: %s", e)
 
-                # Hybrid check met volledige info
                 if not is_q3_sportback_hybrid(listing.title, listing.description):
-                    log.info("Overgeslagen (geen Sportback hybrid): %s", title)
                     continue
-
                 listings.append(listing)
             except Exception as e:
-                log.warning("AutoScout24 card %d overgeslagen: %s", i, e)
-                continue
+                log.warning("AS24 CSS card %d: %s", i, e)
 
     except Exception as e:
-        log.error("AutoScout24 scraping mislukt: %s", e)
+        log.error("AutoScout24 scraping mislukt: %s", e, exc_info=True)
 
     return listings
 
