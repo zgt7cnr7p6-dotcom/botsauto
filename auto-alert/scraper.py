@@ -484,20 +484,36 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
         await human_delay(2, 4)
 
+        # Debug: screenshot + page info
+        log.info("mobile.de page title: %s", await page.title())
+        log.info("mobile.de page URL: %s", page.url)
+        await page.screenshot(path="debug_mobile.png", full_page=True)
+        log.info("Screenshot opgeslagen: debug_mobile.png")
+
         # Accept cookies if popup appears
         try:
-            consent = page.locator("button:has-text('Akzeptieren'), button:has-text('Accept'), [data-testid='gdpr-consent-accept-btn']")
+            consent = page.locator("button:has-text('Akzeptieren'), button:has-text('Accept'), [data-testid='gdpr-consent-accept-btn'], button[id*='consent'], button[id*='accept'], .mde-consent-accept-btn")
             if await consent.count() > 0:
                 await human_delay(0.5, 1.5)
                 await consent.first.click()
-                await human_delay(1, 2)
-        except Exception:
-            pass
+                await human_delay(2, 4)
+                await page.screenshot(path="debug_mobile_after_consent.png")
+                log.info("Cookies geaccepteerd, screenshot opgeslagen")
+        except Exception as e:
+            log.info("Geen cookie popup of fout: %s", e)
 
-        # Find listing cards
-        cards = page.locator(".cBox-body--resultitem, [data-testid='result-listing-entry'], .result-item")
+        # Wacht extra op dynamische content
+        await page.wait_for_timeout(5000)
+
+        # Find listing cards — meerdere mogelijke selectors
+        cards = page.locator(".cBox-body--resultitem, [data-testid='result-listing-entry'], .result-item, .cBox-body--resultInnerRow")
         count = await cards.count()
         log.info("mobile.de: %d resultaten gevonden", count)
+
+        # Debug: als 0 resultaten, log page content
+        if count == 0:
+            body_text = await page.locator("body").inner_text()
+            log.info("mobile.de body text (eerste 1000 chars): %s", body_text[:1000])
 
         known_streak = 0  # Tel opeenvolgende bekende listings
 
@@ -614,19 +630,35 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
         await human_delay(2, 4)
 
+        # Debug: screenshot + page info
+        log.info("AutoScout24 page title: %s", await page.title())
+        log.info("AutoScout24 page URL: %s", page.url)
+        await page.screenshot(path="debug_autoscout.png", full_page=True)
+        log.info("Screenshot opgeslagen: debug_autoscout.png")
+
         # Accept cookies
         try:
-            consent = page.locator("button:has-text('Einverstanden'), button:has-text('Akzeptieren'), button:has-text('Agree'), #onetrust-accept-btn-handler")
+            consent = page.locator("button:has-text('Einverstanden'), button:has-text('Akzeptieren'), button:has-text('Agree'), #onetrust-accept-btn-handler, button[id*='accept']")
             if await consent.count() > 0:
                 await human_delay(0.5, 1.5)
                 await consent.first.click()
-                await human_delay(1, 2)
-        except Exception:
-            pass
+                await human_delay(2, 4)
+                await page.screenshot(path="debug_autoscout_after_consent.png")
+                log.info("Cookies geaccepteerd, screenshot opgeslagen")
+        except Exception as e:
+            log.info("Geen cookie popup of fout: %s", e)
 
-        cards = page.locator("article[data-testid], .list-page-item, .cl-list-element")
+        # Wacht extra op dynamische content
+        await page.wait_for_timeout(5000)
+
+        cards = page.locator("article[data-testid], .list-page-item, .cl-list-element, .ListItem_wrapper__TxHWu")
         count = await cards.count()
         log.info("AutoScout24: %d resultaten gevonden", count)
+
+        # Debug: als 0 resultaten, log page content
+        if count == 0:
+            body_text = await page.locator("body").inner_text()
+            log.info("AutoScout24 body text (eerste 1000 chars): %s", body_text[:1000])
 
         known_streak = 0
 
