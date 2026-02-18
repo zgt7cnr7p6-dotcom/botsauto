@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 Auto-Alert Scraper
-Scraped mobile.de en AutoScout24 voor Audi Q3 deals.
-Stuurt Telegram alerts bij goede matches (must-have / nice-to-have scoring).
+Scraped mobile.de en AutoScout24 voor Audi Q3 45 TFSI e (hybrid) in Duitsland.
+Stuurt Telegram alerts met feature-checklist en prijsscore.
+Anti-detectie: random delays, user-agent rotatie, menselijk browse-gedrag.
 """
 
 import os
 import re
 import json
+import random
 import sqlite3
 import asyncio
 import logging
@@ -30,9 +32,12 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 SEARCH_CRITERIA = {
-    "model": "Audi Q3",
+    "model": "Audi Q3 45 TFSI e",
+    "fuel": "hybrid",
     "year_min": 2021,
     "km_max": 85_000,
+    "price_max": 38_000,
+    "country": "DE",
 }
 
 # Must-have: advertentie wordt alleen gemeld als minstens enkele hiervan matchen
@@ -52,7 +57,75 @@ NICE_TO_HAVE_FEATURES = [
     "adaptief_onderstel",
 ]
 
+# Leesbare namen voor Telegram (DE/NL mix zodat je het herkent)
+FEATURE_DISPLAY_NAMES = {
+    "keyless": "Keyless Entry",
+    "panoramadak": "Panoramadak",
+    "audio_premium": "Premium Audio",
+    "matrix_led": "Matrix LED",
+    "s_line": "S-Line",
+    "camera": "Camera (achteruit/360)",
+    "stoelverwarming": "Stoelverwarming",
+    "elektrische_stoelen": "Elektrische stoelen",
+    "adaptief_onderstel": "Adaptief onderstel",
+}
+
 DB_PATH = "listings.db"
+
+# ── Anti-detectie ──────────────────────────────────────────────────────────
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+]
+
+VIEWPORTS = [
+    {"width": 1920, "height": 1080},
+    {"width": 1536, "height": 864},
+    {"width": 1440, "height": 900},
+    {"width": 1366, "height": 768},
+]
+
+
+async def human_delay(min_s=1.5, max_s=4.0):
+    """Wacht een willekeurige tijd om menselijk gedrag te simuleren."""
+    await asyncio.sleep(random.uniform(min_s, max_s))
+
+
+async def create_stealth_context(browser):
+    """Maak een browser context die moeilijk te detecteren is."""
+    ua = random.choice(USER_AGENTS)
+    vp = random.choice(VIEWPORTS)
+
+    context = await browser.new_context(
+        user_agent=ua,
+        viewport=vp,
+        locale="de-DE",
+        timezone_id="Europe/Berlin",
+        geolocation={"latitude": 50.1109, "longitude": 8.6821},  # Frankfurt
+        permissions=["geolocation"],
+        color_scheme="light",
+        java_script_enabled=True,
+    )
+
+    # Webdriver property verbergen (belangrijkste anti-bot check)
+    await context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5]
+        });
+        Object.defineProperty(navigator, 'languages', {
+            get: () => ['de-DE', 'de', 'en-US', 'en']
+        });
+        window.chrome = { runtime: {} };
+    """)
+
+    return context
+
 
 # ── Database ────────────────────────────────────────────────────────────────
 
@@ -134,6 +207,34 @@ class Listing:
     nice_to_have_count: int = 0
 
 
+# ── Hybrid detectie ───────────────────────────────────────────────────────
+
+def is_q3_hybrid(title: str, description: str = "") -> bool:
+    """
+    Detecteer of een listing een Q3 45 TFSI e (hybrid) is.
+    Soms staat het niet volledig in de titel — check ook beschrijving.
+    Patronen: '45 TFSI e', '45 TFSIe', 'TFSI e', 'Hybrid', 'PHEV', 'Plug-in' etc.
+    """
+    text = f"{title} {description}".lower()
+
+    if "q3" not in text:
+        return False
+
+    hybrid_patterns = [
+        r"45\s*tfsi\s*e?\b",      # "45 TFSI e" of "45 TFSI"
+        r"tfsi\s*e\b",            # "TFSI e" (de e = elektrisch)
+        r"plug[\s-]?in",          # "Plug-in Hybrid"
+        r"phev",                  # PHEV
+        r"hybrid",                # Hybrid
+    ]
+
+    for pat in hybrid_patterns:
+        if re.search(pat, text, re.IGNORECASE):
+            return True
+
+    return False
+
+
 # ── Feature scoring ────────────────────────────────────────────────────────
 
 
@@ -142,27 +243,30 @@ FEATURE_PATTERNS = {
     "keyless": [
         r"keyless",
         r"komfort\s*schl[üu]ssel",
+        r"komfortschl[üu]ssel",
         r"schl[üu]ssel\s*los",
         r"convenience\s*key",
         r"sleutel\s*loos",
-        r"kessy",  # Audi intern
+        r"kessy",
     ],
     "panoramadak": [
         r"panorama\s*d[ao][ck]h?",
+        r"panoramadach",
         r"pano\b",
         r"panoramic",
         r"panorama\s*glas",
         r"panorama\s*schie?be?\s*dach",
         r"panorama\s*dak",
         r"panoramaverglasung",
+        r"panorama\-schiebedach",
     ],
     "audio_premium": [
-        r"bang\s*[&+]\s*olufsen",
-        r"b\s*[&+]\s*o",
+        r"bang[\s&+]*olufsen",
+        r"b[\s&+]*o\b",
         r"b&o",
         r"sonos",
         r"premium\s*sound",
-        r"audi\s*sound",
+        r"audi\s*sound\s*system",
         r"soundsystem",
         r"sound\s*system",
     ],
@@ -177,56 +281,54 @@ FEATURE_PATTERNS = {
         r"s[\s-]?line",
         r"s-line",
         r"sline",
-        r"s[\s-]?line\s*int",
-        r"s[\s-]?line\s*ext",
     ],
     "camera": [
         r"r[üu]ckfahr\s*kamera",
+        r"r[üu]ckfahrkamera",
         r"achteruitrij\s*camera",
         r"rear\s*view\s*camera",
         r"backup\s*camera",
         r"reversing\s*camera",
-        r"360\s*camera",
-        r"360.?grad.?kamera",
-        r"rundum\s*kamera",
+        r"360[\s°]*camera",
+        r"360[\s°]?grad[\s-]*kamera",
+        r"rundum[\s-]*kamera",
         r"surround\s*view",
         r"umgebungs\s*kamera",
-        r"r[üu]ckfahrkamera",
+        r"umgebungskamera",
     ],
     # ── Nice-to-have ──
     "stoelverwarming": [
         r"stoel\s*verwarming",
         r"sitz\s*heizung",
+        r"sitzheizung",
         r"verwarmde?\s*stoel",
         r"beheizbare?\s*sitz",
         r"heated\s*seat",
-        r"seat\s*heat",
     ],
     "elektrische_stoelen": [
         r"elektrische?\s*stoel",
-        r"elektr.*sitz",
+        r"elektr.*sitz.*verstellung",
+        r"sitzverstellung.*elektr",
         r"power\s*seat",
         r"electric\s*seat",
-        r"sitzverstellung.*elektr",
-        r"elektr.*sitzverstellung",
         r"elektrisch\s*verstelba",
     ],
     "adaptief_onderstel": [
         r"adaptie[fv].*onderstel",
         r"sport\s*onderstel",
         r"adaptiv.*fahrwerk",
-        r"sport\s*fahrwerk",
-        r"s[\s-]?sport\s*fahrwerk",
+        r"sport[\s-]*fahrwerk",
+        r"progressive\s*steering",
         r"damper\s*control",
         r"magnetic\s*ride",
         r"dynamic\s*chassis",
-        r"select\s*fahrwerk",
+        r"fahrwerk\s*sport",
     ],
 }
 
 
 def score_listing(listing: Listing) -> Listing:
-    """Score a listing.  Must-have features count 2 pts, nice-to-have 1 pt."""
+    """Score a listing. Must-have features count 2 pts, nice-to-have 1 pt."""
     text = f"{listing.title} {listing.description}".lower()
     found_must = []
     found_nice = []
@@ -246,33 +348,75 @@ def score_listing(listing: Listing) -> Listing:
     return listing
 
 
+def compute_price_score(price: int) -> str:
+    """Geef een prijsindicatie terug."""
+    if not price:
+        return "❓ Prijs onbekend"
+    if price <= 28_000:
+        return "🟢 Topdeal!"
+    if price <= 32_000:
+        return "🟢 Goed geprijsd"
+    if price <= 35_000:
+        return "🟡 Redelijke prijs"
+    if price <= 38_000:
+        return "🟠 Aan de bovenkant"
+    return "🔴 Boven budget"
+
+
 # ── Telegram ────────────────────────────────────────────────────────────────
 
 
 def send_telegram(listing: Listing):
     max_score = len(MUST_HAVE_FEATURES) * 2 + len(NICE_TO_HAVE_FEATURES)
 
-    found_must = [f for f in listing.features if f in MUST_HAVE_FEATURES]
-    found_nice = [f for f in listing.features if f in NICE_TO_HAVE_FEATURES]
-    missing_must = [f for f in MUST_HAVE_FEATURES if f not in listing.features]
+    # Bouw checklist per feature met ✅ / ❌
+    must_lines = []
+    for f in MUST_HAVE_FEATURES:
+        name = FEATURE_DISPLAY_NAMES.get(f, f)
+        if f in listing.features:
+            must_lines.append(f"  ✅ {name}")
+        else:
+            must_lines.append(f"  ❌ {name}")
 
-    must_str = ", ".join(found_must) if found_must else "geen"
-    nice_str = ", ".join(found_nice) if found_nice else "geen"
-    missing_str = ", ".join(missing_must) if missing_must else "alles aanwezig!"
+    nice_lines = []
+    for f in NICE_TO_HAVE_FEATURES:
+        name = FEATURE_DISPLAY_NAMES.get(f, f)
+        if f in listing.features:
+            nice_lines.append(f"  ✅ {name}")
+        else:
+            nice_lines.append(f"  ➖ {name}")
 
-    stars = "⭐" * min(listing.must_have_count, 6)
     price_str = f"€{listing.price:,}" if listing.price else "onbekend"
+    price_verdict = compute_price_score(listing.price)
+
+    # Stars gebaseerd op totaalscore
+    pct = listing.score / max_score if max_score else 0
+    if pct >= 0.85:
+        rating = "🔥🔥🔥 TOPPER"
+    elif pct >= 0.65:
+        rating = "⭐⭐ Goed"
+    elif pct >= 0.40:
+        rating = "⭐ Matig"
+    else:
+        rating = "👎 Weinig opties"
 
     text = (
-        f"🚗 <b>Nieuwe Audi Q3 gevonden!</b>\n\n"
-        f"<b>{listing.title}</b>\n"
-        f"💰 {price_str}\n"
-        f"📅 {listing.year} | 🛣 {listing.km:,} km\n"
-        f"📊 Score: {listing.score}/{max_score} | Must-haves: {listing.must_have_count}/{len(MUST_HAVE_FEATURES)} {stars}\n\n"
-        f"✅ <b>Must-have gevonden:</b>\n{must_str}\n"
-        f"❌ <b>Must-have ontbrekend:</b>\n{missing_str}\n"
-        f"💡 <b>Nice-to-have gevonden:</b>\n{nice_str}\n\n"
-        f"🔗 <a href=\"{listing.url}\">Bekijk advertentie</a>\n"
+        f"🚗 <b>Nieuwe Audi Q3 45 TFSI e gevonden!</b>\n"
+        f"{'━' * 30}\n\n"
+        f"<b>{listing.title}</b>\n\n"
+        f"💰 <b>{price_str}</b>  {price_verdict}\n"
+        f"📅 Bouwjaar: {listing.year}\n"
+        f"🛣 Kilometerstand: {listing.km:,} km\n"
+        f"📊 Score: <b>{listing.score}/{max_score}</b> — {rating}\n\n"
+        f"{'━' * 30}\n"
+        f"<b>Must-have opties:</b>\n"
+        + "\n".join(must_lines)
+        + "\n\n"
+        f"<b>Nice-to-have:</b>\n"
+        + "\n".join(nice_lines)
+        + "\n\n"
+        f"{'━' * 30}\n"
+        f"🔗 <a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>\n"
         f"📍 Bron: {listing.source}"
     )
 
@@ -315,28 +459,30 @@ def parse_year(text: str) -> int:
 
 
 async def scrape_mobile_de(page) -> list[Listing]:
-    """Scrape mobile.de for Audi Q3 listings."""
+    """Scrape mobile.de for Audi Q3 hybrid listings in Duitsland."""
     listings = []
-    # ms=1900;62 = Audi Q3 (alle varianten), year >= 2021, km <= 85000
+    # ms=1900;62 = Audi Q3, fuel=HYBRID, only Germany, year>=2021, km<=85000, price<=38000
     search_url = (
         "https://suchen.mobile.de/fahrzeuge/search.html?"
         "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B&"
-        "maxMileage=85000&"
+        "fuel=HYBRID&maxMileage=85000&maxPrice=38000&"
         "minFirstRegistrationDate=2021-01-01&"
         "ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
     )
 
     log.info("Scraping mobile.de ...")
     try:
+        await human_delay(2, 5)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(3000)
+        await human_delay(3, 6)
 
         # Accept cookies if popup appears
         try:
             consent = page.locator("button:has-text('Akzeptieren'), button:has-text('Accept'), [data-testid='gdpr-consent-accept-btn']")
             if await consent.count() > 0:
+                await human_delay(0.5, 1.5)
                 await consent.first.click()
-                await page.wait_for_timeout(1000)
+                await human_delay(1, 2)
         except Exception:
             pass
 
@@ -351,6 +497,7 @@ async def scrape_mobile_de(page) -> list[Listing]:
                 title_el = card.locator("a.link--muted-secondary, .headline-block a, [data-testid='result-listing-entry-header'] a").first
                 title = (await title_el.inner_text()).strip()
 
+                # Check op Q3 — hybrid check doen we op titel + beschrijving later
                 if "q3" not in title.lower():
                     continue
 
@@ -370,9 +517,11 @@ async def scrape_mobile_de(page) -> list[Listing]:
                 year = parse_year(details_text)
                 km = parse_km(details_text)
 
-                if km > SEARCH_CRITERIA["km_max"]:
+                if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
-                if year < SEARCH_CRITERIA["year_min"]:
+                if km and km > SEARCH_CRITERIA["km_max"]:
+                    continue
+                if year and year < SEARCH_CRITERIA["year_min"]:
                     continue
 
                 listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{i}"
@@ -387,23 +536,36 @@ async def scrape_mobile_de(page) -> list[Listing]:
                     url=href or search_url,
                 )
 
-                # Navigate to detail page for description
+                # Navigate to detail page for description + features
                 if href:
                     try:
                         detail_page = await page.context.new_page()
+                        await human_delay(1.5, 3.5)
                         await detail_page.goto(href, wait_until="domcontentloaded", timeout=30000)
-                        await detail_page.wait_for_timeout(2000)
+                        await human_delay(2, 4)
+
                         desc_el = detail_page.locator("#description, .cBox--vehicleDescription, .description-text, .g-col-12")
                         if await desc_el.count() > 0:
                             listing.description = await desc_el.first.inner_text()
 
-                        # Also grab features from features section
-                        feat_el = detail_page.locator(".cBox--features, #features, .vehicle-features")
+                        # Features/opties sectie (hier staan keyless, pano, etc.)
+                        feat_el = detail_page.locator(".cBox--features, #features, .vehicle-features, .bullet-list")
                         if await feat_el.count() > 0:
                             listing.description += " " + await feat_el.first.inner_text()
+
+                        # Technische data (soms staat hybrid info hier)
+                        tech_el = detail_page.locator(".cBox--technicalData, .technical-data, #rbt-td")
+                        if await tech_el.count() > 0:
+                            listing.description += " " + await tech_el.first.inner_text()
+
                         await detail_page.close()
                     except Exception as e:
                         log.warning("Kon detail pagina niet laden: %s", e)
+
+                # Nu pas hybrid check met volledige info (titel + beschrijving)
+                if not is_q3_hybrid(listing.title, listing.description):
+                    log.info("Overgeslagen (geen hybrid): %s", title)
+                    continue
 
                 listings.append(listing)
             except Exception as e:
@@ -417,26 +579,28 @@ async def scrape_mobile_de(page) -> list[Listing]:
 
 
 async def scrape_autoscout24(page) -> list[Listing]:
-    """Scrape AutoScout24 for Audi Q3 listings."""
+    """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland."""
     listings = []
-    # Alle Audi Q3 varianten, year >= 2021, km <= 85000, DE + NL + BE
+    # Audi Q3, hybrid fuel, only Germany, year >= 2021, km <= 85000, price <= 38000
     search_url = (
-        "https://www.autoscout24.nl/lst/audi/q3"
-        "?atype=C&cy=D%2CNL%2CB&desc=0&fregfrom=2021"
-        "&kmto=85000&search_id=1&sort=age&source=listpage_pagination&ustate=N%2CU"
+        "https://www.autoscout24.de/lst/audi/q3"
+        "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=E"
+        "&kmto=85000&priceto=38000&search_id=1&sort=age&source=listpage_pagination&ustate=N%2CU"
     )
 
     log.info("Scraping AutoScout24 ...")
     try:
+        await human_delay(2, 5)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(3000)
+        await human_delay(3, 6)
 
         # Accept cookies
         try:
-            consent = page.locator("button:has-text('Akkoord'), button:has-text('Agree'), #onetrust-accept-btn-handler")
+            consent = page.locator("button:has-text('Einverstanden'), button:has-text('Akzeptieren'), button:has-text('Agree'), #onetrust-accept-btn-handler")
             if await consent.count() > 0:
+                await human_delay(0.5, 1.5)
                 await consent.first.click()
-                await page.wait_for_timeout(1000)
+                await human_delay(1, 2)
         except Exception:
             pass
 
@@ -456,12 +620,12 @@ async def scrape_autoscout24(page) -> list[Listing]:
                 if "q3" not in title.lower():
                     continue
 
-                link_el = card.locator("a[href*='/aanbod/'], a[href*='/offers/'], a[href*='/angebot/']").first
+                link_el = card.locator("a[href*='/angebot/'], a[href*='/aanbod/'], a[href*='/offers/']").first
                 href = ""
                 if await link_el.count() > 0:
                     href = await link_el.get_attribute("href")
                     if href and not href.startswith("http"):
-                        href = "https://www.autoscout24.nl" + href
+                        href = "https://www.autoscout24.de" + href
 
                 price_text = ""
                 price_el = card.locator("[data-testid='price'], .price, span:has-text('€')").first
@@ -483,6 +647,8 @@ async def scrape_autoscout24(page) -> list[Listing]:
                 if not km:
                     km = parse_km(card_text)
 
+                if price and price > SEARCH_CRITERIA["price_max"]:
+                    continue
                 if km and km > SEARCH_CRITERIA["km_max"]:
                     continue
                 if year and year < SEARCH_CRITERIA["year_min"]:
@@ -500,12 +666,14 @@ async def scrape_autoscout24(page) -> list[Listing]:
                     url=href or search_url,
                 )
 
-                # Detail page for description
+                # Detail page for description + features
                 if href:
                     try:
                         detail_page = await page.context.new_page()
+                        await human_delay(1.5, 3.5)
                         await detail_page.goto(href, wait_until="domcontentloaded", timeout=30000)
-                        await detail_page.wait_for_timeout(2000)
+                        await human_delay(2, 4)
+
                         desc_el = detail_page.locator("[data-testid='description'], .vehicle-description, .cldt-stage-data, #description")
                         if await desc_el.count() > 0:
                             listing.description = await desc_el.first.inner_text()
@@ -513,9 +681,20 @@ async def scrape_autoscout24(page) -> list[Listing]:
                         equip_el = detail_page.locator("[data-testid='equipments'], .equipment-list, .cldt-equipment, #equipment")
                         if await equip_el.count() > 0:
                             listing.description += " " + await equip_el.first.inner_text()
+
+                        # Technische data
+                        tech_el = detail_page.locator("[data-testid='technical-data'], .cldt-technical-data, .StageArea_overviewContainer__UHhFb")
+                        if await tech_el.count() > 0:
+                            listing.description += " " + await tech_el.first.inner_text()
+
                         await detail_page.close()
                     except Exception as e:
                         log.warning("Kon detail pagina niet laden: %s", e)
+
+                # Hybrid check met volledige info
+                if not is_q3_hybrid(listing.title, listing.description):
+                    log.info("Overgeslagen (geen hybrid): %s", title)
+                    continue
 
                 listings.append(listing)
             except Exception as e:
@@ -534,10 +713,13 @@ async def scrape_autoscout24(page) -> list[Listing]:
 async def main():
     log.info("=== Auto-Alert Scraper gestart ===")
     log.info(
-        "Zoekcriteria: %s, %d+, max %d km",
+        "Zoekcriteria: %s (%s), %d+, max %d km, max €%s, land: %s",
         SEARCH_CRITERIA["model"],
+        SEARCH_CRITERIA["fuel"],
         SEARCH_CRITERIA["year_min"],
         SEARCH_CRITERIA["km_max"],
+        f"{SEARCH_CRITERIA['price_max']:,}",
+        SEARCH_CRITERIA["country"],
     )
 
     conn = init_db()
@@ -550,18 +732,10 @@ async def main():
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",
             ],
         )
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/121.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1920, "height": 1080},
-            locale="nl-NL",
-        )
-
+        context = await create_stealth_context(browser)
         page = await context.new_page()
 
         all_listings: list[Listing] = []
@@ -569,11 +743,14 @@ async def main():
         # Scrape both sources
         mobile_listings = await scrape_mobile_de(page)
         all_listings.extend(mobile_listings)
-        log.info("mobile.de: %d relevante listings gevonden", len(mobile_listings))
+        log.info("mobile.de: %d relevante hybrid listings gevonden", len(mobile_listings))
+
+        # Random pauze tussen sites
+        await human_delay(5, 10)
 
         as24_listings = await scrape_autoscout24(page)
         all_listings.extend(as24_listings)
-        log.info("AutoScout24: %d relevante listings gevonden", len(as24_listings))
+        log.info("AutoScout24: %d relevante hybrid listings gevonden", len(as24_listings))
 
         await browser.close()
 
