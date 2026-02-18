@@ -1,0 +1,54 @@
+name: Auto Alert Scraper
+
+on:
+  schedule:
+    # Elke 30 minuten draaien
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Handmatig triggeren mogelijk
+
+defaults:
+  run:
+    working-directory: auto-alert
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright requests
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Download database
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          name: listings-db
+          path: auto-alert
+          search_artifacts: true
+          if_no_artifact_found: warn
+
+      - name: Run scraper
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scraper.py
+
+      - name: Upload database
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: listings-db
+          path: auto-alert/listings.db
+          retention-days: 90
+          overwrite: true
