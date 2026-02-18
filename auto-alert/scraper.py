@@ -458,10 +458,12 @@ def parse_year(text: str) -> int:
     return int(match.group(1)) if match else 0
 
 
-async def scrape_mobile_de(page) -> list[Listing]:
-    """Scrape mobile.de for Audi Q3 hybrid listings in Duitsland."""
+async def scrape_mobile_de(page, conn) -> list[Listing]:
+    """Scrape mobile.de for Audi Q3 hybrid listings in Duitsland.
+    Gesorteerd op nieuwste eerst — stopt bij bekende listings voor snelheid."""
     listings = []
     # ms=1900;62 = Audi Q3, fuel=HYBRID, only Germany, year>=2021, km<=85000, price<=38000
+    # sb=doc = sorteren op nieuwste eerst
     search_url = (
         "https://suchen.mobile.de/fahrzeuge/search.html?"
         "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B&"
@@ -472,9 +474,9 @@ async def scrape_mobile_de(page) -> list[Listing]:
 
     log.info("Scraping mobile.de ...")
     try:
-        await human_delay(2, 5)
+        await human_delay(1, 3)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-        await human_delay(3, 6)
+        await human_delay(2, 4)
 
         # Accept cookies if popup appears
         try:
@@ -491,19 +493,33 @@ async def scrape_mobile_de(page) -> list[Listing]:
         count = await cards.count()
         log.info("mobile.de: %d resultaten gevonden", count)
 
+        known_streak = 0  # Tel opeenvolgende bekende listings
+
         for i in range(min(count, 50)):
             try:
                 card = cards.nth(i)
                 title_el = card.locator("a.link--muted-secondary, .headline-block a, [data-testid='result-listing-entry-header'] a").first
                 title = (await title_el.inner_text()).strip()
 
-                # Check op Q3 — hybrid check doen we op titel + beschrijving later
                 if "q3" not in title.lower():
                     continue
 
                 href = await title_el.get_attribute("href")
                 if href and not href.startswith("http"):
                     href = "https://suchen.mobile.de" + href
+
+                listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{i}"
+
+                # SNELHEID: bekende listing? Skip detail pagina!
+                if listing_exists(conn, listing_id):
+                    known_streak += 1
+                    log.info("Bekende listing, skip: %s", title[:50])
+                    # Na 3 bekende op rij → rest is ook oud, stop
+                    if known_streak >= 3:
+                        log.info("3 bekende listings op rij — stoppen (nieuwste eerst)")
+                        break
+                    continue
+                known_streak = 0  # Reset bij nieuwe listing
 
                 price_el = card.locator(".price-block .h3, [data-testid='price-label'], .pricePrimaryCountryOfSale").first
                 price_text = await price_el.inner_text()
@@ -524,8 +540,6 @@ async def scrape_mobile_de(page) -> list[Listing]:
                 if year and year < SEARCH_CRITERIA["year_min"]:
                     continue
 
-                listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{i}"
-
                 listing = Listing(
                     id=listing_id,
                     source="mobile.de",
@@ -536,24 +550,22 @@ async def scrape_mobile_de(page) -> list[Listing]:
                     url=href or search_url,
                 )
 
-                # Navigate to detail page for description + features
+                # Alleen detail pagina voor NIEUWE listings
                 if href:
                     try:
                         detail_page = await page.context.new_page()
-                        await human_delay(1.5, 3.5)
+                        await human_delay(1, 2.5)
                         await detail_page.goto(href, wait_until="domcontentloaded", timeout=30000)
-                        await human_delay(2, 4)
+                        await human_delay(1.5, 3)
 
                         desc_el = detail_page.locator("#description, .cBox--vehicleDescription, .description-text, .g-col-12")
                         if await desc_el.count() > 0:
                             listing.description = await desc_el.first.inner_text()
 
-                        # Features/opties sectie (hier staan keyless, pano, etc.)
                         feat_el = detail_page.locator(".cBox--features, #features, .vehicle-features, .bullet-list")
                         if await feat_el.count() > 0:
                             listing.description += " " + await feat_el.first.inner_text()
 
-                        # Technische data (soms staat hybrid info hier)
                         tech_el = detail_page.locator(".cBox--technicalData, .technical-data, #rbt-td")
                         if await tech_el.count() > 0:
                             listing.description += " " + await tech_el.first.inner_text()
@@ -562,7 +574,7 @@ async def scrape_mobile_de(page) -> list[Listing]:
                     except Exception as e:
                         log.warning("Kon detail pagina niet laden: %s", e)
 
-                # Nu pas hybrid check met volledige info (titel + beschrijving)
+                # Hybrid check met volledige info
                 if not is_q3_hybrid(listing.title, listing.description):
                     log.info("Overgeslagen (geen hybrid): %s", title)
                     continue
@@ -578,10 +590,12 @@ async def scrape_mobile_de(page) -> list[Listing]:
     return listings
 
 
-async def scrape_autoscout24(page) -> list[Listing]:
-    """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland."""
+async def scrape_autoscout24(page, conn) -> list[Listing]:
+    """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland.
+    Gesorteerd op nieuwste eerst — stopt bij bekende listings voor snelheid."""
     listings = []
     # Audi Q3, hybrid fuel, only Germany, year >= 2021, km <= 85000, price <= 38000
+    # sort=age = nieuwste eerst
     search_url = (
         "https://www.autoscout24.de/lst/audi/q3"
         "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=E"
@@ -590,9 +604,9 @@ async def scrape_autoscout24(page) -> list[Listing]:
 
     log.info("Scraping AutoScout24 ...")
     try:
-        await human_delay(2, 5)
+        await human_delay(1, 3)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-        await human_delay(3, 6)
+        await human_delay(2, 4)
 
         # Accept cookies
         try:
@@ -607,6 +621,8 @@ async def scrape_autoscout24(page) -> list[Listing]:
         cards = page.locator("article[data-testid], .list-page-item, .cl-list-element")
         count = await cards.count()
         log.info("AutoScout24: %d resultaten gevonden", count)
+
+        known_streak = 0
 
         for i in range(min(count, 50)):
             try:
@@ -626,6 +642,18 @@ async def scrape_autoscout24(page) -> list[Listing]:
                     href = await link_el.get_attribute("href")
                     if href and not href.startswith("http"):
                         href = "https://www.autoscout24.de" + href
+
+                listing_id = f"as24_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"as24_{i}"
+
+                # SNELHEID: bekende listing? Skip!
+                if listing_exists(conn, listing_id):
+                    known_streak += 1
+                    log.info("Bekende listing, skip: %s", title[:50])
+                    if known_streak >= 3:
+                        log.info("3 bekende listings op rij — stoppen (nieuwste eerst)")
+                        break
+                    continue
+                known_streak = 0
 
                 price_text = ""
                 price_el = card.locator("[data-testid='price'], .price, span:has-text('€')").first
@@ -654,8 +682,6 @@ async def scrape_autoscout24(page) -> list[Listing]:
                 if year and year < SEARCH_CRITERIA["year_min"]:
                     continue
 
-                listing_id = f"as24_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"as24_{i}"
-
                 listing = Listing(
                     id=listing_id,
                     source="AutoScout24",
@@ -666,13 +692,13 @@ async def scrape_autoscout24(page) -> list[Listing]:
                     url=href or search_url,
                 )
 
-                # Detail page for description + features
+                # Alleen detail pagina voor NIEUWE listings
                 if href:
                     try:
                         detail_page = await page.context.new_page()
-                        await human_delay(1.5, 3.5)
+                        await human_delay(1, 2.5)
                         await detail_page.goto(href, wait_until="domcontentloaded", timeout=30000)
-                        await human_delay(2, 4)
+                        await human_delay(1.5, 3)
 
                         desc_el = detail_page.locator("[data-testid='description'], .vehicle-description, .cldt-stage-data, #description")
                         if await desc_el.count() > 0:
@@ -682,7 +708,6 @@ async def scrape_autoscout24(page) -> list[Listing]:
                         if await equip_el.count() > 0:
                             listing.description += " " + await equip_el.first.inner_text()
 
-                        # Technische data
                         tech_el = detail_page.locator("[data-testid='technical-data'], .cldt-technical-data, .StageArea_overviewContainer__UHhFb")
                         if await tech_el.count() > 0:
                             listing.description += " " + await tech_el.first.inner_text()
@@ -740,17 +765,17 @@ async def main():
 
         all_listings: list[Listing] = []
 
-        # Scrape both sources
-        mobile_listings = await scrape_mobile_de(page)
+        # Scrape both sources (conn meegeven voor snelle bekende-listing check)
+        mobile_listings = await scrape_mobile_de(page, conn)
         all_listings.extend(mobile_listings)
-        log.info("mobile.de: %d relevante hybrid listings gevonden", len(mobile_listings))
+        log.info("mobile.de: %d NIEUWE hybrid listings gevonden", len(mobile_listings))
 
-        # Random pauze tussen sites
-        await human_delay(5, 10)
+        # Korte pauze tussen sites
+        await human_delay(3, 6)
 
-        as24_listings = await scrape_autoscout24(page)
+        as24_listings = await scrape_autoscout24(page, conn)
         all_listings.extend(as24_listings)
-        log.info("AutoScout24: %d relevante hybrid listings gevonden", len(as24_listings))
+        log.info("AutoScout24: %d NIEUWE hybrid listings gevonden", len(as24_listings))
 
         await browser.close()
 
