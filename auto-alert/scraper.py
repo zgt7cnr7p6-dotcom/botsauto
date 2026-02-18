@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Auto-Alert Scraper
-Scraped mobile.de en AutoScout24 voor Audi Q3 45 TFSI e deals.
-Stuurt Telegram alerts bij goede matches.
+Scraped mobile.de en AutoScout24 voor Audi Q3 deals.
+Stuurt Telegram alerts bij goede matches (must-have / nice-to-have scoring).
 """
 
 import os
@@ -30,20 +30,26 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 SEARCH_CRITERIA = {
-    "model": "Audi Q3 45 TFSI e",
-    "fuel": "hybride",
-    "year_min": 2018,
-    "km_max": 80_000,
-    "price_max": 37_500,
+    "model": "Audi Q3",
+    "year_min": 2021,
+    "km_max": 85_000,
 }
 
+# Must-have: advertentie wordt alleen gemeld als minstens enkele hiervan matchen
 MUST_HAVE_FEATURES = [
-    "panoramadak",
-    "achteruitrijcamera",
-    "ambient lighting",
-    "s line",
     "keyless",
-    "elektrische stoelen",
+    "panoramadak",
+    "audio_premium",
+    "matrix_led",
+    "s_line",
+    "camera",
+]
+
+# Nice-to-have: bonuspunten, maar niet vereist
+NICE_TO_HAVE_FEATURES = [
+    "stoelverwarming",
+    "elektrische_stoelen",
+    "adaptief_onderstel",
 ]
 
 DB_PATH = "listings.db"
@@ -124,55 +130,119 @@ class Listing:
     description: str = ""
     score: int = 0
     features: list = field(default_factory=list)
+    must_have_count: int = 0
+    nice_to_have_count: int = 0
 
 
 # ── Feature scoring ────────────────────────────────────────────────────────
 
 
 FEATURE_PATTERNS = {
-    "panoramadak": [r"panorama", r"panoramic", r"pano[\s-]?dak", r"panoramadach"],
-    "achteruitrijcamera": [
-        r"achteruitrij\s*camera",
+    # ── Must-have ──
+    "keyless": [
+        r"keyless",
+        r"komfort\s*schl[üu]ssel",
+        r"schl[üu]ssel\s*los",
+        r"convenience\s*key",
+        r"sleutel\s*loos",
+        r"kessy",  # Audi intern
+    ],
+    "panoramadak": [
+        r"panorama\s*d[ao][ck]h?",
+        r"pano\b",
+        r"panoramic",
+        r"panorama\s*glas",
+        r"panorama\s*schie?be?\s*dach",
+        r"panorama\s*dak",
+        r"panoramaverglasung",
+    ],
+    "audio_premium": [
+        r"bang\s*[&+]\s*olufsen",
+        r"b\s*[&+]\s*o",
+        r"b&o",
+        r"sonos",
+        r"premium\s*sound",
+        r"audi\s*sound",
+        r"soundsystem",
+        r"sound\s*system",
+    ],
+    "matrix_led": [
+        r"matrix[\s-]*led",
+        r"matrix[\s-]*licht",
+        r"matrix[\s-]*scheinwerfer",
+        r"led[\s-]*matrix",
+        r"matrixbeam",
+    ],
+    "s_line": [
+        r"s[\s-]?line",
+        r"s-line",
+        r"sline",
+        r"s[\s-]?line\s*int",
+        r"s[\s-]?line\s*ext",
+    ],
+    "camera": [
         r"r[üu]ckfahr\s*kamera",
+        r"achteruitrij\s*camera",
         r"rear\s*view\s*camera",
         r"backup\s*camera",
         r"reversing\s*camera",
+        r"360\s*camera",
+        r"360.?grad.?kamera",
+        r"rundum\s*kamera",
+        r"surround\s*view",
+        r"umgebungs\s*kamera",
+        r"r[üu]ckfahrkamera",
     ],
-    "ambient lighting": [
-        r"ambient",
-        r"sfeer\s*verlichting",
-        r"contour\s*verlichting",
-        r"innenraumbeleuchtung",
+    # ── Nice-to-have ──
+    "stoelverwarming": [
+        r"stoel\s*verwarming",
+        r"sitz\s*heizung",
+        r"verwarmde?\s*stoel",
+        r"beheizbare?\s*sitz",
+        r"heated\s*seat",
+        r"seat\s*heat",
     ],
-    "s line": [r"s[\s-]?line", r"s-line", r"sline"],
-    "keyless": [
-        r"keyless",
-        r"sleutel\s*loos",
-        r"komfort\s*schl[üu]ssel",
-        r"schl[üu]ssell",
-        r"convenience\s*key",
-    ],
-    "elektrische stoelen": [
+    "elektrische_stoelen": [
         r"elektrische?\s*stoel",
         r"elektr.*sitz",
         r"power\s*seat",
         r"electric\s*seat",
         r"sitzverstellung.*elektr",
         r"elektr.*sitzverstellung",
+        r"elektrisch\s*verstelba",
+    ],
+    "adaptief_onderstel": [
+        r"adaptie[fv].*onderstel",
+        r"sport\s*onderstel",
+        r"adaptiv.*fahrwerk",
+        r"sport\s*fahrwerk",
+        r"s[\s-]?sport\s*fahrwerk",
+        r"damper\s*control",
+        r"magnetic\s*ride",
+        r"dynamic\s*chassis",
+        r"select\s*fahrwerk",
     ],
 }
 
 
 def score_listing(listing: Listing) -> Listing:
+    """Score a listing.  Must-have features count 2 pts, nice-to-have 1 pt."""
     text = f"{listing.title} {listing.description}".lower()
-    found = []
+    found_must = []
+    found_nice = []
     for feature, patterns in FEATURE_PATTERNS.items():
         for pat in patterns:
             if re.search(pat, text, re.IGNORECASE):
-                found.append(feature)
+                if feature in MUST_HAVE_FEATURES:
+                    found_must.append(feature)
+                elif feature in NICE_TO_HAVE_FEATURES:
+                    found_nice.append(feature)
                 break
-    listing.features = found
-    listing.score = len(found)
+    listing.features = found_must + found_nice
+    # Must-haves tellen dubbel
+    listing.score = len(found_must) * 2 + len(found_nice)
+    listing.must_have_count = len(found_must)
+    listing.nice_to_have_count = len(found_nice)
     return listing
 
 
@@ -180,19 +250,28 @@ def score_listing(listing: Listing) -> Listing:
 
 
 def send_telegram(listing: Listing):
-    features_str = ", ".join(listing.features) if listing.features else "geen gevonden"
-    missing = [f for f in MUST_HAVE_FEATURES if f not in listing.features]
-    missing_str = ", ".join(missing) if missing else "geen — alles aanwezig!"
+    max_score = len(MUST_HAVE_FEATURES) * 2 + len(NICE_TO_HAVE_FEATURES)
 
-    stars = "⭐" * listing.score
+    found_must = [f for f in listing.features if f in MUST_HAVE_FEATURES]
+    found_nice = [f for f in listing.features if f in NICE_TO_HAVE_FEATURES]
+    missing_must = [f for f in MUST_HAVE_FEATURES if f not in listing.features]
+
+    must_str = ", ".join(found_must) if found_must else "geen"
+    nice_str = ", ".join(found_nice) if found_nice else "geen"
+    missing_str = ", ".join(missing_must) if missing_must else "alles aanwezig!"
+
+    stars = "⭐" * min(listing.must_have_count, 6)
+    price_str = f"€{listing.price:,}" if listing.price else "onbekend"
+
     text = (
-        f"🚗 <b>Nieuwe match gevonden!</b>\n\n"
+        f"🚗 <b>Nieuwe Audi Q3 gevonden!</b>\n\n"
         f"<b>{listing.title}</b>\n"
-        f"💰 €{listing.price:,}\n"
+        f"💰 {price_str}\n"
         f"📅 {listing.year} | 🛣 {listing.km:,} km\n"
-        f"📊 Score: {listing.score}/{len(MUST_HAVE_FEATURES)} {stars}\n\n"
-        f"✅ <b>Gevonden features:</b>\n{features_str}\n"
-        f"❌ <b>Ontbrekend:</b>\n{missing_str}\n\n"
+        f"📊 Score: {listing.score}/{max_score} | Must-haves: {listing.must_have_count}/{len(MUST_HAVE_FEATURES)} {stars}\n\n"
+        f"✅ <b>Must-have gevonden:</b>\n{must_str}\n"
+        f"❌ <b>Must-have ontbrekend:</b>\n{missing_str}\n"
+        f"💡 <b>Nice-to-have gevonden:</b>\n{nice_str}\n\n"
         f"🔗 <a href=\"{listing.url}\">Bekijk advertentie</a>\n"
         f"📍 Bron: {listing.source}"
     )
@@ -236,13 +315,14 @@ def parse_year(text: str) -> int:
 
 
 async def scrape_mobile_de(page) -> list[Listing]:
-    """Scrape mobile.de for Audi Q3 45 TFSI e listings."""
+    """Scrape mobile.de for Audi Q3 listings."""
     listings = []
+    # ms=1900;62 = Audi Q3 (alle varianten), year >= 2021, km <= 85000
     search_url = (
         "https://suchen.mobile.de/fahrzeuge/search.html?"
         "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B&"
-        "fuel=HYBRID&maxMileage=80000&maxPrice=37500&"
-        "minFirstRegistrationDate=2018-01-01&"
+        "maxMileage=85000&"
+        "minFirstRegistrationDate=2021-01-01&"
         "ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
     )
 
@@ -271,8 +351,7 @@ async def scrape_mobile_de(page) -> list[Listing]:
                 title_el = card.locator("a.link--muted-secondary, .headline-block a, [data-testid='result-listing-entry-header'] a").first
                 title = (await title_el.inner_text()).strip()
 
-                # Filter on Q3 45 TFSI e
-                if "q3" not in title.lower() or "45" not in title:
+                if "q3" not in title.lower():
                     continue
 
                 href = await title_el.get_attribute("href")
@@ -291,8 +370,6 @@ async def scrape_mobile_de(page) -> list[Listing]:
                 year = parse_year(details_text)
                 km = parse_km(details_text)
 
-                if price > SEARCH_CRITERIA["price_max"]:
-                    continue
                 if km > SEARCH_CRITERIA["km_max"]:
                     continue
                 if year < SEARCH_CRITERIA["year_min"]:
@@ -340,12 +417,13 @@ async def scrape_mobile_de(page) -> list[Listing]:
 
 
 async def scrape_autoscout24(page) -> list[Listing]:
-    """Scrape AutoScout24 for Audi Q3 45 TFSI e listings."""
+    """Scrape AutoScout24 for Audi Q3 listings."""
     listings = []
+    # Alle Audi Q3 varianten, year >= 2021, km <= 85000, DE + NL + BE
     search_url = (
-        "https://www.autoscout24.nl/lst/audi/q3/ft_HYBRID"
-        "?atype=C&cy=D%2CNL%2CB&desc=0&fregfrom=2018"
-        "&kmto=80000&priceto=37500&search_id=1&sort=age&source=listpage_pagination&ustate=N%2CU"
+        "https://www.autoscout24.nl/lst/audi/q3"
+        "?atype=C&cy=D%2CNL%2CB&desc=0&fregfrom=2021"
+        "&kmto=85000&search_id=1&sort=age&source=listpage_pagination&ustate=N%2CU"
     )
 
     log.info("Scraping AutoScout24 ...")
@@ -375,7 +453,7 @@ async def scrape_autoscout24(page) -> list[Listing]:
                     continue
                 title = (await title_el.inner_text()).strip()
 
-                if "q3" not in title.lower() or "45" not in title:
+                if "q3" not in title.lower():
                     continue
 
                 link_el = card.locator("a[href*='/aanbod/'], a[href*='/offers/'], a[href*='/angebot/']").first
@@ -405,8 +483,6 @@ async def scrape_autoscout24(page) -> list[Listing]:
                 if not km:
                     km = parse_km(card_text)
 
-                if price and price > SEARCH_CRITERIA["price_max"]:
-                    continue
                 if km and km > SEARCH_CRITERIA["km_max"]:
                     continue
                 if year and year < SEARCH_CRITERIA["year_min"]:
@@ -458,12 +534,10 @@ async def scrape_autoscout24(page) -> list[Listing]:
 async def main():
     log.info("=== Auto-Alert Scraper gestart ===")
     log.info(
-        "Zoekcriteria: %s, %s, %d+, max %d km, max €%s",
+        "Zoekcriteria: %s, %d+, max %d km",
         SEARCH_CRITERIA["model"],
-        SEARCH_CRITERIA["fuel"],
         SEARCH_CRITERIA["year_min"],
         SEARCH_CRITERIA["km_max"],
-        f"{SEARCH_CRITERIA['price_max']:,}",
     )
 
     conn = init_db()
@@ -515,22 +589,27 @@ async def main():
 
         if is_new:
             new_count += 1
-            # Send alert for listings with score >= 2
-            if listing.score >= 2:
+            # Alert als minstens 2 must-have features gevonden
+            if listing.must_have_count >= 2:
                 send_telegram(listing)
                 alert_count += 1
                 log.info(
-                    "ALERT: %s — score %d/6 — €%s — %s",
+                    "ALERT: %s — must-have %d/%d, nice %d/%d, score %d — €%s — %s",
                     listing.title,
+                    listing.must_have_count,
+                    len(MUST_HAVE_FEATURES),
+                    listing.nice_to_have_count,
+                    len(NICE_TO_HAVE_FEATURES),
                     listing.score,
-                    f"{listing.price:,}",
+                    f"{listing.price:,}" if listing.price else "?",
                     listing.url,
                 )
             else:
                 log.info(
-                    "Nieuw maar lage score: %s — score %d/6",
+                    "Nieuw maar weinig must-haves: %s — must-have %d/%d",
                     listing.title,
-                    listing.score,
+                    listing.must_have_count,
+                    len(MUST_HAVE_FEATURES),
                 )
         else:
             log.info("Bekende listing bijgewerkt: %s", listing.id)
