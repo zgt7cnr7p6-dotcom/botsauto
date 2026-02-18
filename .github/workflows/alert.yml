@@ -6,6 +6,10 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch: # Handmatig triggeren mogelijk
 
+permissions:
+  actions: write
+  contents: read
+
 defaults:
   run:
     working-directory: auto-alert
@@ -31,12 +35,13 @@ jobs:
           playwright install-deps chromium
 
       - name: Download database
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v6
         with:
           name: listings-db
           path: auto-alert
           search_artifacts: true
           if_no_artifact_found: warn
+        continue-on-error: true
 
       - name: Run scraper
         env:
