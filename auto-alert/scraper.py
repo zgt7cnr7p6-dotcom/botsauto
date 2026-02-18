@@ -32,7 +32,7 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 SEARCH_CRITERIA = {
-    "model": "Audi Q3 45 TFSI e",
+    "model": "Audi Q3 Sportback 45 TFSI e",
     "fuel": "hybrid",
     "year_min": 2021,
     "km_max": 85_000,
@@ -209,17 +209,27 @@ class Listing:
 
 # ── Hybrid detectie ───────────────────────────────────────────────────────
 
-def is_q3_hybrid(title: str, description: str = "") -> bool:
+def is_q3_sportback_hybrid(title: str, description: str = "") -> bool:
     """
-    Detecteer of een listing een Q3 45 TFSI e (hybrid) is.
-    Soms staat het niet volledig in de titel — check ook beschrijving.
-    Patronen: '45 TFSI e', '45 TFSIe', 'TFSI e', 'Hybrid', 'PHEV', 'Plug-in' etc.
+    Detecteer of een listing een Q3 Sportback hybrid is.
+    Checkt op Sportback in titel/beschrijving EN op hybrid indicators.
+    Soms staat 'Sportback' alleen in beschrijving of 'SB' in titel.
     """
     text = f"{title} {description}".lower()
 
     if "q3" not in text:
         return False
 
+    # Check Sportback — soms als "SB", "Sportback", of in beschrijving
+    sportback_patterns = [
+        r"sportback",
+        r"q3\s*sb\b",
+    ]
+    is_sportback = any(re.search(p, text, re.IGNORECASE) for p in sportback_patterns)
+    if not is_sportback:
+        return False
+
+    # Check hybrid
     hybrid_patterns = [
         r"45\s*tfsi\s*e?\b",      # "45 TFSI e" of "45 TFSI"
         r"tfsi\s*e\b",            # "TFSI e" (de e = elektrisch)
@@ -228,11 +238,7 @@ def is_q3_hybrid(title: str, description: str = "") -> bool:
         r"hybrid",                # Hybrid
     ]
 
-    for pat in hybrid_patterns:
-        if re.search(pat, text, re.IGNORECASE):
-            return True
-
-    return False
+    return any(re.search(p, text, re.IGNORECASE) for p in hybrid_patterns)
 
 
 # ── Feature scoring ────────────────────────────────────────────────────────
@@ -401,7 +407,7 @@ def send_telegram(listing: Listing):
         rating = "👎 Weinig opties"
 
     text = (
-        f"🚗 <b>Nieuwe Audi Q3 45 TFSI e gevonden!</b>\n"
+        f"🚗 <b>Nieuwe Q3 Sportback 45 TFSI e gevonden!</b>\n"
         f"{'━' * 30}\n\n"
         f"<b>{listing.title}</b>\n\n"
         f"💰 <b>{price_str}</b>  {price_verdict}\n"
@@ -462,8 +468,8 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
     """Scrape mobile.de for Audi Q3 hybrid listings in Duitsland.
     Gesorteerd op nieuwste eerst — stopt bij bekende listings voor snelheid."""
     listings = []
-    # ms=1900;62 = Audi Q3, fuel=HYBRID, only Germany, year>=2021, km<=85000, price<=38000
-    # sb=doc = sorteren op nieuwste eerst
+    # ms=1900;62 = Audi Q3 (incl. Sportback), fuel=HYBRID, Germany, year>=2021, km<=85000, price<=38000
+    # sb=doc = sorteren op nieuwste eerst. Sportback filter via is_q3_sportback_hybrid()
     search_url = (
         "https://suchen.mobile.de/fahrzeuge/search.html?"
         "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B&"
@@ -575,8 +581,8 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                         log.warning("Kon detail pagina niet laden: %s", e)
 
                 # Hybrid check met volledige info
-                if not is_q3_hybrid(listing.title, listing.description):
-                    log.info("Overgeslagen (geen hybrid): %s", title)
+                if not is_q3_sportback_hybrid(listing.title, listing.description):
+                    log.info("Overgeslagen (geen Sportback hybrid): %s", title)
                     continue
 
                 listings.append(listing)
@@ -594,10 +600,10 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
     """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland.
     Gesorteerd op nieuwste eerst — stopt bij bekende listings voor snelheid."""
     listings = []
-    # Audi Q3, hybrid fuel, only Germany, year >= 2021, km <= 85000, price <= 38000
+    # Audi Q3 Sportback, hybrid fuel, only Germany, year >= 2021, km <= 85000, price <= 38000
     # sort=age = nieuwste eerst
     search_url = (
-        "https://www.autoscout24.de/lst/audi/q3"
+        "https://www.autoscout24.de/lst/audi/q3-sportback"
         "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=E"
         "&kmto=85000&priceto=38000&search_id=1&sort=age&source=listpage_pagination&ustate=N%2CU"
     )
@@ -717,8 +723,8 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
                         log.warning("Kon detail pagina niet laden: %s", e)
 
                 # Hybrid check met volledige info
-                if not is_q3_hybrid(listing.title, listing.description):
-                    log.info("Overgeslagen (geen hybrid): %s", title)
+                if not is_q3_sportback_hybrid(listing.title, listing.description):
+                    log.info("Overgeslagen (geen Sportback hybrid): %s", title)
                     continue
 
                 listings.append(listing)
