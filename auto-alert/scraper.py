@@ -1218,26 +1218,37 @@ async def main():
     all_listings: list[Listing] = []
 
     async with async_playwright() as p:
-        # ── mobile.de: eigen browser MET residentiële proxy ──
-        if PROXY_URL:
-            proxy_cfg = parse_proxy_url(PROXY_URL)
-            log.info("mobile.de: residentiële proxy actief → %s", proxy_cfg["server"])
-            mobile_browser = await p.chromium.launch(
-                headless=True,
-                args=browser_args,
-                proxy=proxy_cfg,
-            )
-        else:
-            log.warning("mobile.de: GEEN proxy geconfigureerd — wordt waarschijnlijk geblokkeerd")
-            mobile_browser = await p.chromium.launch(headless=True, args=browser_args)
+        # ── mobile.de: probeer met proxy, fallback zonder proxy ──
+        mobile_listings = []
 
-        mobile_ctx = await create_stealth_context(mobile_browser)
-        mobile_page = await mobile_ctx.new_page()
+        for attempt, use_proxy in enumerate(
+            [True, False] if PROXY_URL else [False], start=1
+        ):
+            if use_proxy:
+                proxy_cfg = parse_proxy_url(PROXY_URL)
+                log.info("mobile.de poging %d: MET proxy → %s", attempt, proxy_cfg["server"])
+                mobile_browser = await p.chromium.launch(
+                    headless=True, args=browser_args, proxy=proxy_cfg,
+                )
+            else:
+                log.info("mobile.de poging %d: ZONDER proxy (directe verbinding)", attempt)
+                mobile_browser = await p.chromium.launch(
+                    headless=True, args=browser_args,
+                )
 
-        mobile_listings = await scrape_mobile_de(mobile_page, conn)
+            mobile_ctx = await create_stealth_context(mobile_browser)
+            mobile_page = await mobile_ctx.new_page()
+
+            mobile_listings = await scrape_mobile_de(mobile_page, conn)
+            await mobile_browser.close()
+
+            if mobile_listings:
+                log.info("mobile.de: %d listings gevonden (poging %d)", len(mobile_listings), attempt)
+                break
+            log.warning("mobile.de: 0 listings (poging %d)", attempt)
+
         all_listings.extend(mobile_listings)
         log.info("mobile.de: %d NIEUWE hybrid listings gevonden", len(mobile_listings))
-        await mobile_browser.close()
 
         # Korte pauze tussen sites
         await human_delay(3, 6)
