@@ -2,8 +2,9 @@ name: Auto Alert Scraper
 
 on:
   schedule:
-    # Elke 5 minuten draaien
-    - cron: '*/5 * * * *'
+    # Elke 5 minuten, alleen 06:00-19:00 UTC (= 07:00-20:00 CET / 08:00-21:00 CEST)
+    # Python script heeft ook quiet hours check als extra vangnet
+    - cron: '*/5 6-19 * * *'
   workflow_dispatch:
     inputs:
       reset_db:
