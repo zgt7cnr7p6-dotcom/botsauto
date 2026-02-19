@@ -484,9 +484,20 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
         await page.goto(search_url, wait_until="networkidle", timeout=60000)
         await human_delay(2, 4)
 
-        log.info("mobile.de page title: %s", await page.title())
+        page_title = await page.title()
+        log.info("mobile.de page title: %s", page_title)
         log.info("mobile.de page URL: %s", page.url)
         await page.screenshot(path="debug_mobile.png", full_page=True)
+
+        # ── Detecteer IP-block (datacenter IPs worden geblokkeerd) ──
+        if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
+            log.warning(
+                "mobile.de BLOKKEERT dit IP-adres (datacenter/GitHub Actions IP). "
+                "Dit is normaal. Opties: (1) officiële API aanvragen bij service@team.mobile.de, "
+                "(2) residentiële proxy toevoegen, (3) self-hosted runner gebruiken. "
+                "AutoScout24 is de primaire bron en werkt wél."
+            )
+            return listings
 
         # Sla HTML op voor debug
         try:
@@ -750,10 +761,11 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
     Gesorteerd op nieuwste eerst — stopt bij bekende listings voor snelheid."""
     listings = []
     # Audi Q3 Sportback, Germany, year >= 2021, km <= 85000, price <= 38000
-    # GEEN fuel filter! fuel=E was FOUT (= puur elektrisch). We filteren zelf op hybrid.
+    # URL: q3/ve_sportback — "ve_" is variant filter op AutoScout24 (NIET q3-sportback!)
+    # GEEN fuel filter in URL — we filteren zelf op hybrid via is_q3_sportback_hybrid()
     # sort=age = nieuwste eerst
     search_url = (
-        "https://www.autoscout24.de/lst/audi/q3-sportback"
+        "https://www.autoscout24.de/lst/audi/q3/ve_sportback"
         "?atype=C&cy=D&desc=0&fregfrom=2021"
         "&kmto=85000&priceto=38000&sort=age&ustate=N%2CU"
     )
