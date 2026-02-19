@@ -673,6 +673,12 @@ def scrape_mobile_de_scrapedo(conn) -> list:
     known_streak = 0
     for card in cards[:50]:
         try:
+            # Skip gesponsorde advertenties
+            card_full_text = card.get_text(separator=" ", strip=True)
+            if "gesponsert" in card_full_text.lower()[:50]:
+                log.info("Gesponserde advertentie overgeslagen")
+                continue
+
             # Title
             title = ""
             for tag in card.select("h2, span.h3, .u-text-break-word"):
@@ -680,7 +686,10 @@ def scrape_mobile_de_scrapedo(conn) -> list:
                 if title:
                     break
             if not title:
-                title = card.get_text(separator=" ", strip=True).split("\n")[0][:100]
+                title = card_full_text.split("\n")[0][:100]
+
+            # Strip "Gesponsert" prefix uit titel
+            title = re.sub(r"^Gesponsert\s*", "", title, flags=re.IGNORECASE)
 
             if not title or "q3" not in title.lower():
                 continue
@@ -706,7 +715,7 @@ def scrape_mobile_de_scrapedo(conn) -> list:
             known_streak = 0
 
             # Price
-            card_text = card.get_text(separator=" ")
+            card_text = card_full_text
             price = 0
             for price_el in card.select("span[data-testid*='price'], .price-block span"):
                 price = parse_price(price_el.get_text())
@@ -958,6 +967,12 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
         known_streak = 0
         for card in cards[:50]:
             try:
+                # Skip gesponsorde advertenties
+                card_full_text = card.get_text(separator=" ", strip=True)
+                if "gesponsert" in card_full_text.lower()[:50]:
+                    log.info("Gesponsorde advertentie overgeslagen")
+                    continue
+
                 # Title
                 title = ""
                 for tag in card.select("h2, span.h3, .u-text-break-word"):
@@ -965,7 +980,10 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
                     if title:
                         break
                 if not title:
-                    title = card.get_text(separator=" ", strip=True).split("\n")[0][:100]
+                    title = card_full_text.split("\n")[0][:100]
+
+                # Strip "Gesponsert" prefix uit titel
+                title = re.sub(r"^Gesponsert\s*", "", title, flags=re.IGNORECASE)
 
                 if not title or "q3" not in title.lower():
                     continue
@@ -991,7 +1009,7 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
                 known_streak = 0
 
                 # Price — zoek in card text
-                card_text = card.get_text(separator=" ")
+                card_text = card_full_text
                 price = 0
                 for price_el in card.select("span[data-testid*='price'], .price-block span"):
                     price = parse_price(price_el.get_text())
@@ -1201,6 +1219,15 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
             try:
                 card = cards.nth(i)
 
+                # Skip gesponsorde advertenties
+                try:
+                    card_full = await card.inner_text()
+                    if "gesponsert" in card_full.lower()[:50]:
+                        log.info("Gesponsorde advertentie overgeslagen")
+                        continue
+                except Exception:
+                    pass
+
                 # Title — h2 is de standaard (feb 2024 scraper), fallback naar spans
                 title = ""
                 for title_sel in ["h2", "span.h3", ".u-text-break-word"]:
@@ -1216,6 +1243,9 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                         title = lines[0] if lines else ""
                     except Exception:
                         continue
+
+                # Strip "Gesponsert" prefix uit titel
+                title = re.sub(r"^Gesponsert\s*", "", title, flags=re.IGNORECASE)
 
                 if not title or "q3" not in title.lower():
                     continue
