@@ -13,7 +13,7 @@ import random
 import sqlite3
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 import requests
 from playwright.async_api import async_playwright
@@ -60,6 +60,9 @@ MUST_HAVE_FEATURES = [
     "s_line",
     "camera",
 ]
+
+# HARDE EISEN: zonder deze features wordt GEEN alert verstuurd
+REQUIRED_FEATURES = ["panoramadak", "keyless"]
 
 # Nice-to-have: bonuspunten, maar niet vereist
 NICE_TO_HAVE_FEATURES = [
@@ -172,7 +175,7 @@ def listing_exists(conn, listing_id: str) -> bool:
 
 
 def save_listing(conn, listing: "Listing"):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     if listing_exists(conn, listing.id):
         conn.execute(
             "UPDATE listings SET last_seen = ?, price = ?, score = ? WHERE id = ?",
@@ -220,38 +223,51 @@ class Listing:
 
 # ── Hybrid detectie ───────────────────────────────────────────────────────
 
-def is_q3_sportback_hybrid(title: str, description: str = "") -> bool:
+
+def is_q3_sportback_hybrid(title: str, description: str = "", fuel_type: str = "") -> bool:
     """
     Detecteer of een listing een Q3 Sportback hybrid is.
-    Checkt op Sportback in titel/beschrijving EN op hybrid indicators.
-    Soms staat 'Sportback' alleen in beschrijving of 'SB' in titel.
+    Checkt op Sportback in titel EN op hybrid indicators in titel of fuel_type.
+    Beschrijving wordt NIET meer gebruikt voor hybrid-check (te veel false positives).
     """
-    text = f"{title} {description}".lower()
+    title_lower = title.lower()
 
-    if "q3" not in text:
+    if "q3" not in title_lower:
         return False
 
-    # Check Sportback — soms als "SB", "Sportback", of in beschrijving
+    # Check Sportback in titel
     sportback_patterns = [
         r"sportback",
         r"q3\s*sb\b",
     ]
-    is_sportback = any(re.search(p, text, re.IGNORECASE) for p in sportback_patterns)
+    is_sportback = any(re.search(p, title_lower) for p in sportback_patterns)
     if not is_sportback:
         return False
 
-    # Check hybrid
-    hybrid_patterns = [
-        r"45\s*tfsi\s*e?\b",      # "45 TFSI e" of "45 TFSI"
-        r"tfsi\s*e\b",            # "TFSI e" (de e = elektrisch)
-        r"plug[\s-]?in",          # "Plug-in Hybrid"
-        r"phev",                  # PHEV
-        r"hybrid",                # Hybrid
-        r"elektro.*benzin",       # Elektro/Benzin (AutoScout24 brandstoftype)
-        r"benzin.*elektro",       # Benzin/Elektro
+    # Check hybrid — PRIMAIR via titel (betrouwbaarst)
+    title_hybrid_patterns = [
+        r"45\s*tfsi",             # "45 TFSI" of "45 TFSIe" (Q3 45 TFSI is altijd hybrid)
+        r"tfsi\s*e\b",           # "TFSI e" (de e = elektrisch)
+        r"plug[\s-]?in",         # "Plug-in Hybrid"
+        r"phev",                 # PHEV
     ]
+    if any(re.search(p, title_lower) for p in title_hybrid_patterns):
+        return True
 
-    return any(re.search(p, text, re.IGNORECASE) for p in hybrid_patterns)
+    # SECUNDAIR: check fuel_type (direct uit JSON, betrouwbaar)
+    fuel_lower = fuel_type.lower()
+    if any(kw in fuel_lower for kw in ["hybrid", "elektro", "phev", "plug-in", "electric"]):
+        return True
+
+    # TERTIAIR: check beschrijving, maar alleen op expliciete hybrid keywords
+    # NIET op losse woorden als "elektro" of "benzin" (te veel false positives)
+    desc_lower = description.lower()
+    desc_hybrid_patterns = [
+        r"plug[\s-]?in[\s-]?hybrid",
+        r"\bphev\b",
+        r"45\s*tfsi",
+    ]
+    return any(re.search(p, desc_lower) for p in desc_hybrid_patterns)
 
 
 # ── Feature scoring ────────────────────────────────────────────────────────
@@ -734,46 +750,56 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
 
 async def scrape_autoscout24(page, conn) -> list[Listing]:
     """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland.
-    Gesorteerd op nieuwste eerst — stopt bij bekende listings voor snelheid."""
+    Gesorteerd op nieuwste eerst — scraped meerdere pagina's."""
     listings = []
     # Audi Q3 Sportback, Germany, year >= 2021, km <= 85000, price <= 38000
     # URL: q3/ve_sportback — "ve_" is variant filter op AutoScout24 (NIET q3-sportback!)
     # GEEN fuel filter in URL — we filteren zelf op hybrid via is_q3_sportback_hybrid()
     # sort=age = nieuwste eerst
-    search_url = (
+    base_url = (
         "https://www.autoscout24.de/lst/audi/q3/ve_sportback"
         "?atype=C&cy=D&desc=0&fregfrom=2021"
         "&kmto=85000&priceto=38000&sort=age&ustate=N%2CU"
     )
+    MAX_PAGES = 3  # Scrape max 3 pagina's (ca. 60 listings)
+    consent_done = False
 
     log.info("Scraping AutoScout24 ...")
     try:
+      for page_num in range(1, MAX_PAGES + 1):
+        search_url = base_url if page_num == 1 else f"{base_url}&page={page_num}"
+        log.info("AutoScout24 pagina %d ...", page_num)
+
         await human_delay(1, 3)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
         await page.wait_for_timeout(5000)
 
         log.info("AutoScout24 page title: %s", await page.title())
         log.info("AutoScout24 page URL: %s", page.url)
-        await page.screenshot(path="debug_autoscout.png", timeout=15000)
+        if page_num == 1:
+            await page.screenshot(path="debug_autoscout.png", timeout=15000)
 
-        # Sla HTML op voor debug
-        html_content = await page.content()
-        try:
-            with open("debug_autoscout.html", "w", encoding="utf-8") as f:
-                f.write(html_content[:500_000])
-        except Exception:
-            pass
+            # Sla HTML op voor debug
+            html_content = await page.content()
+            try:
+                with open("debug_autoscout.html", "w", encoding="utf-8") as f:
+                    f.write(html_content[:500_000])
+            except Exception:
+                pass
 
-        # Accept cookies (OneTrust)
-        try:
-            consent = page.locator("#onetrust-accept-btn-handler, button:has-text('Einverstanden'), button:has-text('Akzeptieren'), button:has-text('Alle akzeptieren'), button:has-text('Accept All')")
-            await consent.first.wait_for(timeout=5000)
-            await human_delay(0.5, 1.5)
-            await consent.first.click()
-            log.info("AutoScout24: consent geaccepteerd")
-            await human_delay(2, 3)
-        except Exception:
-            log.info("AutoScout24: geen consent popup gevonden")
+        # Accept cookies (OneTrust) — alleen eerste keer
+        if not consent_done:
+            try:
+                consent = page.locator("#onetrust-accept-btn-handler, button:has-text('Einverstanden'), button:has-text('Akzeptieren'), button:has-text('Alle akzeptieren'), button:has-text('Accept All')")
+                await consent.first.wait_for(timeout=5000)
+                await human_delay(0.5, 1.5)
+                await consent.first.click()
+                log.info("AutoScout24: consent geaccepteerd")
+                await human_delay(2, 3)
+                consent_done = True
+            except Exception:
+                log.info("AutoScout24: geen consent popup gevonden")
+                consent_done = True
 
         # ── METHODE 1: Parse __NEXT_DATA__ JSON (AutoScout24 is Next.js) ──
         next_data = await page.evaluate("""() => {
@@ -884,7 +910,17 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
                     if year and year < SEARCH_CRITERIA["year_min"]:
                         continue
 
-                    # Description uit JSON
+                    # Fuel type (apart ophalen voor hybrid check)
+                    fuel_type_str = ""
+                    fuel = item.get("vehicle", {}).get("fuelType", {})
+                    if isinstance(fuel, dict):
+                        fuel_type_str = fuel.get("translated", fuel.get("label", ""))
+                    fuel_t = tracking.get("fuel_type", "")
+                    if fuel_t:
+                        fuel_type_str = f"{fuel_type_str} {fuel_t}".strip()
+
+                    # Hybrid check VOOR detail pagina (bespaar requests voor niet-hybrids)
+                    # Description uit JSON (kort, van zoekpagina)
                     desc_parts = []
                     for dk in ["description", "subtitle"]:
                         val = item.get(dk, "")
@@ -898,22 +934,22 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
                             for sub in eq.values():
                                 if isinstance(sub, list):
                                     desc_parts.extend(str(e) for e in sub)
-                    # Fuel type
-                    fuel = item.get("vehicle", {}).get("fuelType", {})
-                    if isinstance(fuel, dict):
-                        desc_parts.append(fuel.get("translated", fuel.get("label", "")))
-                    fuel_t = tracking.get("fuel_type", "")
-                    if fuel_t:
-                        desc_parts.append(str(fuel_t))
+
+                    short_desc = " ".join(filter(None, desc_parts))
+
+                    if not is_q3_sportback_hybrid(title, short_desc, fuel_type_str):
+                        log.info("Overgeslagen (geen Sportback hybrid): %s", title[:60])
+                        continue
 
                     listing = Listing(
                         id=listing_id, source="AutoScout24", title=title,
                         price=price, year=year, km=km, url=url,
-                        description=" ".join(filter(None, desc_parts)),
+                        description=short_desc,
                     )
 
-                    # Detail pagina als beschrijving te kort is
-                    if len(listing.description.strip()) < 20 and url != search_url:
+                    # ALTIJD detail pagina scrapen voor volledige equipment lijst
+                    # (pano, keyless etc. staan bijna nooit in zoekresultaat JSON)
+                    if url != search_url:
                         try:
                             dp = await page.context.new_page()
                             await human_delay(1, 2)
@@ -932,15 +968,41 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
                                         desc = ld.get("description", "")
                                         if desc:
                                             listing.description += " " + desc
-                                        feats = ld.get("equipment", ld.get("features", []))
-                                        if isinstance(feats, list):
-                                            listing.description += " " + " ".join(str(f) for f in feats)
+                                        # Equipment/features lijst — vaak geneste structuur
+                                        for fk in ["equipment", "features", "equipments", "vehicleDetails"]:
+                                            feats = ld.get(fk, [])
+                                            if isinstance(feats, list):
+                                                listing.description += " " + " ".join(str(f) for f in feats)
+                                            elif isinstance(feats, dict):
+                                                for sub in feats.values():
+                                                    if isinstance(sub, list):
+                                                        listing.description += " " + " ".join(str(f) for f in sub)
+                                                    elif isinstance(sub, str):
+                                                        listing.description += " " + sub
+
+                            # Fallback: pak ook zichtbare tekst van equipmentlijst
+                            if not dd or len(listing.description) < 100:
+                                for sel in [
+                                    "[data-testid='collapsible-section']",
+                                    ".VehicleOverview_itemContainer__XSLWi",
+                                    ".DetailsSection_content__bZUWQ",
+                                    "[class*='equipment']",
+                                    "[class*='Equipment']",
+                                ]:
+                                    el = dp.locator(sel)
+                                    if await el.count() > 0:
+                                        eq_text = await el.all_inner_texts()
+                                        listing.description += " " + " ".join(eq_text)
+                                        break
+
                             await dp.close()
                         except Exception as e:
                             log.warning("AS24 detail fout: %s", e)
 
-                    if not is_q3_sportback_hybrid(listing.title, listing.description):
-                        log.info("Overgeslagen (geen Sportback hybrid): %s", title[:60])
+                    log.info("Detail beschrijving lengte: %d chars", len(listing.description))
+
+                    if not is_q3_sportback_hybrid(listing.title, listing.description, fuel_type_str):
+                        log.info("Overgeslagen na detail check (geen hybrid): %s", title[:60])
                         continue
 
                     log.info("MATCH: %s — €%s — %d km — %d", title[:60], f"{price:,}" if price else "?", km, year)
@@ -949,7 +1011,13 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
                     log.warning("AS24 JSON item fout: %s", e)
 
             if listings_json:
-                return listings
+                # Check of er meer pagina's zijn
+                num_pages = page_props.get("numberOfPages", 1)
+                log.info("AutoScout24: pagina %d/%d verwerkt, %d hybrids tot nu toe",
+                         page_num, num_pages, len(listings))
+                if page_num >= num_pages:
+                    break
+                continue  # Ga naar volgende pagina
 
         # ── METHODE 2: CSS selector fallback ──
         log.info("AutoScout24: fallback naar CSS selectors ...")
@@ -968,7 +1036,7 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
         if count == 0:
             body_text = await page.locator("body").inner_text()
             log.info("AutoScout24 body (eerste 2000): %s", body_text[:2000])
-            return []
+            break  # Geen CSS cards, stop paginatie
 
         known_streak = 0
         for i in range(min(count, 50)):
@@ -1037,11 +1105,13 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
                     except Exception as e:
                         log.warning("Detail fout: %s", e)
 
-                if not is_q3_sportback_hybrid(listing.title, listing.description):
+                if not is_q3_sportback_hybrid(listing.title, listing.description, ""):
                     continue
                 listings.append(listing)
             except Exception as e:
                 log.warning("AS24 CSS card %d: %s", i, e)
+
+        break  # CSS fallback paginatie niet ondersteund
 
     except Exception as e:
         log.error("AutoScout24 scraping mislukt: %s", e, exc_info=True)
@@ -1123,8 +1193,11 @@ async def main():
 
         if is_new:
             new_count += 1
-            # Alert als minstens 2 must-have features gevonden
-            if listing.must_have_count >= 2:
+            # Check harde eisen: panoramadak + keyless entry
+            has_required = all(f in listing.features for f in REQUIRED_FEATURES)
+            missing_required = [f for f in REQUIRED_FEATURES if f not in listing.features]
+
+            if has_required and listing.must_have_count >= 2:
                 send_telegram(listing)
                 alert_count += 1
                 log.info(
@@ -1136,6 +1209,16 @@ async def main():
                     len(NICE_TO_HAVE_FEATURES),
                     listing.score,
                     f"{listing.price:,}" if listing.price else "?",
+                    listing.url,
+                )
+            elif not has_required:
+                missing_names = [FEATURE_DISPLAY_NAMES.get(f, f) for f in missing_required]
+                log.info(
+                    "Geen alert (mist vereiste opties: %s): %s — must-have %d/%d — %s",
+                    ", ".join(missing_names),
+                    listing.title,
+                    listing.must_have_count,
+                    len(MUST_HAVE_FEATURES),
                     listing.url,
                 )
             else:
@@ -1164,7 +1247,7 @@ async def main():
             f"🔍 Totaal gevonden: {len(all_listings)}\n"
             f"🆕 Nieuw: {new_count}\n"
             f"🔔 Alerts verstuurd: {alert_count}\n"
-            f"⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+            f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
         )
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         requests.post(
