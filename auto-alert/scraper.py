@@ -68,16 +68,23 @@ def get_random_proxy() -> str | None:
     return random.choice(PROXY_URLS) if PROXY_URLS else None
 
 SEARCH_CRITERIA = {
-    "model": "Audi Q3 Sportback 45 TFSI e",
+    "model": "Audi Q3 45 TFSI e",
     "fuel": "hybrid",
-    "year_min_mobile": 2019,   # mobile.de: vanaf 2019
-    "year_min_as24": 2021,     # AutoScout24: vanaf 2021
-    "km_max_mobile": 85_000,   # mobile.de: tot 85k km
-    "km_max_as24": 80_000,     # AutoScout24: tot 80k km
-    "price_min": 29_000,       # mobile.de: vanaf €29k
-    "price_max": 37_500,       # max €37.500
+    "year_min": 2021,          # vanaf 2021
+    "km_max": 80_000,          # max 80k km
+    "price_max": 40_000,       # max €40.000
     "country": "DE",
 }
+
+# mobile.de zoek-URL — exact zoals de user zoekt
+# ms=1900;37;;pano = Audi Q3 met "pano" in tekst, ft=HYBRID, fr=2021+, ml=max80k, p=max40k
+# sb=doc = sorteer op nieuwste eerst (beter voor monitoring dan sb=rel)
+MOBILE_DE_SEARCH_URL = (
+    "https://suchen.mobile.de/fahrzeuge/search.html?"
+    "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
+    "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=up"
+    "&p=%3A40000&ref=srp&s=Car&sb=doc&vc=Car"
+)
 
 # Must-have: advertentie wordt alleen gemeld als minstens enkele hiervan matchen
 MUST_HAVE_FEATURES = [
@@ -604,15 +611,7 @@ def scrape_mobile_de_scrapedo(conn) -> list:
         log.info("mobile.de Scrape.do: geen API token, overslaan")
         return listings
 
-    search_url = (
-        "https://suchen.mobile.de/fahrzeuge/search.html?"
-        "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B"
-        "&fuel=HYBRID_PETROL&maxMileage=85000"
-        "&minPrice=29000&maxPrice=37500"
-        "&minFirstRegistrationDate=2019-01-01"
-        "&od=Pano"
-        "&ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
-    )
+    search_url = MOBILE_DE_SEARCH_URL
 
     log.info("mobile.de Scrape.do: zoekpagina ophalen ...")
     html = scrape_do_fetch(search_url)
@@ -717,9 +716,9 @@ def scrape_mobile_de_scrapedo(conn) -> list:
             # Filter
             if price and price > SEARCH_CRITERIA["price_max"]:
                 continue
-            if km and km > SEARCH_CRITERIA["km_max_mobile"]:
+            if km and km > SEARCH_CRITERIA["km_max"]:
                 continue
-            if year and year < SEARCH_CRITERIA["year_min_mobile"]:
+            if year and year < SEARCH_CRITERIA["year_min"]:
                 continue
 
             # Hybrid check (op basis van card text)
@@ -792,15 +791,7 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
     """
     listings = []
 
-    search_url = (
-        "https://suchen.mobile.de/fahrzeuge/search.html?"
-        "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B"
-        "&fuel=HYBRID_PETROL&maxMileage=85000"
-        "&minPrice=29000&maxPrice=37500"
-        "&minFirstRegistrationDate=2019-01-01"
-        "&od=Pano"
-        "&ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
-    )
+    search_url = MOBILE_DE_SEARCH_URL
 
     proxy_label = f"MET proxy ({proxy_url.split('@')[-1] if '@' in (proxy_url or '') else proxy_url})" if proxy_url else "ZONDER proxy"
     use_impersonate = HAS_CURL_CFFI
@@ -961,9 +952,9 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
                 # Filter
                 if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
-                if km and km > SEARCH_CRITERIA["km_max_mobile"]:
+                if km and km > SEARCH_CRITERIA["km_max"]:
                     continue
-                if year and year < SEARCH_CRITERIA["year_min_mobile"]:
+                if year and year < SEARCH_CRITERIA["year_min"]:
                     continue
 
                 # Hybrid check
@@ -1018,18 +1009,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
     Zoekt op 'Q3 Pano' met hybrid filter — matched de user's eigen zoekopdracht.
     Blokkeert images/fonts voor snelheid via proxy."""
     listings = []
-    # URL matched de user's mobile.de zoekfilters:
-    # Audi Q3, free text "Pano", Hybrid fuel, €29k-€37.5k, 2019+, max 85k km
-    # sb=doc = sorteer op nieuwste eerst
-    search_url = (
-        "https://suchen.mobile.de/fahrzeuge/search.html?"
-        "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B"
-        "&fuel=HYBRID_PETROL&maxMileage=85000"
-        "&minPrice=29000&maxPrice=37500"
-        "&minFirstRegistrationDate=2019-01-01"
-        "&od=Pano"
-        "&ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
-    )
+    search_url = MOBILE_DE_SEARCH_URL
 
     log.info("Scraping mobile.de ...")
     try:
@@ -1236,11 +1216,9 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
 
                 if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
-                if price and price < SEARCH_CRITERIA["price_min"]:
+                if km and km > SEARCH_CRITERIA["km_max"]:
                     continue
-                if km and km > SEARCH_CRITERIA["km_max_mobile"]:
-                    continue
-                if year and year < SEARCH_CRITERIA["year_min_mobile"]:
+                if year and year < SEARCH_CRITERIA["year_min"]:
                     continue
 
                 listing = Listing(
@@ -1300,14 +1278,13 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
     """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland.
     Gesorteerd op nieuwste eerst — scraped meerdere pagina's."""
     listings = []
-    # Audi Q3 plug-in hybrid, Germany, year >= 2021, km <= 80000, price <= 37500
-    # ve_plug-in-hybrid = server-side filter op plug-in hybrid variant
-    # sort=age = nieuwste eerst
+    # Audi Q3 hybrid, Germany, year >= 2021, km <= 80000, price <= 40000
+    # fuel=H = hybrid filter, sort=age = nieuwste eerst
     if base_url is None:
         base_url = (
-            "https://www.autoscout24.de/lst/audi/q3-sportback/ve_plug-in-hybrid"
-            "?atype=C&cy=D&desc=0&fregfrom=2021"
-            "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
+            "https://www.autoscout24.de/lst/audi/q3-sportback"
+            "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=H"
+            "&kmto=80000&priceto=40000&sort=age&ustate=N%2CU"
         )
     MAX_PAGES = 5  # Meer pagina's nu alles hybrids zijn
     consent_done = False
@@ -1454,9 +1431,9 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
 
                     if price and price > SEARCH_CRITERIA["price_max"]:
                         continue
-                    if km and km > SEARCH_CRITERIA["km_max_as24"]:
+                    if km and km > SEARCH_CRITERIA["km_max"]:
                         continue
-                    if year and year < SEARCH_CRITERIA["year_min_as24"]:
+                    if year and year < SEARCH_CRITERIA["year_min"]:
                         continue
 
                     # Fuel type (apart ophalen voor hybrid check)
@@ -1624,9 +1601,9 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
 
                 if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
-                if km and km > SEARCH_CRITERIA["km_max_as24"]:
+                if km and km > SEARCH_CRITERIA["km_max"]:
                     continue
-                if year and year < SEARCH_CRITERIA["year_min_as24"]:
+                if year and year < SEARCH_CRITERIA["year_min"]:
                     continue
 
                 listing = Listing(
@@ -1681,16 +1658,9 @@ async def main():
         SEARCH_CRITERIA["country"],
     )
     log.info(
-        "  mobile.de: %d+, max %d km, €%s-€%s",
-        SEARCH_CRITERIA["year_min_mobile"],
-        SEARCH_CRITERIA["km_max_mobile"],
-        f"{SEARCH_CRITERIA['price_min']:,}",
-        f"{SEARCH_CRITERIA['price_max']:,}",
-    )
-    log.info(
-        "  AutoScout24: %d+, max %d km, max €%s",
-        SEARCH_CRITERIA["year_min_as24"],
-        SEARCH_CRITERIA["km_max_as24"],
+        "  Filters: %d+, max %d km, max €%s",
+        SEARCH_CRITERIA["year_min"],
+        SEARCH_CRITERIA["km_max"],
         f"{SEARCH_CRITERIA['price_max']:,}",
     )
 
@@ -1777,19 +1747,19 @@ async def main():
         # Korte pauze tussen sites
         await human_delay(3, 6)
 
-        # ── AutoScout24: zoek zowel Q3 Sportback als Q3 ──
-        # Q3 Sportback is een apart model op AutoScout24; de meeste 45 TFSI e
-        # (plug-in hybrid) staan onder Q3 Sportback, niet Q3
+        # ── AutoScout24: zoek Q3 Sportback en Q3 ──
+        # ve_plug-in-hybrid in pad werkt niet meer op AS24, gebruik fuel=H (hybrid)
+        # Criteria gelijk aan mobile.de: 2021+, max 80k km, max €40k
         AS24_URLS = [
             (
-                "https://www.autoscout24.de/lst/audi/q3-sportback/ve_plug-in-hybrid"
-                "?atype=C&cy=D&desc=0&fregfrom=2021"
-                "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
+                "https://www.autoscout24.de/lst/audi/q3-sportback"
+                "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=H"
+                "&kmto=80000&priceto=40000&sort=age&ustate=N%2CU"
             ),
             (
-                "https://www.autoscout24.de/lst/audi/q3/ve_plug-in-hybrid"
-                "?atype=C&cy=D&desc=0&fregfrom=2021"
-                "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
+                "https://www.autoscout24.de/lst/audi/q3"
+                "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=H"
+                "&kmto=80000&priceto=40000&sort=age&ustate=N%2CU"
             ),
         ]
         as24_browser = await p.chromium.launch(headless=True, args=browser_args)
