@@ -30,6 +30,18 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 PROXY_URL = os.environ.get("PROXY_URL", "")  # Residentiële proxy voor mobile.de
 
+
+def parse_proxy_url(url: str) -> dict:
+    """Parse http://user:pass@host:port naar Playwright proxy dict."""
+    from urllib.parse import urlparse
+    p = urlparse(url)
+    proxy = {"server": f"{p.scheme}://{p.hostname}:{p.port}"}
+    if p.username:
+        proxy["username"] = p.username
+    if p.password:
+        proxy["password"] = p.password
+    return proxy
+
 SEARCH_CRITERIA = {
     "model": "Audi Q3 Sportback 45 TFSI e",
     "fuel": "hybrid",
@@ -487,7 +499,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
         )
 
         await human_delay(1, 3)
-        await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+        await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
 
         # Wacht tot JS content geladen is (mobile.de rendert dynamisch)
         await page.wait_for_timeout(5000)
@@ -737,8 +749,8 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
     log.info("Scraping AutoScout24 ...")
     try:
         await human_delay(1, 3)
-        await page.goto(search_url, wait_until="networkidle", timeout=60000)
-        await human_delay(2, 4)
+        await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
+        await page.wait_for_timeout(5000)
 
         log.info("AutoScout24 page title: %s", await page.title())
         log.info("AutoScout24 page URL: %s", page.url)
@@ -1067,11 +1079,12 @@ async def main():
     async with async_playwright() as p:
         # ── mobile.de: eigen browser MET residentiële proxy ──
         if PROXY_URL:
-            log.info("mobile.de: residentiële proxy actief")
+            proxy_cfg = parse_proxy_url(PROXY_URL)
+            log.info("mobile.de: residentiële proxy actief → %s", proxy_cfg["server"])
             mobile_browser = await p.chromium.launch(
                 headless=True,
                 args=browser_args,
-                proxy={"server": PROXY_URL},
+                proxy=proxy_cfg,
             )
         else:
             log.warning("mobile.de: GEEN proxy geconfigureerd — wordt waarschijnlijk geblokkeerd")
