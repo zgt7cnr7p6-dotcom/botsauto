@@ -30,7 +30,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright requests
+          pip install playwright requests beautifulsoup4
           playwright install chromium
           playwright install-deps chromium
 

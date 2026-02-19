@@ -13,9 +13,13 @@ import random
 import sqlite3
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
-import requests
+from urllib.parse import urlparse
+
+import requests as req_lib
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 logging.basicConfig(
@@ -33,7 +37,6 @@ PROXY_URL = os.environ.get("PROXY_URL", "")  # Residentiële proxy voor mobile.d
 
 def parse_proxy_url(url: str) -> dict:
     """Parse http://user:pass@host:port naar Playwright proxy dict."""
-    from urllib.parse import urlparse
     p = urlparse(url)
     proxy = {"server": f"{p.scheme}://{p.hostname}:{p.port}"}
     if p.username:
@@ -489,7 +492,7 @@ def send_telegram(listing: Listing):
     )
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    resp = requests.post(
+    resp = req_lib.post(
         url,
         json={
             "chat_id": TELEGRAM_CHAT_ID,
@@ -506,6 +509,223 @@ def send_telegram(listing: Listing):
 
 
 # ── Scrapers ────────────────────────────────────────────────────────────────
+
+
+# ── mobile.de HTTP scraper (geen browser nodig) ──────────────────────────
+
+
+def _mobile_de_session(proxy_url: str | None = None) -> req_lib.Session:
+    """Maak een requests Session met realistische browser headers."""
+    s = req_lib.Session()
+    ua = random.choice(USER_AGENTS)
+    s.headers.update({
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.5,en;q=0.3",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
+    })
+    if proxy_url:
+        s.proxies = {"http": proxy_url, "https": proxy_url}
+    return s
+
+
+def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
+    """Scrape mobile.de via plain HTTP + BeautifulSoup.
+
+    Veel moeilijker te detecteren dan Playwright — geen headless browser
+    fingerprint, geen WebDriver flags, geen automation indicators.
+    """
+    listings = []
+
+    search_url = (
+        "https://suchen.mobile.de/fahrzeuge/search.html?"
+        "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B"
+        "&fuel=HYBRID_PETROL&maxMileage=85000"
+        "&minPrice=29000&maxPrice=37500"
+        "&minFirstRegistrationDate=2019-01-01"
+        "&od=Pano"
+        "&ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
+    )
+
+    proxy_label = f"MET proxy ({proxy_url.split('@')[-1] if '@' in (proxy_url or '') else proxy_url})" if proxy_url else "ZONDER proxy"
+    log.info("mobile.de HTTP: %s", proxy_label)
+
+    session = _mobile_de_session(proxy_url)
+
+    try:
+        # Stap 1: Bezoek homepage (cookie + referer opbouwen)
+        log.info("mobile.de HTTP: warm-up homepage ...")
+        time.sleep(random.uniform(0.5, 1.5))
+        home_resp = session.get("https://www.mobile.de", timeout=30)
+        log.info("mobile.de HTTP: homepage status=%d", home_resp.status_code)
+
+        if home_resp.status_code != 200:
+            log.warning("mobile.de HTTP: homepage gaf %d", home_resp.status_code)
+
+        # Korte pauze (menselijk)
+        time.sleep(random.uniform(1.0, 3.0))
+
+        # Stap 2: Zoekresultaten ophalen
+        session.headers["Referer"] = "https://www.mobile.de/"
+        session.headers["Sec-Fetch-Site"] = "same-origin"
+
+        log.info("mobile.de HTTP: zoekpagina ophalen ...")
+        resp = session.get(search_url, timeout=30)
+        log.info("mobile.de HTTP: status=%d, size=%d bytes", resp.status_code, len(resp.content))
+
+        if resp.status_code != 200:
+            log.error("mobile.de HTTP: fout status %d", resp.status_code)
+            return listings
+
+        html = resp.text
+
+        # Detecteer IP-block
+        if "zugriff verweigert" in html.lower() or "access denied" in html.lower():
+            log.error("mobile.de HTTP: IP geblokkeerd (Zugriff verweigert)")
+            # Debug: sla op
+            try:
+                with open("debug_mobile_http.html", "w", encoding="utf-8") as f:
+                    f.write(html[:500_000])
+            except Exception:
+                pass
+            return listings
+
+        # Debug: sla HTML op
+        try:
+            with open("debug_mobile_http.html", "w", encoding="utf-8") as f:
+                f.write(html[:500_000])
+        except Exception:
+            pass
+
+        # Stap 3: Parse met BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+
+        page_title = soup.title.text if soup.title else ""
+        log.info("mobile.de HTTP: page title = '%s'", page_title)
+
+        # Methode 1: data-testid links (moderne mobile.de)
+        cards = soup.select("a[data-testid*='result'], a[data-testid*='listing']")
+        if not cards:
+            # Methode 2: legacy selectors
+            cards = soup.select("a.result-item, div.cBox-body--resultitem")
+        if not cards:
+            # Methode 3: alle links naar /fahrzeuge/ details
+            cards = soup.select("a[href*='/fahrzeuge/details']")
+
+        log.info("mobile.de HTTP: %d cards gevonden", len(cards))
+
+        if not cards:
+            # Probeer JSON-LD of script data te extracten
+            for script in soup.select("script[type='application/ld+json']"):
+                try:
+                    data = json.loads(script.string)
+                    log.info("mobile.de HTTP: JSON-LD gevonden: %s", str(data)[:500])
+                except Exception:
+                    pass
+            # Log body text voor debug
+            body = soup.get_text(separator=" ", strip=True)
+            log.info("mobile.de HTTP body (2000 chars): %s", body[:2000])
+            return listings
+
+        known_streak = 0
+        for card in cards[:50]:
+            try:
+                # Title
+                title = ""
+                for tag in card.select("h2, span.h3, .u-text-break-word"):
+                    title = tag.get_text(strip=True)
+                    if title:
+                        break
+                if not title:
+                    title = card.get_text(separator=" ", strip=True).split("\n")[0][:100]
+
+                if not title or "q3" not in title.lower():
+                    continue
+
+                # URL
+                href = card.get("href", "")
+                if not href:
+                    link = card.select_one("a[href*='/fahrzeuge/']")
+                    if link:
+                        href = link.get("href", "")
+                if href and not href.startswith("http"):
+                    href = "https://suchen.mobile.de" + href
+
+                listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{hash(title)}"
+
+                if listing_exists(conn, listing_id):
+                    known_streak += 1
+                    log.info("Bekende listing: %s", title[:50])
+                    if known_streak >= 3:
+                        log.info("3 bekende op rij — stoppen")
+                        break
+                    continue
+                known_streak = 0
+
+                # Price — zoek in card text
+                card_text = card.get_text(separator=" ")
+                price = 0
+                for price_el in card.select("span[data-testid*='price'], .price-block span"):
+                    price = parse_price(price_el.get_text())
+                    if price:
+                        break
+                if not price:
+                    price_match = re.search(r"€\s*([\d.]+)", card_text)
+                    if price_match:
+                        price = parse_price(price_match.group(1))
+
+                # KM
+                km = 0
+                km_match = re.search(r"([\d.]+)\s*km", card_text, re.IGNORECASE)
+                if km_match:
+                    km = parse_km(km_match.group(0))
+
+                # Year
+                year = parse_year(card_text)
+
+                # Filter
+                if price and price > SEARCH_CRITERIA["price_max"]:
+                    continue
+                if km and km > SEARCH_CRITERIA["km_max_mobile"]:
+                    continue
+                if year and year < SEARCH_CRITERIA["year_min_mobile"]:
+                    continue
+
+                # Hybrid check
+                if not is_q3_hybrid(title, card_text, ""):
+                    continue
+
+                listing = Listing(
+                    id=listing_id,
+                    source="mobile.de",
+                    title=title,
+                    price=price,
+                    year=year,
+                    km=km,
+                    url=href,
+                    description=card_text[:500],
+                )
+                log.info("MATCH: %s — €%s — %d km — %d", title[:50], f"{price:,}" if price else "?", km, year)
+                listings.append(listing)
+
+            except Exception as e:
+                log.warning("mobile.de HTTP card: %s", e)
+                continue
+
+    except req_lib.RequestException as e:
+        log.error("mobile.de HTTP request mislukt: %s", e)
+    except Exception as e:
+        log.error("mobile.de HTTP scraper fout: %s", e, exc_info=True)
+
+    return listings
 
 
 def parse_price(text: str) -> int:
@@ -1217,35 +1437,54 @@ async def main():
 
     all_listings: list[Listing] = []
 
+    # ── mobile.de: HTTP-first strategie (4 pogingen) ──
+    mobile_listings = []
+
+    # Probeer HTTP scraper eerst (veel moeilijker te detecteren dan browser)
+    http_attempts = [
+        ("HTTP + proxy", PROXY_URL) if PROXY_URL else None,
+        ("HTTP direct", None),
+    ]
+    for label, proxy in [a for a in http_attempts if a]:
+        log.info("mobile.de [%s] ...", label)
+        mobile_listings = scrape_mobile_de_http(conn, proxy_url=proxy)
+        if mobile_listings:
+            log.info("mobile.de [%s]: %d listings!", label, len(mobile_listings))
+            break
+        log.warning("mobile.de [%s]: 0 listings", label)
+        time.sleep(random.uniform(2, 4))
+
+    # Fallback: Playwright browser (als HTTP niet werkt)
+    if not mobile_listings:
+        log.info("mobile.de: HTTP mislukt, probeer Playwright browser ...")
+
     async with async_playwright() as p:
-        # ── mobile.de: probeer met proxy, fallback zonder proxy ──
-        mobile_listings = []
+        if not mobile_listings:
+            pw_attempts = [
+                ("Playwright + proxy", True) if PROXY_URL else None,
+                ("Playwright direct", False),
+            ]
+            for label, use_proxy in [a for a in pw_attempts if a]:
+                log.info("mobile.de [%s] ...", label)
+                if use_proxy:
+                    proxy_cfg = parse_proxy_url(PROXY_URL)
+                    mobile_browser = await p.chromium.launch(
+                        headless=True, args=browser_args, proxy=proxy_cfg,
+                    )
+                else:
+                    mobile_browser = await p.chromium.launch(
+                        headless=True, args=browser_args,
+                    )
 
-        for attempt, use_proxy in enumerate(
-            [True, False] if PROXY_URL else [False], start=1
-        ):
-            if use_proxy:
-                proxy_cfg = parse_proxy_url(PROXY_URL)
-                log.info("mobile.de poging %d: MET proxy → %s", attempt, proxy_cfg["server"])
-                mobile_browser = await p.chromium.launch(
-                    headless=True, args=browser_args, proxy=proxy_cfg,
-                )
-            else:
-                log.info("mobile.de poging %d: ZONDER proxy (directe verbinding)", attempt)
-                mobile_browser = await p.chromium.launch(
-                    headless=True, args=browser_args,
-                )
+                mobile_ctx = await create_stealth_context(mobile_browser)
+                mobile_page = await mobile_ctx.new_page()
+                mobile_listings = await scrape_mobile_de(mobile_page, conn)
+                await mobile_browser.close()
 
-            mobile_ctx = await create_stealth_context(mobile_browser)
-            mobile_page = await mobile_ctx.new_page()
-
-            mobile_listings = await scrape_mobile_de(mobile_page, conn)
-            await mobile_browser.close()
-
-            if mobile_listings:
-                log.info("mobile.de: %d listings gevonden (poging %d)", len(mobile_listings), attempt)
-                break
-            log.warning("mobile.de: 0 listings (poging %d)", attempt)
+                if mobile_listings:
+                    log.info("mobile.de [%s]: %d listings!", label, len(mobile_listings))
+                    break
+                log.warning("mobile.de [%s]: 0 listings", label)
 
         all_listings.extend(mobile_listings)
         log.info("mobile.de: %d NIEUWE hybrid listings gevonden", len(mobile_listings))
@@ -1332,7 +1571,7 @@ async def main():
             f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
         )
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        requests.post(
+        req_lib.post(
             url,
             json={"chat_id": TELEGRAM_CHAT_ID, "text": summary, "parse_mode": "HTML"},
             timeout=30,
