@@ -1061,26 +1061,28 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
     return listings
 
 
-async def scrape_autoscout24(page, conn) -> list[Listing]:
+async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Listing]:
     """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland.
     Gesorteerd op nieuwste eerst — scraped meerdere pagina's."""
     listings = []
     # Audi Q3 plug-in hybrid, Germany, year >= 2021, km <= 80000, price <= 37500
     # ve_plug-in-hybrid = server-side filter op plug-in hybrid variant
     # sort=age = nieuwste eerst
-    base_url = (
-        "https://www.autoscout24.de/lst/audi/q3/ve_plug-in-hybrid"
-        "?atype=C&cy=D&desc=0&fregfrom=2021"
-        "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
-    )
+    if base_url is None:
+        base_url = (
+            "https://www.autoscout24.de/lst/audi/q3-sportback/ve_plug-in-hybrid"
+            "?atype=C&cy=D&desc=0&fregfrom=2021"
+            "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
+        )
     MAX_PAGES = 5  # Meer pagina's nu alles hybrids zijn
     consent_done = False
 
-    log.info("Scraping AutoScout24 ...")
+    model_label = "Q3 Sportback" if "q3-sportback" in base_url else "Q3"
+    log.info("Scraping AutoScout24 [%s] ...", model_label)
     try:
       for page_num in range(1, MAX_PAGES + 1):
         search_url = base_url if page_num == 1 else f"{base_url}&page={page_num}"
-        log.info("AutoScout24 pagina %d ...", page_num)
+        log.info("AutoScout24 [%s] pagina %d ...", model_label, page_num)
 
         await human_delay(1, 3)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
@@ -1530,12 +1532,36 @@ async def main():
         # Korte pauze tussen sites
         await human_delay(3, 6)
 
-        # ── AutoScout24: directe verbinding (geen proxy nodig) ──
+        # ── AutoScout24: zoek zowel Q3 Sportback als Q3 ──
+        # Q3 Sportback is een apart model op AutoScout24; de meeste 45 TFSI e
+        # (plug-in hybrid) staan onder Q3 Sportback, niet Q3
+        AS24_URLS = [
+            (
+                "https://www.autoscout24.de/lst/audi/q3-sportback/ve_plug-in-hybrid"
+                "?atype=C&cy=D&desc=0&fregfrom=2021"
+                "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
+            ),
+            (
+                "https://www.autoscout24.de/lst/audi/q3/ve_plug-in-hybrid"
+                "?atype=C&cy=D&desc=0&fregfrom=2021"
+                "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
+            ),
+        ]
         as24_browser = await p.chromium.launch(headless=True, args=browser_args)
         as24_ctx = await create_stealth_context(as24_browser)
-        as24_page = await as24_ctx.new_page()
+        as24_listings = []
+        seen_as24_ids = {l.id for l in as24_listings}
 
-        as24_listings = await scrape_autoscout24(as24_page, conn)
+        for as24_url in AS24_URLS:
+            as24_page = await as24_ctx.new_page()
+            batch = await scrape_autoscout24(as24_page, conn, base_url=as24_url)
+            await as24_page.close()
+            for l in batch:
+                if l.id not in seen_as24_ids:
+                    as24_listings.append(l)
+                    seen_as24_ids.add(l.id)
+            await human_delay(2, 4)
+
         all_listings.extend(as24_listings)
         log.info("AutoScout24: %d NIEUWE hybrid listings gevonden", len(as24_listings))
         await as24_browser.close()
