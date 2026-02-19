@@ -467,10 +467,9 @@ def parse_year(text: str) -> int:
 
 async def scrape_mobile_de(page, conn) -> list[Listing]:
     """Scrape mobile.de for Audi Q3 hybrid listings in Duitsland.
-    Gesorteerd op nieuwste eerst — stopt bij bekende listings voor snelheid."""
+    Gebaseerd op werkende selectors uit fussballball/mobile_de_scraping (feb 2024).
+    Blokkeert images/fonts voor snelheid via proxy."""
     listings = []
-    # ms=1900;62 = Audi Q3 (incl. Sportback), fuel=HYBRID, Germany, year>=2021, km<=85000, price<=38000
-    # sb=doc = sorteren op nieuwste eerst. Sportback filter via is_q3_sportback_hybrid()
     search_url = (
         "https://suchen.mobile.de/fahrzeuge/search.html?"
         "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B&"
@@ -481,187 +480,136 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
 
     log.info("Scraping mobile.de ...")
     try:
+        # Blokkeer zware resources — maakt proxy 3x sneller
+        await page.context.route(
+            "**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf,eot}",
+            lambda route: route.abort(),
+        )
+
         await human_delay(1, 3)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-        await human_delay(3, 5)
+
+        # Wacht tot JS content geladen is (mobile.de rendert dynamisch)
+        await page.wait_for_timeout(5000)
 
         page_title = await page.title()
-        log.info("mobile.de page title: %s", page_title)
-        log.info("mobile.de page URL: %s", page.url)
-        try:
-            await page.screenshot(path="debug_mobile.png", timeout=15000)
-        except Exception:
-            log.info("mobile.de: screenshot timeout (proxy is traag, geen probleem)")
+        page_url = page.url
+        log.info("mobile.de page title: '%s'", page_title)
+        log.info("mobile.de page URL: %s", page_url)
 
-        # ── Detecteer IP-block (datacenter IPs worden geblokkeerd) ──
+        # ── Detecteer IP-block ──
         if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
-            log.warning(
-                "mobile.de BLOKKEERT dit IP-adres (datacenter/GitHub Actions IP). "
-                "Dit is normaal. Opties: (1) officiële API aanvragen bij service@team.mobile.de, "
-                "(2) residentiële proxy toevoegen, (3) self-hosted runner gebruiken. "
-                "AutoScout24 is de primaire bron en werkt wél."
-            )
+            log.warning("mobile.de: IP geblokkeerd (Zugriff verweigert)")
             return listings
 
-        # Sla HTML op voor debug
+        # ── Debug: sla HTML op ──
         try:
             html = await page.content()
             with open("debug_mobile.html", "w", encoding="utf-8") as f:
                 f.write(html[:500_000])
+            log.info("mobile.de: HTML opgeslagen (%d bytes)", len(html))
         except Exception:
             pass
 
-        # ── Consent handling — mobile.de gebruikt Sourcepoint CMP in IFRAME ──
-        consent_handled = False
+        try:
+            await page.screenshot(path="debug_mobile.png", timeout=10000)
+        except Exception:
+            pass
 
-        # Methode 1: Sourcepoint CMP iframe (meest voorkomend op mobile.de)
-        for iframe_sel in [
-            "[id^='sp_message_iframe']",
-            "iframe[title*='SP Consent']",
-            "iframe[title*='consent']",
-            "iframe[src*='sourcepoint']",
-            "iframe[id*='sp_message']",
-        ]:
+        # ── Consent: probeer te klikken, maar data zit ook achter overlay ──
+        for frame in page.frames:
             try:
-                iframe = page.frame_locator(iframe_sel)
-                accept_btn = iframe.locator(
+                btn = frame.locator(
                     "button[title='Zustimmen'], "
-                    "button[title='Akzeptieren'], "
                     "button:has-text('Zustimmen'), "
                     "button:has-text('Akzeptieren'), "
-                    "button:has-text('Alle akzeptieren'), "
-                    "button:has-text('Alle akzeptieren und fortfahren')"
+                    "button:has-text('Alle akzeptieren')"
                 )
-                await accept_btn.first.wait_for(timeout=3000)
-                await human_delay(0.3, 1)
-                await accept_btn.first.click()
-                consent_handled = True
-                log.info("mobile.de: consent via iframe '%s' geaccepteerd!", iframe_sel)
-                await page.wait_for_timeout(3000)
-                break
+                if await btn.count() > 0:
+                    await btn.first.click(timeout=3000)
+                    log.info("mobile.de: consent geaccepteerd")
+                    await page.wait_for_timeout(2000)
+                    break
             except Exception:
                 continue
 
-        # Methode 2: Direct button (geen iframe)
-        if not consent_handled:
-            try:
-                consent = page.locator(
-                    "button:has-text('Akzeptieren'), "
-                    "button:has-text('Zustimmen'), "
-                    "button:has-text('Alle akzeptieren'), "
-                    "button:has-text('Einverstanden'), "
-                    "[data-testid='gdpr-consent-accept-btn'], "
-                    ".mde-consent-accept-btn, #consentAccept"
-                )
-                if await consent.count() > 0:
-                    await human_delay(0.3, 1)
-                    await consent.first.click()
-                    consent_handled = True
-                    log.info("mobile.de: consent via directe button geaccepteerd!")
-                    await page.wait_for_timeout(3000)
-            except Exception:
-                pass
-
-        # Methode 3: Doorzoek alle frames
-        if not consent_handled:
-            try:
-                for frame in page.frames:
-                    try:
-                        btn = frame.locator("button:has-text('Zustimmen'), button:has-text('Akzeptieren')")
-                        if await btn.count() > 0:
-                            await btn.first.click()
-                            consent_handled = True
-                            log.info("mobile.de: consent via frame gevonden!")
-                            await page.wait_for_timeout(3000)
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-        if consent_handled:
-            await page.screenshot(path="debug_mobile_after_consent.png", timeout=15000)
-        else:
-            log.warning("mobile.de: GEEN consent gevonden/geklikt")
-
-        # Wacht op listing cards
+        # ── Wacht op listings (data-testid selectors uit werkende scraper) ──
         try:
             await page.wait_for_selector(
-                "a.result-item, .cBox-body--resultitem, [data-testid='result-listing-entry'], .result-item",
-                timeout=10000,
+                "a[data-testid*='result'], a[data-testid*='listing']",
+                timeout=15000,
             )
         except Exception:
-            log.warning("mobile.de: timeout bij wachten op listings")
+            log.info("mobile.de: wachten op data-testid selectors...")
             await page.wait_for_timeout(5000)
 
-        # Zoek listing cards met meerdere selectors
+        # ── Zoek listing cards — data-testid eerst (meest betrouwbaar) ──
         count = 0
         cards = None
         for sel in [
-            "a.result-item",
-            "a.link--muted.no--text--decoration.result-item",
-            ".cBox-body--resultitem",
-            "[data-testid='result-listing-entry']",
-            ".result-item",
-            ".cBox-body--resultInnerRow",
+            "a[data-testid*='result']",           # Werkende scraper feb 2024
+            "[data-testid*='listing-entry']",       # Alternatief
+            "a.result-item",                        # Legacy
+            ".cBox-body--resultitem",               # Legacy
         ]:
             cards = page.locator(sel)
             count = await cards.count()
             if count > 0:
-                log.info("mobile.de: %d cards gevonden met '%s'", count, sel)
+                log.info("mobile.de: %d cards met '%s'", count, sel)
                 break
 
         if count == 0:
-            log.warning("mobile.de: 0 resultaten met alle selectors")
-            body_text = await page.locator("body").inner_text()
-            log.info("mobile.de body (eerste 2000 chars): %s", body_text[:2000])
-            await page.screenshot(path="debug_mobile_no_results.png", timeout=15000)
+            # Fallback: log body + sla alles op voor debug
+            log.warning("mobile.de: 0 listings gevonden")
+            try:
+                body_text = await page.locator("body").inner_text()
+                log.info("mobile.de body (2000 chars): %s", body_text[:2000])
+            except Exception:
+                pass
             try:
                 html = await page.content()
                 with open("debug_mobile_final.html", "w", encoding="utf-8") as f:
                     f.write(html[:500_000])
             except Exception:
                 pass
+            try:
+                await page.screenshot(path="debug_mobile_no_results.png", timeout=10000)
+            except Exception:
+                pass
+            return listings
 
-        known_streak = 0  # Tel opeenvolgende bekende listings
+        # ── Parse listing cards ──
+        known_streak = 0
 
         for i in range(min(count, 50)):
             try:
                 card = cards.nth(i)
 
-                # Title — meerdere selectors op volgorde van betrouwbaarheid
+                # Title — h2 is de standaard (feb 2024 scraper), fallback naar spans
                 title = ""
-                for title_sel in [
-                    "span.h3.u-text-break-word",
-                    "span.h3",
-                    "a.link--muted-secondary span",
-                    ".headline-block a span",
-                    "[data-testid='result-listing-entry-header'] a span",
-                    "h2", "h3",
-                ]:
+                for title_sel in ["h2", "span.h3", ".u-text-break-word"]:
                     title_el = card.locator(title_sel)
                     if await title_el.count() > 0:
                         title = (await title_el.first.inner_text()).strip()
                         if title:
                             break
-
                 if not title:
-                    card_text = await card.inner_text()
-                    lines = [l.strip() for l in card_text.split("\n") if l.strip()]
-                    title = lines[0] if lines else ""
+                    try:
+                        card_text = await card.inner_text()
+                        lines = [l.strip() for l in card_text.split("\n") if l.strip()]
+                        title = lines[0] if lines else ""
+                    except Exception:
+                        continue
 
                 if not title or "q3" not in title.lower():
                     continue
 
-                # URL — card zelf kan een <a> zijn
-                href = await card.get_attribute("href")
+                # URL — card is vaak zelf een <a> tag
+                href = await card.get_attribute("href") or ""
                 if not href:
-                    for link_sel in ["a[href*='details'], a.link--muted-secondary", "a[href*='fahrzeuge']"]:
-                        link_el = card.locator(link_sel)
-                        if await link_el.count() > 0:
-                            href = await link_el.first.get_attribute("href")
-                            if href:
-                                break
+                    link_el = card.locator("a[href*='/fahrzeuge/']")
+                    if await link_el.count() > 0:
+                        href = await link_el.first.get_attribute("href") or ""
                 if href and not href.startswith("http"):
                     href = "https://suchen.mobile.de" + href
 
@@ -669,25 +617,30 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
 
                 if listing_exists(conn, listing_id):
                     known_streak += 1
-                    log.info("Bekende listing, skip: %s", title[:50])
+                    log.info("Bekende listing: %s", title[:50])
                     if known_streak >= 3:
-                        log.info("3 bekende listings op rij — stoppen (nieuwste eerst)")
+                        log.info("3 bekende op rij — stoppen")
                         break
                     continue
                 known_streak = 0
 
-                # Price
+                # Price — data-testid="price-label" (feb 2024 scraper)
                 price = 0
-                for price_sel in [".price-block span", ".price-block .h3", "[data-testid='price-label']", ".pricePrimaryCountryOfSale", "span:has-text('€')"]:
+                for price_sel in [
+                    "span[data-testid*='price-label']",
+                    "span[data-testid*='price']",
+                    ".price-block span",
+                    ".h3.u-block",
+                ]:
                     price_el = card.locator(price_sel)
                     if await price_el.count() > 0:
                         price = parse_price(await price_el.first.inner_text())
                         if price:
                             break
 
-                # Details (registratie, km, power)
+                # Details — km, jaar, pk
                 details_text = ""
-                for det_sel in [".rbt-regMilPow", "[data-testid='regMilPow']", ".vehicle-data"]:
+                for det_sel in [".rbt-regMilPow", "[data-testid*='regMilPow']", ".vehicle-data"]:
                     det_el = card.locator(det_sel)
                     if await det_el.count() > 0:
                         details_text = await det_el.first.inner_text()
@@ -696,12 +649,16 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                 year = parse_year(details_text)
                 km = parse_km(details_text)
 
+                # Fallback: parse uit volledige card text
                 if not year or not km:
-                    card_text = await card.inner_text()
-                    if not year:
-                        year = parse_year(card_text)
-                    if not km:
-                        km = parse_km(card_text)
+                    try:
+                        card_text = await card.inner_text()
+                        if not year:
+                            year = parse_year(card_text)
+                        if not km:
+                            km = parse_km(card_text)
+                    except Exception:
+                        pass
 
                 if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
@@ -711,47 +668,50 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                     continue
 
                 listing = Listing(
-                    id=listing_id,
-                    source="mobile.de",
-                    title=title,
-                    price=price,
-                    year=year,
-                    km=km,
-                    url=href or search_url,
+                    id=listing_id, source="mobile.de", title=title,
+                    price=price, year=year, km=km, url=href or search_url,
                 )
 
-                # Alleen detail pagina voor NIEUWE listings
+                # Detail pagina voor features (alleen nieuwe listings)
                 if href:
                     try:
-                        detail_page = await page.context.new_page()
-                        await human_delay(1, 2.5)
-                        await detail_page.goto(href, wait_until="domcontentloaded", timeout=30000)
-                        await human_delay(1.5, 3)
+                        dp = await page.context.new_page()
+                        await human_delay(1, 2)
+                        await dp.goto(href, wait_until="domcontentloaded", timeout=30000)
+                        await dp.wait_for_timeout(3000)
 
-                        desc_el = detail_page.locator("#description, .cBox--vehicleDescription, .description-text, .g-col-12")
-                        if await desc_el.count() > 0:
-                            listing.description = await desc_el.first.inner_text()
+                        # Technische data (bewezen selector)
+                        for sel in [
+                            "div.cBox-body.cBox-body--technical-data",
+                            ".cBox--technicalData",
+                            "#rbt-td",
+                        ]:
+                            el = dp.locator(sel)
+                            if await el.count() > 0:
+                                listing.description = await el.first.inner_text()
+                                break
 
-                        feat_el = detail_page.locator(".cBox--features, #features, .vehicle-features, .bullet-list")
-                        if await feat_el.count() > 0:
-                            listing.description += " " + await feat_el.first.inner_text()
+                        # Beschrijving + features
+                        for sel in [
+                            "#description", ".cBox--vehicleDescription",
+                            ".cBox--features", "#features",
+                        ]:
+                            el = dp.locator(sel)
+                            if await el.count() > 0:
+                                listing.description += " " + await el.first.inner_text()
 
-                        tech_el = detail_page.locator(".cBox--technicalData, .technical-data, #rbt-td")
-                        if await tech_el.count() > 0:
-                            listing.description += " " + await tech_el.first.inner_text()
-
-                        await detail_page.close()
+                        await dp.close()
                     except Exception as e:
-                        log.warning("Kon detail pagina niet laden: %s", e)
+                        log.warning("Detail fout: %s", e)
 
-                # Hybrid check met volledige info
                 if not is_q3_sportback_hybrid(listing.title, listing.description):
-                    log.info("Overgeslagen (geen Sportback hybrid): %s", title)
+                    log.info("Geen Sportback hybrid: %s", title[:50])
                     continue
 
+                log.info("MATCH: %s — €%s — %d km — %d", title[:50], f"{price:,}" if price else "?", km, year)
                 listings.append(listing)
             except Exception as e:
-                log.warning("mobile.de card %d overgeslagen: %s", i, e)
+                log.warning("mobile.de card %d: %s", i, e)
                 continue
 
     except Exception as e:
