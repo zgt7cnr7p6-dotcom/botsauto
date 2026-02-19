@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+PROXY_URL = os.environ.get("PROXY_URL", "")  # Residentiële proxy voor mobile.de
 
 SEARCH_CRITERIA = {
     "model": "Audi Q3 Sportback 45 TFSI e",
@@ -1090,35 +1091,49 @@ async def main():
 
     conn = init_db()
 
+    browser_args = [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-blink-features=AutomationControlled",
+    ]
+
+    all_listings: list[Listing] = []
+
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-blink-features=AutomationControlled",
-            ],
-        )
-        context = await create_stealth_context(browser)
-        page = await context.new_page()
+        # ── mobile.de: eigen browser MET residentiële proxy ──
+        if PROXY_URL:
+            log.info("mobile.de: residentiële proxy actief")
+            mobile_browser = await p.chromium.launch(
+                headless=True,
+                args=browser_args,
+                proxy={"server": PROXY_URL},
+            )
+        else:
+            log.warning("mobile.de: GEEN proxy geconfigureerd — wordt waarschijnlijk geblokkeerd")
+            mobile_browser = await p.chromium.launch(headless=True, args=browser_args)
 
-        all_listings: list[Listing] = []
+        mobile_ctx = await create_stealth_context(mobile_browser)
+        mobile_page = await mobile_ctx.new_page()
 
-        # Scrape both sources (conn meegeven voor snelle bekende-listing check)
-        mobile_listings = await scrape_mobile_de(page, conn)
+        mobile_listings = await scrape_mobile_de(mobile_page, conn)
         all_listings.extend(mobile_listings)
         log.info("mobile.de: %d NIEUWE hybrid listings gevonden", len(mobile_listings))
+        await mobile_browser.close()
 
         # Korte pauze tussen sites
         await human_delay(3, 6)
 
-        as24_listings = await scrape_autoscout24(page, conn)
+        # ── AutoScout24: directe verbinding (geen proxy nodig) ──
+        as24_browser = await p.chromium.launch(headless=True, args=browser_args)
+        as24_ctx = await create_stealth_context(as24_browser)
+        as24_page = await as24_ctx.new_page()
+
+        as24_listings = await scrape_autoscout24(as24_page, conn)
         all_listings.extend(as24_listings)
         log.info("AutoScout24: %d NIEUWE hybrid listings gevonden", len(as24_listings))
-
-        await browser.close()
+        await as24_browser.close()
 
     log.info("Totaal: %d listings gevonden, nu scoren ...", len(all_listings))
 
