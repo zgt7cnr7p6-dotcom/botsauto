@@ -482,13 +482,16 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
     log.info("Scraping mobile.de ...")
     try:
         await human_delay(1, 3)
-        await page.goto(search_url, wait_until="networkidle", timeout=60000)
-        await human_delay(2, 4)
+        await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+        await human_delay(3, 5)
 
         page_title = await page.title()
         log.info("mobile.de page title: %s", page_title)
         log.info("mobile.de page URL: %s", page.url)
-        await page.screenshot(path="debug_mobile.png", full_page=True)
+        try:
+            await page.screenshot(path="debug_mobile.png", timeout=15000)
+        except Exception:
+            log.info("mobile.de: screenshot timeout (proxy is traag, geen probleem)")
 
         # ── Detecteer IP-block (datacenter IPs worden geblokkeerd) ──
         if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
@@ -577,7 +580,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                 pass
 
         if consent_handled:
-            await page.screenshot(path="debug_mobile_after_consent.png", full_page=True)
+            await page.screenshot(path="debug_mobile_after_consent.png", timeout=15000)
         else:
             log.warning("mobile.de: GEEN consent gevonden/geklikt")
 
@@ -612,7 +615,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
             log.warning("mobile.de: 0 resultaten met alle selectors")
             body_text = await page.locator("body").inner_text()
             log.info("mobile.de body (eerste 2000 chars): %s", body_text[:2000])
-            await page.screenshot(path="debug_mobile_no_results.png", full_page=True)
+            await page.screenshot(path="debug_mobile_no_results.png", timeout=15000)
             try:
                 html = await page.content()
                 with open("debug_mobile_final.html", "w", encoding="utf-8") as f:
@@ -779,7 +782,7 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
 
         log.info("AutoScout24 page title: %s", await page.title())
         log.info("AutoScout24 page URL: %s", page.url)
-        await page.screenshot(path="debug_autoscout.png", full_page=True)
+        await page.screenshot(path="debug_autoscout.png", timeout=15000)
 
         # Sla HTML op voor debug
         html_content = await page.content()
@@ -979,7 +982,7 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
         # ── METHODE 2: CSS selector fallback ──
         log.info("AutoScout24: fallback naar CSS selectors ...")
         await page.wait_for_timeout(3000)
-        await page.screenshot(path="debug_autoscout_fallback.png", full_page=True)
+        await page.screenshot(path="debug_autoscout_fallback.png", timeout=15000)
 
         for sel in ["article[data-testid]", ".list-page-item", ".cl-list-element", "article", "[data-testid='listing-entry']"]:
             cards = page.locator(sel)
