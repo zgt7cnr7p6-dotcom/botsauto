@@ -16,7 +16,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 import requests as req_lib
 from bs4 import BeautifulSoup
@@ -46,6 +46,10 @@ PROXY_URL = os.environ.get("PROXY_URL", "")  # Residentiële proxy voor mobile.d
 PROXY_URLS = [u.strip() for u in os.environ.get("PROXY_URLS", "").split(",") if u.strip()]
 if PROXY_URL and PROXY_URL not in PROXY_URLS:
     PROXY_URLS.insert(0, PROXY_URL)
+
+# Scrape.do API token — bypasses DataDome, anti-bot, CAPTCHAs
+# Primaire methode voor mobile.de (betrouwbaarder dan TLS spoofing)
+SCRAPE_DO_TOKEN = os.environ.get("SCRAPE_DO_TOKEN", "")
 
 
 def parse_proxy_url(url: str) -> dict:
@@ -547,6 +551,237 @@ def _mobile_de_headers() -> dict:
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0",
     }
+
+
+def scrape_do_fetch(url: str, render: bool = False) -> str | None:
+    """Haal een pagina op via Scrape.do API.
+
+    Scrape.do handelt DataDome, CAPTCHAs en anti-bot bypass automatisch af.
+    super=true activeert geavanceerde anti-bot bypass (nodig voor mobile.de).
+    geoCode=de zorgt voor Duits IP-adres.
+    Retourneert HTML string of None bij fout.
+    """
+    if not SCRAPE_DO_TOKEN:
+        return None
+
+    api_url = (
+        f"https://api.scrape.do"
+        f"?token={SCRAPE_DO_TOKEN}"
+        f"&url={quote(url)}"
+        f"&super=true"
+        f"&geoCode=de"
+    )
+    if render:
+        api_url += "&render=true"
+
+    try:
+        resp = req_lib.get(api_url, timeout=60)
+        log.info("Scrape.do: status=%d, size=%d bytes voor %s", resp.status_code, len(resp.content), url[:80])
+
+        if resp.status_code == 200:
+            return resp.text
+        elif resp.status_code == 401:
+            log.error("Scrape.do: ongeldige API token")
+        elif resp.status_code == 429:
+            log.warning("Scrape.do: rate limit bereikt")
+        else:
+            log.warning("Scrape.do: fout status %d — %s", resp.status_code, resp.text[:200])
+        return None
+    except req_lib.RequestException as e:
+        log.error("Scrape.do: request mislukt: %s", e)
+        return None
+
+
+def scrape_mobile_de_scrapedo(conn) -> list:
+    """Scrape mobile.de via Scrape.do API + BeautifulSoup.
+
+    Scrape.do bypassed DataDome automatisch — geen TLS spoofing of proxy nodig.
+    Haalt ook detail pagina's op voor feature-detectie.
+    """
+    listings = []
+
+    if not SCRAPE_DO_TOKEN:
+        log.info("mobile.de Scrape.do: geen API token, overslaan")
+        return listings
+
+    search_url = (
+        "https://suchen.mobile.de/fahrzeuge/search.html?"
+        "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B"
+        "&fuel=HYBRID_PETROL&maxMileage=85000"
+        "&minPrice=29000&maxPrice=37500"
+        "&minFirstRegistrationDate=2019-01-01"
+        "&od=Pano"
+        "&ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
+    )
+
+    log.info("mobile.de Scrape.do: zoekpagina ophalen ...")
+    html = scrape_do_fetch(search_url)
+
+    if not html:
+        log.error("mobile.de Scrape.do: geen HTML ontvangen")
+        return listings
+
+    # Detecteer IP-block (zou niet moeten met Scrape.do, maar voor de zekerheid)
+    if "zugriff verweigert" in html.lower() or "access denied" in html.lower():
+        log.error("mobile.de Scrape.do: geblokkeerd (Zugriff verweigert)")
+        try:
+            with open("debug_mobile_scrapedo.html", "w", encoding="utf-8") as f:
+                f.write(html[:500_000])
+        except Exception:
+            pass
+        return listings
+
+    # Debug: sla HTML op
+    try:
+        with open("debug_mobile_scrapedo.html", "w", encoding="utf-8") as f:
+            f.write(html[:500_000])
+    except Exception:
+        pass
+
+    # Parse met BeautifulSoup (zelfde logica als HTTP scraper)
+    soup = BeautifulSoup(html, "html.parser")
+
+    page_title = soup.title.text if soup.title else ""
+    log.info("mobile.de Scrape.do: page title = '%s'", page_title)
+
+    # Zoek listing cards
+    cards = soup.select("a[data-testid*='result'], a[data-testid*='listing']")
+    if not cards:
+        cards = soup.select("a.result-item, div.cBox-body--resultitem")
+    if not cards:
+        cards = soup.select("a[href*='/fahrzeuge/details']")
+
+    log.info("mobile.de Scrape.do: %d cards gevonden", len(cards))
+
+    if not cards:
+        body = soup.get_text(separator=" ", strip=True)
+        log.info("mobile.de Scrape.do body (2000 chars): %s", body[:2000])
+        return listings
+
+    known_streak = 0
+    for card in cards[:50]:
+        try:
+            # Title
+            title = ""
+            for tag in card.select("h2, span.h3, .u-text-break-word"):
+                title = tag.get_text(strip=True)
+                if title:
+                    break
+            if not title:
+                title = card.get_text(separator=" ", strip=True).split("\n")[0][:100]
+
+            if not title or "q3" not in title.lower():
+                continue
+
+            # URL
+            href = card.get("href", "")
+            if not href:
+                link = card.select_one("a[href*='/fahrzeuge/']")
+                if link:
+                    href = link.get("href", "")
+            if href and not href.startswith("http"):
+                href = "https://suchen.mobile.de" + href
+
+            listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{hash(title)}"
+
+            if listing_exists(conn, listing_id):
+                known_streak += 1
+                log.info("Bekende listing: %s", title[:50])
+                if known_streak >= 3:
+                    log.info("3 bekende op rij — stoppen")
+                    break
+                continue
+            known_streak = 0
+
+            # Price
+            card_text = card.get_text(separator=" ")
+            price = 0
+            for price_el in card.select("span[data-testid*='price'], .price-block span"):
+                price = parse_price(price_el.get_text())
+                if price:
+                    break
+            if not price:
+                price_match = re.search(r"€\s*([\d.]+)", card_text)
+                if price_match:
+                    price = parse_price(price_match.group(1))
+
+            # KM
+            km = 0
+            km_match = re.search(r"([\d.]+)\s*km", card_text, re.IGNORECASE)
+            if km_match:
+                km = parse_km(km_match.group(0))
+
+            # Year
+            year = parse_year(card_text)
+
+            # Filter
+            if price and price > SEARCH_CRITERIA["price_max"]:
+                continue
+            if km and km > SEARCH_CRITERIA["km_max_mobile"]:
+                continue
+            if year and year < SEARCH_CRITERIA["year_min_mobile"]:
+                continue
+
+            # Hybrid check (op basis van card text)
+            if not is_q3_hybrid(title, card_text, ""):
+                continue
+
+            # Detail pagina ophalen via Scrape.do voor feature-detectie
+            description = card_text[:500]
+            if href:
+                log.info("mobile.de Scrape.do: detail ophalen voor %s ...", title[:50])
+                time.sleep(random.uniform(0.5, 1.5))  # Korte pauze tussen requests
+                detail_html = scrape_do_fetch(href)
+                if detail_html:
+                    detail_soup = BeautifulSoup(detail_html, "html.parser")
+
+                    # Technische data
+                    for sel in [
+                        "div.cBox-body.cBox-body--technical-data",
+                        ".cBox--technicalData",
+                        "#rbt-td",
+                    ]:
+                        el = detail_soup.select_one(sel)
+                        if el:
+                            description = el.get_text(separator=" ", strip=True)
+                            break
+
+                    # Features + beschrijving
+                    for sel in [
+                        "#description", ".cBox--vehicleDescription",
+                        ".cBox--features", "#features",
+                    ]:
+                        el = detail_soup.select_one(sel)
+                        if el:
+                            description += " " + el.get_text(separator=" ", strip=True)
+
+                    log.info("mobile.de Scrape.do: detail beschrijving %d chars", len(description))
+
+            listing = Listing(
+                id=listing_id,
+                source="mobile.de",
+                title=title,
+                price=price,
+                year=year,
+                km=km,
+                url=href,
+                description=description,
+            )
+
+            # Hybrid check opnieuw met volledige beschrijving
+            if not is_q3_hybrid(listing.title, listing.description, ""):
+                log.info("Geen hybrid na detail check: %s", title[:50])
+                continue
+
+            log.info("MATCH: %s — €%s — %d km — %d", title[:50], f"{price:,}" if price else "?", km, year)
+            listings.append(listing)
+
+        except Exception as e:
+            log.warning("mobile.de Scrape.do card: %s", e)
+            continue
+
+    log.info("mobile.de Scrape.do: %d listings gevonden", len(listings))
+    return listings
 
 
 def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
@@ -1471,28 +1706,38 @@ async def main():
 
     all_listings: list[Listing] = []
 
-    # ── mobile.de: probeer alle proxies via HTTP, dan Playwright ──
+    # ── mobile.de: Scrape.do eerst, dan HTTP/proxies, dan Playwright ──
     mobile_listings = []
 
-    # Bouw lijst van pogingen: elke proxy + direct, HTTP eerst
-    http_attempts: list[tuple[str, str | None]] = []
-    for pu in PROXY_URLS:
-        label = pu.split("@")[-1] if "@" in pu else pu
-        http_attempts.append((f"HTTP proxy {label}", pu))
-    http_attempts.append(("HTTP direct", None))
-
-    for label, proxy in http_attempts:
+    # PRIMAIR: Scrape.do API (bypassed DataDome automatisch)
+    if SCRAPE_DO_TOKEN:
+        log.info("mobile.de [Scrape.do API] ...")
+        mobile_listings = scrape_mobile_de_scrapedo(conn)
         if mobile_listings:
-            break
-        log.info("mobile.de [%s] ...", label)
-        mobile_listings = scrape_mobile_de_http(conn, proxy_url=proxy)
-        if mobile_listings:
-            log.info("mobile.de [%s]: %d listings!", label, len(mobile_listings))
-            break
-        log.warning("mobile.de [%s]: 0 listings", label)
-        time.sleep(random.uniform(1, 3))
+            log.info("mobile.de [Scrape.do]: %d listings!", len(mobile_listings))
+        else:
+            log.warning("mobile.de [Scrape.do]: 0 listings, probeer fallback ...")
 
-    # Fallback: Playwright browser
+    # FALLBACK 1: HTTP met curl_cffi/proxies
+    if not mobile_listings:
+        http_attempts: list[tuple[str, str | None]] = []
+        for pu in PROXY_URLS:
+            label = pu.split("@")[-1] if "@" in pu else pu
+            http_attempts.append((f"HTTP proxy {label}", pu))
+        http_attempts.append(("HTTP direct", None))
+
+        for label, proxy in http_attempts:
+            if mobile_listings:
+                break
+            log.info("mobile.de [%s] ...", label)
+            mobile_listings = scrape_mobile_de_http(conn, proxy_url=proxy)
+            if mobile_listings:
+                log.info("mobile.de [%s]: %d listings!", label, len(mobile_listings))
+                break
+            log.warning("mobile.de [%s]: 0 listings", label)
+            time.sleep(random.uniform(1, 3))
+
+    # FALLBACK 2: Playwright browser
     if not mobile_listings:
         log.info("mobile.de: HTTP mislukt, probeer Playwright ...")
 
