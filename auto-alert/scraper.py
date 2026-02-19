@@ -1862,20 +1862,30 @@ async def main():
         alert_count,
     )
 
-    # Send summary with top listings overview
+    # Send summary — alleen listings die ALLE vereiste features hebben
     if all_listings:
         max_score = len(MUST_HAVE_FEATURES) * 2 + len(NICE_TO_HAVE_FEATURES)
-        sorted_listings = sorted(all_listings, key=lambda l: l.score, reverse=True)
+        qualified = [
+            lst for lst in all_listings
+            if all(f in lst.features for f in REQUIRED_FEATURES)
+        ]
+        sorted_listings = sorted(qualified, key=lambda l: l.score, reverse=True)
+        skipped = len(all_listings) - len(qualified)
 
         summary = (
             f"📊 <b>Scan samenvatting</b>\n\n"
             f"🔍 Totaal gevonden: {len(all_listings)}\n"
-            f"🆕 Nieuw: {new_count}\n"
+            f"✅ Voldoet aan eisen: {len(qualified)}\n"
+            f"❌ Afgevallen (mist camera/keyless/pano): {skipped}\n"
             f"🔔 Alerts verstuurd: {alert_count}\n"
             f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n\n"
             f"{'━' * 30}\n"
-            f"<b>🏆 Overzicht ({len(sorted_listings)} listings):</b>\n\n"
         )
+
+        if not sorted_listings:
+            summary += "<i>Geen listings met alle vereiste features gevonden.</i>\n"
+        else:
+            summary += f"<b>🏆 Top {len(sorted_listings)} listings:</b>\n\n"
 
         for i, lst in enumerate(sorted_listings[:15], 1):
             # Rating
