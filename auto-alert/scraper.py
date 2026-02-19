@@ -45,9 +45,12 @@ def parse_proxy_url(url: str) -> dict:
 SEARCH_CRITERIA = {
     "model": "Audi Q3 Sportback 45 TFSI e",
     "fuel": "hybrid",
-    "year_min": 2021,
-    "km_max": 85_000,
-    "price_max": 38_000,
+    "year_min_mobile": 2019,   # mobile.de: vanaf 2019
+    "year_min_as24": 2021,     # AutoScout24: vanaf 2021
+    "km_max_mobile": 85_000,   # mobile.de: tot 85k km
+    "km_max_as24": 80_000,     # AutoScout24: tot 80k km
+    "price_min": 29_000,       # mobile.de: vanaf €29k
+    "price_max": 37_500,       # max €37.500
     "country": "DE",
 }
 
@@ -62,7 +65,8 @@ MUST_HAVE_FEATURES = [
 ]
 
 # HARDE EISEN: zonder deze features wordt GEEN alert verstuurd
-REQUIRED_FEATURES = ["panoramadak", "keyless"]
+# Keyless staat er niet altijd bij in advertenties, dus alleen pano verplicht
+REQUIRED_FEATURES = ["panoramadak"]
 
 # Nice-to-have: bonuspunten, maar niet vereist
 NICE_TO_HAVE_FEATURES = [
@@ -126,16 +130,54 @@ async def create_stealth_context(browser):
         java_script_enabled=True,
     )
 
-    # Webdriver property verbergen (belangrijkste anti-bot check)
+    # Uitgebreide stealth: verberg webdriver, plugins, permissions etc.
     await context.add_init_script("""
+        // Webdriver property verbergen
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        delete navigator.__proto__.webdriver;
+
+        // Realistische plugins (Chrome PDF viewer etc.)
         Object.defineProperty(navigator, 'plugins', {
-            get: () => [1, 2, 3, 4, 5]
+            get: () => {
+                const plugins = [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin' },
+                ];
+                plugins.length = 3;
+                return plugins;
+            }
         });
+
         Object.defineProperty(navigator, 'languages', {
             get: () => ['de-DE', 'de', 'en-US', 'en']
         });
-        window.chrome = { runtime: {} };
+
+        // Chrome object simuleren
+        window.chrome = {
+            runtime: {
+                connect: function() {},
+                sendMessage: function() {},
+            },
+            loadTimes: function() { return {}; },
+            csi: function() { return {}; },
+        };
+
+        // Permissions API — altijd 'prompt' teruggeven
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) =>
+            parameters.name === 'notifications'
+                ? Promise.resolve({ state: Notification.permission })
+                : originalQuery(parameters);
+
+        // Canvas fingerprint randomisatie
+        const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function(type) {
+            if (type === 'image/png' && this.width === 16 && this.height === 16) {
+                return origToDataURL.apply(this, arguments);
+            }
+            return origToDataURL.apply(this, arguments);
+        };
     """)
 
     return context
@@ -224,24 +266,15 @@ class Listing:
 # ── Hybrid detectie ───────────────────────────────────────────────────────
 
 
-def is_q3_sportback_hybrid(title: str, description: str = "", fuel_type: str = "") -> bool:
+def is_q3_hybrid(title: str, description: str = "", fuel_type: str = "") -> bool:
     """
-    Detecteer of een listing een Q3 Sportback hybrid is.
-    Checkt op Sportback in titel EN op hybrid indicators in titel of fuel_type.
-    Beschrijving wordt NIET meer gebruikt voor hybrid-check (te veel false positives).
+    Detecteer of een listing een Q3 (Sportback) hybrid is.
+    Checkt op Q3 in titel EN op hybrid indicators.
+    Zoekt zowel Q3 als Q3 Sportback — de user zoekt op 'Q3 Pano' breed.
     """
     title_lower = title.lower()
 
     if "q3" not in title_lower:
-        return False
-
-    # Check Sportback in titel
-    sportback_patterns = [
-        r"sportback",
-        r"q3\s*sb\b",
-    ]
-    is_sportback = any(re.search(p, title_lower) for p in sportback_patterns)
-    if not is_sportback:
         return False
 
     # Check hybrid — PRIMAIR via titel (betrouwbaarst)
@@ -436,7 +469,7 @@ def send_telegram(listing: Listing):
         rating = "👎 Weinig opties"
 
     text = (
-        f"🚗 <b>Nieuwe Q3 Sportback 45 TFSI e gevonden!</b>\n"
+        f"🚗 <b>Nieuwe Q3 Hybrid gevonden!</b>\n"
         f"{'━' * 30}\n\n"
         f"<b>{listing.title}</b>\n\n"
         f"💰 <b>{price_str}</b>  {price_verdict}\n"
@@ -495,15 +528,20 @@ def parse_year(text: str) -> int:
 
 async def scrape_mobile_de(page, conn) -> list[Listing]:
     """Scrape mobile.de for Audi Q3 hybrid listings in Duitsland.
-    Gebaseerd op werkende selectors uit fussballball/mobile_de_scraping (feb 2024).
+    Zoekt op 'Q3 Pano' met hybrid filter — matched de user's eigen zoekopdracht.
     Blokkeert images/fonts voor snelheid via proxy."""
     listings = []
+    # URL matched de user's mobile.de zoekfilters:
+    # Audi Q3, free text "Pano", Hybrid fuel, €29k-€37.5k, 2019+, max 85k km
+    # sb=doc = sorteer op nieuwste eerst
     search_url = (
         "https://suchen.mobile.de/fahrzeuge/search.html?"
-        "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B&"
-        "fuel=HYBRID&maxMileage=85000&maxPrice=38000&"
-        "minFirstRegistrationDate=2021-01-01&"
-        "ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
+        "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B"
+        "&fuel=HYBRID&maxMileage=85000"
+        "&minPrice=29000&maxPrice=37500"
+        "&minFirstRegistrationDate=2019-01-01"
+        "&od=Pano"
+        "&ref=srpHead&refId=&s=Car&sb=doc&vc=Car"
     )
 
     log.info("Scraping mobile.de ...")
@@ -514,6 +552,19 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
             lambda route: route.abort(),
         )
 
+        # ── Warm-up: bezoek homepage eerst (minder verdacht dan directe zoek-URL) ──
+        log.info("mobile.de: warm-up via homepage ...")
+        await human_delay(2, 4)
+        try:
+            await page.goto("https://www.mobile.de", wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(random.randint(2000, 4000))
+            # Scroll een beetje om menselijk te lijken
+            await page.evaluate("window.scrollTo(0, Math.random() * 300)")
+            await human_delay(1, 2)
+        except Exception as e:
+            log.warning("mobile.de: warm-up mislukt: %s", e)
+
+        # ── Navigeer naar zoekresultaten ──
         await human_delay(1, 3)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
 
@@ -527,8 +578,16 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
 
         # ── Detecteer IP-block ──
         if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
-            log.warning("mobile.de: IP geblokkeerd (Zugriff verweigert)")
-            return listings
+            log.warning("mobile.de: IP geblokkeerd, wacht en retry ...")
+            # Retry: wacht en probeer opnieuw (soms is het tijdelijk)
+            await asyncio.sleep(random.uniform(5, 10))
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
+            await page.wait_for_timeout(5000)
+            page_title = await page.title()
+            if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
+                log.error("mobile.de: IP definitief geblokkeerd (Zugriff verweigert)")
+                return listings
+            log.info("mobile.de: retry succesvol! title: '%s'", page_title)
 
         # ── Debug: sla HTML op ──
         try:
@@ -690,9 +749,11 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
 
                 if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
-                if km and km > SEARCH_CRITERIA["km_max"]:
+                if price and price < SEARCH_CRITERIA["price_min"]:
                     continue
-                if year and year < SEARCH_CRITERIA["year_min"]:
+                if km and km > SEARCH_CRITERIA["km_max_mobile"]:
+                    continue
+                if year and year < SEARCH_CRITERIA["year_min_mobile"]:
                     continue
 
                 listing = Listing(
@@ -732,7 +793,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                     except Exception as e:
                         log.warning("Detail fout: %s", e)
 
-                if not is_q3_sportback_hybrid(listing.title, listing.description):
+                if not is_q3_hybrid(listing.title, listing.description):
                     log.info("Geen Sportback hybrid: %s", title[:50])
                     continue
 
@@ -752,14 +813,13 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
     """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland.
     Gesorteerd op nieuwste eerst — scraped meerdere pagina's."""
     listings = []
-    # Audi Q3 Sportback, Germany, year >= 2021, km <= 85000, price <= 38000
-    # URL: q3/ve_sportback — "ve_" is variant filter op AutoScout24 (NIET q3-sportback!)
-    # GEEN fuel filter in URL — we filteren zelf op hybrid via is_q3_sportback_hybrid()
+    # Audi Q3 Pano, Germany, year >= 2021, km <= 80000, price <= 37500
+    # Zoekt op ALLE Q3 varianten (niet alleen Sportback) — hybrid filter in code
     # sort=age = nieuwste eerst
     base_url = (
-        "https://www.autoscout24.de/lst/audi/q3/ve_sportback"
+        "https://www.autoscout24.de/lst/audi/q3"
         "?atype=C&cy=D&desc=0&fregfrom=2021"
-        "&kmto=85000&priceto=38000&sort=age&ustate=N%2CU"
+        "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
     )
     MAX_PAGES = 3  # Scrape max 3 pagina's (ca. 60 listings)
     consent_done = False
@@ -905,9 +965,9 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
 
                     if price and price > SEARCH_CRITERIA["price_max"]:
                         continue
-                    if km and km > SEARCH_CRITERIA["km_max"]:
+                    if km and km > SEARCH_CRITERIA["km_max_as24"]:
                         continue
-                    if year and year < SEARCH_CRITERIA["year_min"]:
+                    if year and year < SEARCH_CRITERIA["year_min_as24"]:
                         continue
 
                     # Fuel type (apart ophalen voor hybrid check)
@@ -937,8 +997,8 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
 
                     short_desc = " ".join(filter(None, desc_parts))
 
-                    if not is_q3_sportback_hybrid(title, short_desc, fuel_type_str):
-                        log.info("Overgeslagen (geen Sportback hybrid): %s", title[:60])
+                    if not is_q3_hybrid(title, short_desc, fuel_type_str):
+                        log.info("Overgeslagen (geen Q3 hybrid): %s", title[:60])
                         continue
 
                     listing = Listing(
@@ -1001,7 +1061,7 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
 
                     log.info("Detail beschrijving lengte: %d chars", len(listing.description))
 
-                    if not is_q3_sportback_hybrid(listing.title, listing.description, fuel_type_str):
+                    if not is_q3_hybrid(listing.title, listing.description, fuel_type_str):
                         log.info("Overgeslagen na detail check (geen hybrid): %s", title[:60])
                         continue
 
@@ -1075,9 +1135,9 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
 
                 if price and price > SEARCH_CRITERIA["price_max"]:
                     continue
-                if km and km > SEARCH_CRITERIA["km_max"]:
+                if km and km > SEARCH_CRITERIA["km_max_as24"]:
                     continue
-                if year and year < SEARCH_CRITERIA["year_min"]:
+                if year and year < SEARCH_CRITERIA["year_min_as24"]:
                     continue
 
                 listing = Listing(
@@ -1105,7 +1165,7 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
                     except Exception as e:
                         log.warning("Detail fout: %s", e)
 
-                if not is_q3_sportback_hybrid(listing.title, listing.description, ""):
+                if not is_q3_hybrid(listing.title, listing.description, ""):
                     continue
                 listings.append(listing)
             except Exception as e:
@@ -1125,13 +1185,24 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
 async def main():
     log.info("=== Auto-Alert Scraper gestart ===")
     log.info(
-        "Zoekcriteria: %s (%s), %d+, max %d km, max €%s, land: %s",
+        "Zoekcriteria: %s (%s), max €%s, land: %s",
         SEARCH_CRITERIA["model"],
         SEARCH_CRITERIA["fuel"],
-        SEARCH_CRITERIA["year_min"],
-        SEARCH_CRITERIA["km_max"],
         f"{SEARCH_CRITERIA['price_max']:,}",
         SEARCH_CRITERIA["country"],
+    )
+    log.info(
+        "  mobile.de: %d+, max %d km, €%s-€%s",
+        SEARCH_CRITERIA["year_min_mobile"],
+        SEARCH_CRITERIA["km_max_mobile"],
+        f"{SEARCH_CRITERIA['price_min']:,}",
+        f"{SEARCH_CRITERIA['price_max']:,}",
+    )
+    log.info(
+        "  AutoScout24: %d+, max %d km, max €%s",
+        SEARCH_CRITERIA["year_min_as24"],
+        SEARCH_CRITERIA["km_max_as24"],
+        f"{SEARCH_CRITERIA['price_max']:,}",
     )
 
     conn = init_db()
