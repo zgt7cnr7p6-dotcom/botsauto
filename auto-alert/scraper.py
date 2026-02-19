@@ -70,18 +70,18 @@ def get_random_proxy() -> str | None:
 SEARCH_CRITERIA = {
     "model": "Audi Q3 45 TFSI e",
     "fuel": "hybrid",
-    "year_min": 2021,          # vanaf 2021
+    "year_min": 2020,          # vanaf 2020
     "km_max": 80_000,          # max 80k km
     "price_max": 40_000,       # max €40.000
     "country": "DE",
 }
 
 # mobile.de zoek-URL — exact zoals de user zoekt
-# ms=1900;37;;pano = Audi Q3 met "pano" in tekst, ft=HYBRID, fr=2021+, ml=max80k, p=max40k
+# ms=1900;37;;pano = Audi Q3 met "pano" in tekst, ft=HYBRID, fr=2020+, ml=max80k, p=max40k
 # sb=doc = sorteer op nieuwste eerst (beter voor monitoring dan sb=rel)
 MOBILE_DE_SEARCH_URL = (
     "https://suchen.mobile.de/fahrzeuge/search.html?"
-    "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
+    "dam=false&fr=2020%3A&ft=HYBRID&isSearchRequest=true"
     "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=up"
     "&p=%3A40000&ref=srp&s=Car&sb=doc&vc=Car"
 )
@@ -1283,7 +1283,7 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
     if base_url is None:
         base_url = (
             "https://www.autoscout24.de/lst/audi/q3-sportback"
-            "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=H"
+            "?atype=C&cy=D&desc=0&fregfrom=2020&fuel=H"
             "&kmto=80000&priceto=40000&sort=age&ustate=N%2CU"
         )
     MAX_PAGES = 5  # Meer pagina's nu alles hybrids zijn
@@ -1753,12 +1753,12 @@ async def main():
         AS24_URLS = [
             (
                 "https://www.autoscout24.de/lst/audi/q3-sportback"
-                "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=H"
+                "?atype=C&cy=D&desc=0&fregfrom=2020&fuel=H"
                 "&kmto=80000&priceto=40000&sort=age&ustate=N%2CU"
             ),
             (
                 "https://www.autoscout24.de/lst/audi/q3"
-                "?atype=C&cy=D&desc=0&fregfrom=2021&fuel=H"
+                "?atype=C&cy=D&desc=0&fregfrom=2020&fuel=H"
                 "&kmto=80000&priceto=40000&sort=age&ustate=N%2CU"
             ),
         ]
