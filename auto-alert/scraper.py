@@ -8,6 +8,7 @@ Anti-detectie: random delays, user-agent rotatie, menselijk browse-gedrag.
 
 import os
 import re
+import sys
 import json
 import random
 import sqlite3
@@ -39,8 +40,9 @@ log = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+DRY_RUN = "--dry-run" in sys.argv or not TELEGRAM_BOT_TOKEN
 PROXY_URL = os.environ.get("PROXY_URL", "")  # Residentiële proxy voor mobile.de
 # Meerdere proxy URLs (komma-gescheiden) voor rotatie
 # Bijv: "http://user:pass@gate.smartproxy.com:7000,http://user:pass@brd.superproxy.io:22225"
@@ -520,6 +522,10 @@ def send_telegram(listing: Listing):
         f"🔗 <a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>\n"
         f"📍 Bron: {listing.source}"
     )
+
+    if DRY_RUN:
+        log.info("[DRY-RUN] Telegram alert:\n%s", text)
+        return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     resp = req_lib.post(
@@ -1651,11 +1657,15 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
 
 async def main():
     # ── Quiet hours: niet scrapen tussen 20:00 en 08:00 CET ──
-    now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
-    hour = now_cet.hour
-    if hour >= 20 or hour < 8:
-        log.info("Quiet hours (%02d:%02d CET) — overslaan (actief 08:00-20:00)", hour, now_cet.minute)
-        return
+    force = "--force" in sys.argv
+    if not force:
+        now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
+        hour = now_cet.hour
+        if hour >= 20 or hour < 8:
+            log.info("Quiet hours (%02d:%02d CET) — overslaan (actief 08:00-20:00)", hour, now_cet.minute)
+            return
+    else:
+        log.info("--force: quiet hours overgeslagen")
 
     log.info("=== Auto-Alert Scraper gestart ===")
     log.info(
@@ -1851,23 +1861,26 @@ async def main():
                 f"   <a href=\"{lst.url}\">🔗 Bekijken</a>\n\n"
             )
 
-        # Telegram max 4096 chars — split als nodig
-        tg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        if len(summary) <= 4096:
-            req_lib.post(
-                tg_url,
-                json={"chat_id": TELEGRAM_CHAT_ID, "text": summary, "parse_mode": "HTML", "disable_web_page_preview": True},
-                timeout=30,
-            )
+        if DRY_RUN:
+            log.info("[DRY-RUN] Telegram summary:\n%s", summary)
         else:
-            # Stuur in delen
-            for chunk_start in range(0, len(summary), 4000):
-                chunk = summary[chunk_start:chunk_start + 4000]
+            # Telegram max 4096 chars — split als nodig
+            tg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            if len(summary) <= 4096:
                 req_lib.post(
                     tg_url,
-                    json={"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "parse_mode": "HTML", "disable_web_page_preview": True},
+                    json={"chat_id": TELEGRAM_CHAT_ID, "text": summary, "parse_mode": "HTML", "disable_web_page_preview": True},
                     timeout=30,
                 )
+            else:
+                # Stuur in delen
+                for chunk_start in range(0, len(summary), 4000):
+                    chunk = summary[chunk_start:chunk_start + 4000]
+                    req_lib.post(
+                        tg_url,
+                        json={"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "parse_mode": "HTML", "disable_web_page_preview": True},
+                        timeout=30,
+                    )
 
 
 if __name__ == "__main__":
