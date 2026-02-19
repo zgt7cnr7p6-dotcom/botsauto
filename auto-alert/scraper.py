@@ -22,6 +22,14 @@ import requests as req_lib
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
+# curl_cffi: HTTP client die Chrome's TLS-vingerafdruk nabootst
+# Hierdoor ziet mobile.de het als een echte browser (op TLS niveau)
+try:
+    from curl_cffi import requests as curl_requests
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -524,12 +532,9 @@ def send_telegram(listing: Listing):
 # ── mobile.de HTTP scraper (geen browser nodig) ──────────────────────────
 
 
-def _mobile_de_session(proxy_url: str | None = None) -> req_lib.Session:
-    """Maak een requests Session met realistische browser headers."""
-    s = req_lib.Session()
-    ua = random.choice(USER_AGENTS)
-    s.headers.update({
-        "User-Agent": ua,
+def _mobile_de_headers() -> dict:
+    """Realistische browser headers voor mobile.de."""
+    return {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.5,en;q=0.3",
         "Accept-Encoding": "gzip, deflate, br",
@@ -541,17 +546,14 @@ def _mobile_de_session(proxy_url: str | None = None) -> req_lib.Session:
         "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0",
-    })
-    if proxy_url:
-        s.proxies = {"http": proxy_url, "https": proxy_url}
-    return s
+    }
 
 
 def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
-    """Scrape mobile.de via plain HTTP + BeautifulSoup.
+    """Scrape mobile.de via HTTP + BeautifulSoup.
 
-    Veel moeilijker te detecteren dan Playwright — geen headless browser
-    fingerprint, geen WebDriver flags, geen automation indicators.
+    Gebruikt curl_cffi (Chrome TLS fingerprint) als beschikbaar,
+    anders plain requests als fallback.
     """
     listings = []
 
@@ -566,15 +568,32 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
     )
 
     proxy_label = f"MET proxy ({proxy_url.split('@')[-1] if '@' in (proxy_url or '') else proxy_url})" if proxy_url else "ZONDER proxy"
-    log.info("mobile.de HTTP: %s", proxy_label)
+    use_impersonate = HAS_CURL_CFFI
+    engine = "curl_cffi (Chrome TLS)" if use_impersonate else "requests (plain)"
+    log.info("mobile.de HTTP [%s]: %s", engine, proxy_label)
 
-    session = _mobile_de_session(proxy_url)
+    headers = _mobile_de_headers()
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
     try:
         # Stap 1: Bezoek homepage (cookie + referer opbouwen)
         log.info("mobile.de HTTP: warm-up homepage ...")
         time.sleep(random.uniform(0.5, 1.5))
-        home_resp = session.get("https://www.mobile.de", timeout=30)
+
+        if use_impersonate:
+            # curl_cffi: impersonate Chrome 124 — TLS fingerprint identiek aan echte Chrome
+            session = curl_requests.Session(impersonate="chrome124")
+            if proxies:
+                session.proxies = proxies
+            home_resp = session.get("https://www.mobile.de", headers=headers, timeout=30)
+        else:
+            session = req_lib.Session()
+            session.headers.update(headers)
+            session.headers["User-Agent"] = random.choice(USER_AGENTS)
+            if proxies:
+                session.proxies = proxies
+            home_resp = session.get("https://www.mobile.de", timeout=30)
+
         log.info("mobile.de HTTP: homepage status=%d", home_resp.status_code)
 
         if home_resp.status_code != 200:
@@ -584,11 +603,14 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
         time.sleep(random.uniform(1.0, 3.0))
 
         # Stap 2: Zoekresultaten ophalen
-        session.headers["Referer"] = "https://www.mobile.de/"
-        session.headers["Sec-Fetch-Site"] = "same-origin"
+        headers["Referer"] = "https://www.mobile.de/"
+        headers["Sec-Fetch-Site"] = "same-origin"
 
         log.info("mobile.de HTTP: zoekpagina ophalen ...")
-        resp = session.get(search_url, timeout=30)
+        if use_impersonate:
+            resp = session.get(search_url, headers=headers, timeout=30)
+        else:
+            resp = session.get(search_url, timeout=30)
         log.info("mobile.de HTTP: status=%d, size=%d bytes", resp.status_code, len(resp.content))
 
         if resp.status_code != 200:
