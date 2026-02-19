@@ -6,12 +6,6 @@ on:
     # Python script heeft ook quiet hours check als extra vangnet
     - cron: '*/5 6-19 * * *'
   workflow_dispatch:
-    inputs:
-      reset_db:
-        description: 'Reset database (alle listings als nieuw behandelen)'
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   actions: write
@@ -42,7 +36,9 @@ jobs:
           playwright install-deps chromium
 
       - name: Download database
-        if: ${{ github.event.inputs.reset_db != 'true' }}
+        # Handmatige trigger = altijd schone DB (volledige scan)
+        # Scheduled runs hergebruiken DB om alleen NIEUWE listings te melden
+        if: ${{ github.event_name == 'schedule' }}
         uses: dawidd6/action-download-artifact@v6
         with:
           name: listings-db
