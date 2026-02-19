@@ -15,6 +15,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from dataclasses import dataclass, field
 from urllib.parse import urlparse, quote
 
@@ -1649,6 +1650,13 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
 
 
 async def main():
+    # ── Quiet hours: niet scrapen tussen 20:00 en 08:00 CET ──
+    now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
+    hour = now_cet.hour
+    if hour >= 20 or hour < 8:
+        log.info("Quiet hours (%02d:%02d CET) — overslaan (actief 08:00-20:00)", hour, now_cet.minute)
+        return
+
     log.info("=== Auto-Alert Scraper gestart ===")
     log.info(
         "Zoekcriteria: %s (%s), max €%s, land: %s",
@@ -1744,43 +1752,6 @@ async def main():
         all_listings.extend(mobile_listings)
         log.info("mobile.de: %d NIEUWE hybrid listings gevonden", len(mobile_listings))
 
-        # Korte pauze tussen sites
-        await human_delay(3, 6)
-
-        # ── AutoScout24: zoek Q3 Sportback en Q3 ──
-        # ve_plug-in-hybrid in pad werkt niet meer op AS24, gebruik fuel=H (hybrid)
-        # Criteria gelijk aan mobile.de: 2021+, max 80k km, max €40k
-        AS24_URLS = [
-            (
-                "https://www.autoscout24.de/lst/audi/q3-sportback"
-                "?atype=C&cy=D&desc=0&fregfrom=2020&fuel=H"
-                "&kmto=80000&priceto=40000&sort=age&ustate=N%2CU"
-            ),
-            (
-                "https://www.autoscout24.de/lst/audi/q3"
-                "?atype=C&cy=D&desc=0&fregfrom=2020&fuel=H"
-                "&kmto=80000&priceto=40000&sort=age&ustate=N%2CU"
-            ),
-        ]
-        as24_browser = await p.chromium.launch(headless=True, args=browser_args)
-        as24_ctx = await create_stealth_context(as24_browser)
-        as24_listings = []
-        seen_as24_ids = {l.id for l in as24_listings}
-
-        for as24_url in AS24_URLS:
-            as24_page = await as24_ctx.new_page()
-            batch = await scrape_autoscout24(as24_page, conn, base_url=as24_url)
-            await as24_page.close()
-            for l in batch:
-                if l.id not in seen_as24_ids:
-                    as24_listings.append(l)
-                    seen_as24_ids.add(l.id)
-            await human_delay(2, 4)
-
-        all_listings.extend(as24_listings)
-        log.info("AutoScout24: %d NIEUWE hybrid listings gevonden", len(as24_listings))
-        await as24_browser.close()
-
     log.info("Totaal: %d listings gevonden, nu scoren ...", len(all_listings))
 
     new_count = 0
@@ -1840,21 +1811,63 @@ async def main():
         alert_count,
     )
 
-    # Send summary if any new listings found
-    if new_count > 0:
+    # Send summary with top listings overview
+    if all_listings:
+        max_score = len(MUST_HAVE_FEATURES) * 2 + len(NICE_TO_HAVE_FEATURES)
+        sorted_listings = sorted(all_listings, key=lambda l: l.score, reverse=True)
+
         summary = (
             f"📊 <b>Scan samenvatting</b>\n\n"
             f"🔍 Totaal gevonden: {len(all_listings)}\n"
             f"🆕 Nieuw: {new_count}\n"
             f"🔔 Alerts verstuurd: {alert_count}\n"
-            f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+            f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n\n"
+            f"{'━' * 30}\n"
+            f"<b>🏆 Overzicht ({len(sorted_listings)} listings):</b>\n\n"
         )
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        req_lib.post(
-            url,
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": summary, "parse_mode": "HTML"},
-            timeout=30,
-        )
+
+        for i, lst in enumerate(sorted_listings[:15], 1):
+            # Rating
+            pct = lst.score / max_score if max_score else 0
+            if pct >= 0.85:
+                rating = "🔥"
+            elif pct >= 0.65:
+                rating = "⭐⭐"
+            elif pct >= 0.40:
+                rating = "⭐"
+            else:
+                rating = "👎"
+
+            price_str = f"€{lst.price:,}" if lst.price else "?"
+            km_str = f"{lst.km // 1000}k" if lst.km else "?"
+            features_str = ", ".join(
+                FEATURE_DISPLAY_NAMES.get(f, f) for f in lst.features[:4]
+            )
+
+            summary += (
+                f"{i}. {rating} <b>{lst.title[:45]}</b>\n"
+                f"   {price_str} · {lst.year} · {km_str} km · Score {lst.score}/{max_score}\n"
+                f"   {features_str}\n"
+                f"   <a href=\"{lst.url}\">🔗 Bekijken</a>\n\n"
+            )
+
+        # Telegram max 4096 chars — split als nodig
+        tg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        if len(summary) <= 4096:
+            req_lib.post(
+                tg_url,
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": summary, "parse_mode": "HTML", "disable_web_page_preview": True},
+                timeout=30,
+            )
+        else:
+            # Stuur in delen
+            for chunk_start in range(0, len(summary), 4000):
+                chunk = summary[chunk_start:chunk_start + 4000]
+                req_lib.post(
+                    tg_url,
+                    json={"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "parse_mode": "HTML", "disable_web_page_preview": True},
+                    timeout=30,
+                )
 
 
 if __name__ == "__main__":
