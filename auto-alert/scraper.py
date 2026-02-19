@@ -99,9 +99,8 @@ MUST_HAVE_FEATURES = [
     "camera",
 ]
 
-# HARDE EISEN: zonder deze features wordt GEEN alert verstuurd
-# Keyless staat er niet altijd bij in advertenties, dus alleen pano verplicht
-REQUIRED_FEATURES = ["panoramadak"]
+# HARDE EISEN: zonder AL deze features wordt GEEN alert verstuurd
+REQUIRED_FEATURES = ["panoramadak", "camera", "keyless"]
 
 # Nice-to-have: bonuspunten, maar niet vereist
 NICE_TO_HAVE_FEATURES = [
@@ -1831,18 +1830,26 @@ async def main():
 
         if is_new:
             new_count += 1
-            # Stuur alert voor elke nieuwe listing (pano zit al in zoek-URL)
-            send_telegram(listing)
-            alert_count += 1
-            log.info(
-                "ALERT: %s — must-have %d/%d, score %d — €%s — %s",
-                listing.title,
-                listing.must_have_count,
-                len(MUST_HAVE_FEATURES),
-                listing.score,
-                f"{listing.price:,}" if listing.price else "?",
-                listing.url,
-            )
+            # Check HARDE EISEN: alleen alert als ALLE required features aanwezig zijn
+            missing = [f for f in REQUIRED_FEATURES if f not in listing.features]
+            if missing:
+                missing_names = ", ".join(FEATURE_DISPLAY_NAMES.get(f, f) for f in missing)
+                log.info(
+                    "SKIP (mist vereiste features: %s): %s — score %d — %s",
+                    missing_names, listing.title[:50], listing.score, listing.url,
+                )
+            else:
+                send_telegram(listing)
+                alert_count += 1
+                log.info(
+                    "ALERT: %s — must-have %d/%d, score %d — €%s — %s",
+                    listing.title,
+                    listing.must_have_count,
+                    len(MUST_HAVE_FEATURES),
+                    listing.score,
+                    f"{listing.price:,}" if listing.price else "?",
+                    listing.url,
+                )
         else:
             log.info("Bekende listing bijgewerkt: %s", listing.id)
 
