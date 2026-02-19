@@ -1713,7 +1713,8 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
 
 async def main():
     # ── Quiet hours: niet scrapen tussen 20:00 en 08:00 CET ──
-    force = "--force" in sys.argv
+    # Handmatige GitHub Actions trigger (workflow_dispatch) slaat quiet hours over
+    force = "--force" in sys.argv or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     if not force:
         now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
         hour = now_cet.hour
