@@ -33,6 +33,11 @@ log = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 PROXY_URL = os.environ.get("PROXY_URL", "")  # Residentiële proxy voor mobile.de
+# Meerdere proxy URLs (komma-gescheiden) voor rotatie
+# Bijv: "http://user:pass@gate.smartproxy.com:7000,http://user:pass@brd.superproxy.io:22225"
+PROXY_URLS = [u.strip() for u in os.environ.get("PROXY_URLS", "").split(",") if u.strip()]
+if PROXY_URL and PROXY_URL not in PROXY_URLS:
+    PROXY_URLS.insert(0, PROXY_URL)
 
 
 def parse_proxy_url(url: str) -> dict:
@@ -44,6 +49,11 @@ def parse_proxy_url(url: str) -> dict:
     if p.password:
         proxy["password"] = p.password
     return proxy
+
+
+def get_random_proxy() -> str | None:
+    """Geef een willekeurige proxy URL terug, of None als er geen zijn."""
+    return random.choice(PROXY_URLS) if PROXY_URLS else None
 
 SEARCH_CRITERIA = {
     "model": "Audi Q3 Sportback 45 TFSI e",
@@ -1033,15 +1043,15 @@ async def scrape_autoscout24(page, conn) -> list[Listing]:
     """Scrape AutoScout24 for Audi Q3 hybrid listings in Duitsland.
     Gesorteerd op nieuwste eerst — scraped meerdere pagina's."""
     listings = []
-    # Audi Q3 Pano, Germany, year >= 2021, km <= 80000, price <= 37500
-    # Zoekt op ALLE Q3 varianten (niet alleen Sportback) — hybrid filter in code
+    # Audi Q3 plug-in hybrid, Germany, year >= 2021, km <= 80000, price <= 37500
+    # ve_plug-in-hybrid = server-side filter op plug-in hybrid variant
     # sort=age = nieuwste eerst
     base_url = (
-        "https://www.autoscout24.de/lst/audi/q3"
+        "https://www.autoscout24.de/lst/audi/q3/ve_plug-in-hybrid"
         "?atype=C&cy=D&desc=0&fregfrom=2021"
         "&kmto=80000&priceto=37500&sort=age&ustate=N%2CU"
     )
-    MAX_PAGES = 3  # Scrape max 3 pagina's (ca. 60 listings)
+    MAX_PAGES = 5  # Meer pagina's nu alles hybrids zijn
     consent_done = False
 
     log.info("Scraping AutoScout24 ...")
@@ -1437,37 +1447,43 @@ async def main():
 
     all_listings: list[Listing] = []
 
-    # ── mobile.de: HTTP-first strategie (4 pogingen) ──
+    # ── mobile.de: probeer alle proxies via HTTP, dan Playwright ──
     mobile_listings = []
 
-    # Probeer HTTP scraper eerst (veel moeilijker te detecteren dan browser)
-    http_attempts = [
-        ("HTTP + proxy", PROXY_URL) if PROXY_URL else None,
-        ("HTTP direct", None),
-    ]
-    for label, proxy in [a for a in http_attempts if a]:
+    # Bouw lijst van pogingen: elke proxy + direct, HTTP eerst
+    http_attempts: list[tuple[str, str | None]] = []
+    for pu in PROXY_URLS:
+        label = pu.split("@")[-1] if "@" in pu else pu
+        http_attempts.append((f"HTTP proxy {label}", pu))
+    http_attempts.append(("HTTP direct", None))
+
+    for label, proxy in http_attempts:
+        if mobile_listings:
+            break
         log.info("mobile.de [%s] ...", label)
         mobile_listings = scrape_mobile_de_http(conn, proxy_url=proxy)
         if mobile_listings:
             log.info("mobile.de [%s]: %d listings!", label, len(mobile_listings))
             break
         log.warning("mobile.de [%s]: 0 listings", label)
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(1, 3))
 
-    # Fallback: Playwright browser (als HTTP niet werkt)
+    # Fallback: Playwright browser
     if not mobile_listings:
-        log.info("mobile.de: HTTP mislukt, probeer Playwright browser ...")
+        log.info("mobile.de: HTTP mislukt, probeer Playwright ...")
 
     async with async_playwright() as p:
         if not mobile_listings:
-            pw_attempts = [
-                ("Playwright + proxy", True) if PROXY_URL else None,
-                ("Playwright direct", False),
-            ]
-            for label, use_proxy in [a for a in pw_attempts if a]:
+            pw_attempts: list[tuple[str, str | None]] = []
+            for pu in PROXY_URLS:
+                label = pu.split("@")[-1] if "@" in pu else pu
+                pw_attempts.append((f"Playwright proxy {label}", pu))
+            pw_attempts.append(("Playwright direct", None))
+
+            for label, proxy_url in pw_attempts:
                 log.info("mobile.de [%s] ...", label)
-                if use_proxy:
-                    proxy_cfg = parse_proxy_url(PROXY_URL)
+                if proxy_url:
+                    proxy_cfg = parse_proxy_url(proxy_url)
                     mobile_browser = await p.chromium.launch(
                         headless=True, args=browser_args, proxy=proxy_cfg,
                     )
