@@ -85,7 +85,7 @@ SEARCH_CRITERIA = {
 MOBILE_DE_SEARCH_URL = (
     "https://suchen.mobile.de/fahrzeuge/search.html?"
     "dam=false&fr=2020%3A&ft=HYBRID&isSearchRequest=true"
-    "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=up"
+    "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=down"
     "&p=%3A40000&ref=srp&s=Car&sb=doc&vc=Car"
 )
 
@@ -292,6 +292,8 @@ class Listing:
     km: int
     url: str
     description: str = ""
+    location: str = ""
+    listing_date: str = ""
     score: int = 0
     features: list = field(default_factory=list)
     must_have_count: int = 0
@@ -503,6 +505,9 @@ def send_telegram(listing: Listing):
     else:
         rating = "👎 Weinig opties"
 
+    location_line = f"📍 Locatie: {listing.location}\n" if listing.location else ""
+    date_line = f"🗓 Geplaatst: {listing.listing_date}\n" if listing.listing_date else ""
+
     text = (
         f"🚗 <b>Nieuwe Q3 Hybrid gevonden!</b>\n"
         f"{'━' * 30}\n\n"
@@ -510,6 +515,8 @@ def send_telegram(listing: Listing):
         f"💰 <b>{price_str}</b>  {price_verdict}\n"
         f"📅 Bouwjaar: {listing.year}\n"
         f"🛣 Kilometerstand: {listing.km:,} km\n"
+        f"{location_line}"
+        f"{date_line}"
         f"📊 Score: <b>{listing.score}/{max_score}</b> — {rating}\n\n"
         f"{'━' * 30}\n"
         f"<b>Must-have opties:</b>\n"
@@ -734,6 +741,8 @@ def scrape_mobile_de_scrapedo(conn) -> list:
 
             # Detail pagina ophalen via Scrape.do voor feature-detectie
             description = card_text[:500]
+            location = ""
+            listing_date = ""
             if href:
                 log.info("mobile.de Scrape.do: detail ophalen voor %s ...", title[:50])
                 time.sleep(random.uniform(0.5, 1.5))  # Korte pauze tussen requests
@@ -761,7 +770,52 @@ def scrape_mobile_de_scrapedo(conn) -> list:
                         if el:
                             description += " " + el.get_text(separator=" ", strip=True)
 
-                    log.info("mobile.de Scrape.do: detail beschrijving %d chars", len(description))
+                    # Locatie (verkoper)
+                    for sel in [
+                        "#dealer-hp-link-bottom",
+                        ".seller-info .seller-address",
+                        "[data-testid='seller-info'] p",
+                        ".cBox--seller .u-text-break-word",
+                        ".cBox--seller",
+                        "#rbt-seller",
+                    ]:
+                        el = detail_soup.select_one(sel)
+                        if el:
+                            loc_text = el.get_text(separator=" ", strip=True)
+                            # Probeer postcode + stad te extracten (bijv. "53111 Bonn")
+                            loc_match = re.search(r"(\d{5}\s+\S+(?:\s+\S+)?)", loc_text)
+                            if loc_match:
+                                location = loc_match.group(1).strip()
+                            elif len(loc_text) < 100:
+                                location = loc_text
+                            break
+
+                    # Listing datum (wanneer geplaatst)
+                    for sel in [
+                        "[data-testid='creation-date']",
+                        ".cBox--attributes .u-text-break-word",
+                    ]:
+                        el = detail_soup.select_one(sel)
+                        if el:
+                            date_text = el.get_text(strip=True)
+                            date_match = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4})", date_text)
+                            if date_match:
+                                listing_date = date_match.group(1)
+                            break
+                    # Fallback: zoek datum in hele pagina tekst
+                    if not listing_date:
+                        full_text = detail_soup.get_text()
+                        date_match = re.search(r"Inseriert?\s*(?:am\s*)?:?\s*(\d{1,2}\.\d{1,2}\.\d{4})", full_text)
+                        if date_match:
+                            listing_date = date_match.group(1)
+                        else:
+                            # Probeer "seit DD.MM.YYYY" patroon
+                            date_match = re.search(r"seit\s+(\d{1,2}\.\d{1,2}\.\d{4})", full_text, re.IGNORECASE)
+                            if date_match:
+                                listing_date = date_match.group(1)
+
+                    log.info("mobile.de Scrape.do: detail beschrijving %d chars, locatie=%s, datum=%s",
+                             len(description), location or "?", listing_date or "?")
 
             listing = Listing(
                 id=listing_id,
@@ -772,6 +826,8 @@ def scrape_mobile_de_scrapedo(conn) -> list:
                 km=km,
                 url=href,
                 description=description,
+                location=location,
+                listing_date=listing_date,
             )
 
             # Hybrid check opnieuw met volledige beschrijving
@@ -1774,41 +1830,18 @@ async def main():
 
         if is_new:
             new_count += 1
-            # Check harde eisen: panoramadak + keyless entry
-            has_required = all(f in listing.features for f in REQUIRED_FEATURES)
-            missing_required = [f for f in REQUIRED_FEATURES if f not in listing.features]
-
-            if has_required and listing.must_have_count >= 2:
-                send_telegram(listing)
-                alert_count += 1
-                log.info(
-                    "ALERT: %s — must-have %d/%d, nice %d/%d, score %d — €%s — %s",
-                    listing.title,
-                    listing.must_have_count,
-                    len(MUST_HAVE_FEATURES),
-                    listing.nice_to_have_count,
-                    len(NICE_TO_HAVE_FEATURES),
-                    listing.score,
-                    f"{listing.price:,}" if listing.price else "?",
-                    listing.url,
-                )
-            elif not has_required:
-                missing_names = [FEATURE_DISPLAY_NAMES.get(f, f) for f in missing_required]
-                log.info(
-                    "Geen alert (mist vereiste opties: %s): %s — must-have %d/%d — %s",
-                    ", ".join(missing_names),
-                    listing.title,
-                    listing.must_have_count,
-                    len(MUST_HAVE_FEATURES),
-                    listing.url,
-                )
-            else:
-                log.info(
-                    "Nieuw maar weinig must-haves: %s — must-have %d/%d",
-                    listing.title,
-                    listing.must_have_count,
-                    len(MUST_HAVE_FEATURES),
-                )
+            # Stuur alert voor elke nieuwe listing (pano zit al in zoek-URL)
+            send_telegram(listing)
+            alert_count += 1
+            log.info(
+                "ALERT: %s — must-have %d/%d, score %d — €%s — %s",
+                listing.title,
+                listing.must_have_count,
+                len(MUST_HAVE_FEATURES),
+                listing.score,
+                f"{listing.price:,}" if listing.price else "?",
+                listing.url,
+            )
         else:
             log.info("Bekende listing bijgewerkt: %s", listing.id)
 
@@ -1850,14 +1883,16 @@ async def main():
 
             price_str = f"€{lst.price:,}" if lst.price else "?"
             km_str = f"{lst.km // 1000}k" if lst.km else "?"
+            loc_str = f" · {lst.location}" if lst.location else ""
+            date_str = f" · {lst.listing_date}" if lst.listing_date else ""
             features_str = ", ".join(
                 FEATURE_DISPLAY_NAMES.get(f, f) for f in lst.features[:4]
             )
 
             summary += (
                 f"{i}. {rating} <b>{lst.title[:45]}</b>\n"
-                f"   {price_str} · {lst.year} · {km_str} km · Score {lst.score}/{max_score}\n"
-                f"   {features_str}\n"
+                f"   {price_str} · {lst.year} · {km_str} km{loc_str}{date_str}\n"
+                f"   Score {lst.score}/{max_score} · {features_str}\n"
                 f"   <a href=\"{lst.url}\">🔗 Bekijken</a>\n\n"
             )
 

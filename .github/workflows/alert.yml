@@ -4,7 +4,13 @@ on:
   schedule:
     # Elke 5 minuten draaien
     - cron: '*/5 * * * *'
-  workflow_dispatch: # Handmatig triggeren mogelijk
+  workflow_dispatch:
+    inputs:
+      reset_db:
+        description: 'Reset database (alle listings als nieuw behandelen)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -35,6 +41,7 @@ jobs:
           playwright install-deps chromium
 
       - name: Download database
+        if: ${{ github.event.inputs.reset_db != 'true' }}
         uses: dawidd6/action-download-artifact@v6
         with:
           name: listings-db
