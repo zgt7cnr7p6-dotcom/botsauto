@@ -537,7 +537,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
     search_url = (
         "https://suchen.mobile.de/fahrzeuge/search.html?"
         "dam=false&isSearchRequest=true&ms=1900%3B62%3B%3B"
-        "&fuel=HYBRID&fuel=PLUG_IN_HYBRID&maxMileage=85000"
+        "&fuel=HYBRID&maxMileage=85000"
         "&minPrice=29000&maxPrice=37500"
         "&minFirstRegistrationDate=2019-01-01"
         "&od=Pano"
