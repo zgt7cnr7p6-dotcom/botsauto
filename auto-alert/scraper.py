@@ -438,17 +438,26 @@ def score_listing(listing: Listing) -> Listing:
     found_nice = []
     for feature, patterns in FEATURE_PATTERNS.items():
         for pat in patterns:
-            if re.search(pat, text, re.IGNORECASE):
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
                 if feature in MUST_HAVE_FEATURES:
                     found_must.append(feature)
                 elif feature in NICE_TO_HAVE_FEATURES:
                     found_nice.append(feature)
+                log.info("Feature '%s' gevonden via '%s' => '%s'", feature, pat, m.group())
                 break
     listing.features = found_must + found_nice
     # Must-haves tellen dubbel
     listing.score = len(found_must) * 2 + len(found_nice)
     listing.must_have_count = len(found_must)
     listing.nice_to_have_count = len(found_nice)
+    # Log welke required features missen
+    missing = [f for f in REQUIRED_FEATURES if f not in listing.features]
+    if missing:
+        log.info(
+            "Score %s: features=%s, MISSING=%s, desc_len=%d",
+            listing.id[:30], listing.features, missing, len(listing.description),
+        )
     return listing
 
 
@@ -1326,25 +1335,52 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                         await dp.goto(href, wait_until="domcontentloaded", timeout=30000)
                         await dp.wait_for_timeout(3000)
 
-                        # Technische data (bewezen selector)
+                        detail_text = ""
+
+                        # Specifieke selectors (oud + nieuw mobile.de layout)
                         for sel in [
                             "div.cBox-body.cBox-body--technical-data",
                             ".cBox--technicalData",
                             "#rbt-td",
-                        ]:
-                            el = dp.locator(sel)
-                            if await el.count() > 0:
-                                listing.description = await el.first.inner_text()
-                                break
-
-                        # Beschrijving + features
-                        for sel in [
                             "#description", ".cBox--vehicleDescription",
                             ".cBox--features", "#features",
+                            # Nieuwere mobile.de selectors
+                            "[data-testid='ad-detail-features']",
+                            "[data-testid='ad-detail-equipment']",
+                            "[data-testid='equipment']",
+                            "[class*='FeatureList']",
+                            "[class*='StageTitle']",
+                            "[class*='equipment']",
+                            "[class*='feature']",
+                            ".vehicle-details",
+                            ".listing-details",
                         ]:
                             el = dp.locator(sel)
                             if await el.count() > 0:
-                                listing.description += " " + await el.first.inner_text()
+                                try:
+                                    detail_text += " " + await el.first.inner_text()
+                                except Exception:
+                                    pass
+
+                        # FALLBACK: als specifieke selectors weinig opleverden,
+                        # pak de volledige zichtbare tekst van de pagina
+                        if len(detail_text.strip()) < 100:
+                            try:
+                                body_text = await dp.locator("body").inner_text()
+                                detail_text = body_text[:15000]
+                                log.info("Detail fallback (body text): %d chars", len(detail_text))
+                            except Exception:
+                                pass
+
+                        if detail_text:
+                            listing.description = detail_text
+                            log.info(
+                                "Detail tekst voor %s: %d chars — preview: %s",
+                                listing_id, len(detail_text),
+                                detail_text[:200].replace("\n", " "),
+                            )
+                        else:
+                            log.warning("Geen detail tekst gevonden voor %s", listing_id)
 
                         await dp.close()
                     except Exception as e:
