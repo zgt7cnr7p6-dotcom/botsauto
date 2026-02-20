@@ -597,7 +597,6 @@ def scrape_do_fetch(url: str, render: bool = False) -> str | None:
         f"https://api.scrape.do"
         f"?token={SCRAPE_DO_TOKEN}"
         f"&url={quote(url)}"
-        f"&super=true"
         f"&geoCode=de"
     )
     if render:
