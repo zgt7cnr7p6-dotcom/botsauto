@@ -597,10 +597,7 @@ def scrape_do_fetch(url: str, render: bool = False) -> str | None:
         f"https://api.scrape.do"
         f"?token={SCRAPE_DO_TOKEN}"
         f"&url={quote(url)}"
-        f"&geoCode=de"
     )
-    if render:
-        api_url += "&render=true"
 
     try:
         resp = req_lib.get(api_url, timeout=60)
