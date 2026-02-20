@@ -2,8 +2,8 @@ name: Auto Alert Scraper
 
 on:
   schedule:
-    # Elke 30 minuten draaien
-    - cron: '*/30 * * * *'
+    # Elke 5 minuten draaien
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Handmatig triggeren mogelijk
 
 jobs:
