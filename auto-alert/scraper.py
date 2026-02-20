@@ -763,29 +763,60 @@ def scrape_mobile_de_scrapedo(conn) -> list:
             if href:
                 log.info("mobile.de Scrape.do: detail ophalen voor %s ...", title[:50])
                 time.sleep(random.uniform(0.5, 1.5))  # Korte pauze tussen requests
-                detail_html = scrape_do_fetch(href)
+                # render=true zodat JS wordt uitgevoerd en alle content geladen
+                detail_html = scrape_do_fetch(href, render=True)
                 if detail_html:
                     detail_soup = BeautifulSoup(detail_html, "html.parser")
+                    description = ""
 
-                    # Technische data
+                    # 1. Titel/kopje
+                    for sel in ["h1", "#rbt-ad-title", "[data-testid='ad-title']"]:
+                        el = detail_soup.select_one(sel)
+                        if el:
+                            description += " " + el.get_text(separator=" ", strip=True)
+                            break
+
+                    # 2. Technische data
                     for sel in [
                         "div.cBox-body.cBox-body--technical-data",
                         ".cBox--technicalData",
                         "#rbt-td",
-                    ]:
-                        el = detail_soup.select_one(sel)
-                        if el:
-                            description = el.get_text(separator=" ", strip=True)
-                            break
-
-                    # Features + beschrijving
-                    for sel in [
-                        "#description", ".cBox--vehicleDescription",
-                        ".cBox--features", "#features",
+                        "[data-testid='ad-detail-technical-data']",
                     ]:
                         el = detail_soup.select_one(sel)
                         if el:
                             description += " " + el.get_text(separator=" ", strip=True)
+
+                    # 3. Features / Ausstattung (volledig na JS render)
+                    for sel in [
+                        ".cBox--features", "#features",
+                        "[data-testid='ad-detail-features']",
+                        "[data-testid='ad-detail-equipment']",
+                        "[data-testid='equipment']",
+                        "[class*='FeatureList']",
+                        "[class*='equipment']",
+                        "[class*='Equipment']",
+                    ]:
+                        el = detail_soup.select_one(sel)
+                        if el:
+                            description += " " + el.get_text(separator=" ", strip=True)
+
+                    # 4. Vehicle Description (volledig na JS render)
+                    for sel in [
+                        "#description", ".cBox--vehicleDescription",
+                        "[data-testid='ad-detail-description']",
+                        "[class*='VehicleDescription']",
+                        "[class*='vehicleDescription']",
+                    ]:
+                        el = detail_soup.select_one(sel)
+                        if el:
+                            description += " " + el.get_text(separator=" ", strip=True)
+
+                    # FALLBACK: als specifieke selectors weinig opleverden
+                    if len(description.strip()) < 100:
+                        body_text = detail_soup.get_text(separator=" ", strip=True)
+                        description = body_text[:15000]
+                        log.info("Scrape.do detail fallback (body text): %d chars", len(description))
 
                     # Locatie (verkoper)
                     for sel in [
