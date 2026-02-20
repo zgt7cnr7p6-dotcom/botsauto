@@ -615,13 +615,19 @@ def send_telegram(listing: Listing):
     empty = max_score - filled
     score_bar = "▓" * filled + "░" * empty
 
+    # Jaar weergave
+    if listing.km == 0:
+        year_display = "NIEUW"
+    else:
+        year_display = str(listing.year)
+
     text = (
         f"{header_emoji} <b>{model_tag}</b> — <b>{listing.score}/{max_score}</b> — {verdict}\n"
         f"<code>{score_bar}</code>\n"
         f"{'━' * 30}\n\n"
         f"<b>{listing.title}</b>\n\n"
         f"💰 <b>{price_str}</b>  {price_verdict}\n"
-        f"📅 Bouwjaar: <b>{listing.year}</b>\n"
+        f"📅 Bouwjaar: <b>{year_display}</b>\n"
         f"🛣 {listing.km:,} km\n"
         f"{color_line}"
         f"{location_line}"
@@ -2177,11 +2183,19 @@ async def main():
             km_str = f"{lst.km // 1000}k" if lst.km else "?"
             color_str = f" · {lst.color}" if lst.color else ""
 
+            # Jaar weergave: "NIEUW" voor 0 km, anders gewoon jaar
+            year_str = "NIEUW" if lst.km == 0 else str(lst.year)
+
+            # Missende features
+            missing = [FEATURE_DISPLAY_NAMES.get(f, f) for f in FULL_OPTION_FEATURES if f not in lst.features]
+
             summary += (
                 f"{i}. {indicator} <b>{lst.score}/{max_score}</b> {lst.title[:40]}\n"
-                f"   {price_str} · {lst.year} · {km_str} km{color_str}\n"
-                f"   <a href=\"{lst.url}\">🔗 Bekijken</a>\n\n"
+                f"   {price_str} · {year_str} · {km_str} km{color_str}\n"
             )
+            if missing:
+                summary += f"   ❌ <i>{', '.join(missing)}</i>\n"
+            summary += f"   <a href=\"{lst.url}\">🔗 Bekijken</a>\n\n"
 
         if DRY_RUN:
             log.info("[DRY-RUN] Telegram summary:\n%s", summary)
