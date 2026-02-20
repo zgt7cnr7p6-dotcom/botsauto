@@ -1335,32 +1335,134 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                         await dp.goto(href, wait_until="domcontentloaded", timeout=30000)
                         await dp.wait_for_timeout(3000)
 
+                        # --- Klik "Show all" / "Show more" buttons om alles te tonen ---
+                        expand_selectors = [
+                            # Vehicle Description "Show all" button
+                            "button:has-text('Show all')",
+                            "a:has-text('Show all')",
+                            "[data-testid='showAll']",
+                            "[class*='description'] button",
+                            "[class*='Description'] button",
+                            ".cBox--vehicleDescription button",
+                            "#description button",
+                            # Features "Show more" button
+                            "button:has-text('Show more')",
+                            "a:has-text('Show more')",
+                            "[data-testid='showMore']",
+                            "[class*='feature'] button",
+                            "[class*='Feature'] button",
+                            ".cBox--features button",
+                            "#features button",
+                            # Duitse varianten
+                            "button:has-text('Alle anzeigen')",
+                            "a:has-text('Alle anzeigen')",
+                            "button:has-text('Mehr anzeigen')",
+                            "a:has-text('Mehr anzeigen')",
+                            "button:has-text('Alles anzeigen')",
+                            "a:has-text('Alles anzeigen')",
+                            # Generieke expand buttons
+                            "button:has-text('meer')",
+                            "button:has-text('more')",
+                            "button:has-text('Mehr')",
+                        ]
+                        for expand_sel in expand_selectors:
+                            try:
+                                buttons = dp.locator(expand_sel)
+                                count = await buttons.count()
+                                for bi in range(count):
+                                    try:
+                                        btn = buttons.nth(bi)
+                                        if await btn.is_visible():
+                                            await btn.click()
+                                            log.info("Expand button geklikt: %s [%d]", expand_sel, bi)
+                                            await dp.wait_for_timeout(500)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+
+                        # Wacht even tot content geladen is na klikken
+                        await dp.wait_for_timeout(1500)
+
                         detail_text = ""
 
-                        # Specifieke selectors (oud + nieuw mobile.de layout)
-                        for sel in [
+                        # 1. Titel/kopje van de pagina
+                        for title_sel in [
+                            "h1", "#rbt-ad-title",
+                            "[data-testid='ad-title']",
+                            "[class*='StageTitle']",
+                            ".cBox-title--bold",
+                        ]:
+                            try:
+                                tel = dp.locator(title_sel)
+                                if await tel.count() > 0:
+                                    detail_text += " " + await tel.first.inner_text()
+                                    break
+                            except Exception:
+                                pass
+
+                        # 2. Technical Data sectie
+                        for td_sel in [
                             "div.cBox-body.cBox-body--technical-data",
                             ".cBox--technicalData",
                             "#rbt-td",
-                            "#description", ".cBox--vehicleDescription",
+                            "[data-testid='ad-detail-technical-data']",
+                            "[class*='TechnicalData']",
+                            ".technical-data",
+                        ]:
+                            try:
+                                el = dp.locator(td_sel)
+                                if await el.count() > 0:
+                                    detail_text += " " + await el.first.inner_text()
+                            except Exception:
+                                pass
+
+                        # 3. Features / Ausstattung sectie
+                        for feat_sel in [
                             ".cBox--features", "#features",
-                            # Nieuwere mobile.de selectors
                             "[data-testid='ad-detail-features']",
                             "[data-testid='ad-detail-equipment']",
                             "[data-testid='equipment']",
                             "[class*='FeatureList']",
-                            "[class*='StageTitle']",
                             "[class*='equipment']",
                             "[class*='feature']",
+                            "[class*='Equipment']",
+                            "[class*='Feature']",
+                        ]:
+                            try:
+                                el = dp.locator(feat_sel)
+                                if await el.count() > 0:
+                                    detail_text += " " + await el.first.inner_text()
+                            except Exception:
+                                pass
+
+                        # 4. Vehicle Description sectie
+                        for desc_sel in [
+                            "#description", ".cBox--vehicleDescription",
+                            "[data-testid='ad-detail-description']",
+                            "[class*='VehicleDescription']",
+                            "[class*='vehicleDescription']",
+                            "[class*='Description']",
+                            ".vehicle-description",
+                        ]:
+                            try:
+                                el = dp.locator(desc_sel)
+                                if await el.count() > 0:
+                                    detail_text += " " + await el.first.inner_text()
+                            except Exception:
+                                pass
+
+                        # 5. Overige relevante secties
+                        for extra_sel in [
                             ".vehicle-details",
                             ".listing-details",
                         ]:
-                            el = dp.locator(sel)
-                            if await el.count() > 0:
-                                try:
+                            try:
+                                el = dp.locator(extra_sel)
+                                if await el.count() > 0:
                                     detail_text += " " + await el.first.inner_text()
-                                except Exception:
-                                    pass
+                            except Exception:
+                                pass
 
                         # FALLBACK: als specifieke selectors weinig opleverden,
                         # pak de volledige zichtbare tekst van de pagina
