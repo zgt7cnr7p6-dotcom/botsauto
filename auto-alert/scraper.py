@@ -89,7 +89,6 @@ MOBILE_DE_SEARCH_URL = (
     "&p=%3A40000&ref=srp&s=Car&sb=doc&vc=Car"
 )
 
-# Must-have: advertentie wordt alleen gemeld als minstens enkele hiervan matchen
 # ── Full-option checklist (alle features die een perfecte Q3 heeft) ──
 FULL_OPTION_FEATURES = [
     "panoramadak",
@@ -558,6 +557,13 @@ def compute_price_score(price: int) -> str:
 def send_telegram(listing: Listing):
     max_score = len(FULL_OPTION_FEATURES)
 
+    # Detecteer model uit titel
+    title_lower = listing.title.lower()
+    if "sportback" in title_lower:
+        model_tag = "Q3 Sportback"
+    else:
+        model_tag = "Q3"
+
     # Kleur-indicator op basis van score
     pct = listing.score / max_score if max_score else 0
     if pct >= 0.90:
@@ -610,7 +616,7 @@ def send_telegram(listing: Listing):
     score_bar = "▓" * filled + "░" * empty
 
     text = (
-        f"{header_emoji} <b>{listing.score}/{max_score}</b> — {verdict}\n"
+        f"{header_emoji} <b>{model_tag}</b> — <b>{listing.score}/{max_score}</b> — {verdict}\n"
         f"<code>{score_bar}</code>\n"
         f"{'━' * 30}\n\n"
         f"<b>{listing.title}</b>\n\n"
