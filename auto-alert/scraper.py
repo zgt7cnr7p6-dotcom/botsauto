@@ -90,35 +90,39 @@ MOBILE_DE_SEARCH_URL = (
 )
 
 # Must-have: advertentie wordt alleen gemeld als minstens enkele hiervan matchen
-MUST_HAVE_FEATURES = [
-    "keyless",
+# ── Full-option checklist (alle features die een perfecte Q3 heeft) ──
+FULL_OPTION_FEATURES = [
     "panoramadak",
-    "audio_premium",
-    "matrix_led",
+    "keyless",
+    "camera_360",
     "s_line",
-    "camera",
-]
-
-# HARDE EISEN: zonder AL deze features wordt GEEN alert verstuurd
-REQUIRED_FEATURES = ["panoramadak", "camera", "keyless"]
-
-# Nice-to-have: bonuspunten, maar niet vereist
-NICE_TO_HAVE_FEATURES = [
-    "stoelverwarming",
+    "matrix_led",
+    "velgen_20",
+    "audio_premium",
     "elektrische_stoelen",
+    "stoelverwarming",
+    "stuurverwarming",
+    "acc",
+    "lane_assist",
+    "drive_select",
     "adaptief_onderstel",
 ]
 
-# Leesbare namen voor Telegram (DE/NL mix zodat je het herkent)
+# Leesbare namen voor Telegram
 FEATURE_DISPLAY_NAMES = {
-    "keyless": "Keyless Entry",
     "panoramadak": "Panoramadak",
-    "audio_premium": "Premium Audio",
+    "keyless": "Keyless Entry",
+    "camera_360": "360° Camera",
+    "s_line": "S-Line interieur",
     "matrix_led": "Matrix LED",
-    "s_line": "S-Line",
-    "camera": "Camera (achteruit/360)",
+    "velgen_20": "20 inch velgen",
+    "audio_premium": "Premium Audio (SONOS/B&O)",
+    "elektrische_stoelen": "Elektrische stoelen + memory",
     "stoelverwarming": "Stoelverwarming",
-    "elektrische_stoelen": "Elektrische stoelen",
+    "stuurverwarming": "Stuurverwarming",
+    "acc": "ACC (Abstandstempomat)",
+    "lane_assist": "Lane assist + dodehoek",
+    "drive_select": "Drive select",
     "adaptief_onderstel": "Adaptief onderstel",
 }
 
@@ -293,10 +297,9 @@ class Listing:
     description: str = ""
     location: str = ""
     listing_date: str = ""
+    color: str = ""
     score: int = 0
     features: list = field(default_factory=list)
-    must_have_count: int = 0
-    nice_to_have_count: int = 0
 
 
 # ── Hybrid detectie ───────────────────────────────────────────────────────
@@ -343,16 +346,6 @@ def is_q3_hybrid(title: str, description: str = "", fuel_type: str = "") -> bool
 
 
 FEATURE_PATTERNS = {
-    # ── Must-have ──
-    "keyless": [
-        r"keyless",
-        r"komfort\s*schl[üu]ssel",
-        r"komfortschl[üu]ssel",
-        r"schl[üu]ssel\s*los",
-        r"convenience\s*key",
-        r"sleutel\s*loos",
-        r"kessy",
-    ],
     "panoramadak": [
         r"panorama\s*d[ao][ck]h?",
         r"panoramadach",
@@ -364,15 +357,27 @@ FEATURE_PATTERNS = {
         r"panoramaverglasung",
         r"panorama\-schiebedach",
     ],
-    "audio_premium": [
-        r"bang[\s&+]*olufsen",
-        r"b[\s&+]*o\b",
-        r"b&o",
-        r"sonos",
-        r"premium\s*sound",
-        r"audi\s*sound\s*system",
-        r"soundsystem",
-        r"sound\s*system",
+    "keyless": [
+        r"keyless",
+        r"komfort\s*schl[üu]ssel",
+        r"komfortschl[üu]ssel",
+        r"schl[üu]ssel\s*los",
+        r"convenience\s*key",
+        r"sleutel\s*loos",
+        r"kessy",
+    ],
+    "camera_360": [
+        r"360[\s°]*camera",
+        r"360[\s°]?grad[\s-]*kamera",
+        r"rundum[\s-]*kamera",
+        r"surround\s*view",
+        r"umgebungs\s*kamera",
+        r"umgebungskamera",
+    ],
+    "s_line": [
+        r"s[\s-]?line",
+        r"s-line",
+        r"sline",
     ],
     "matrix_led": [
         r"matrix[\s-]*led",
@@ -381,26 +386,32 @@ FEATURE_PATTERNS = {
         r"led[\s-]*matrix",
         r"matrixbeam",
     ],
-    "s_line": [
-        r"s[\s-]?line",
-        r"s-line",
-        r"sline",
+    "velgen_20": [
+        r"20[\s-]*zoll",
+        r"20[\s-]*inch",
+        r"20\s*\"",
+        r"alufelgen\s*20",
+        r"felgen\s*20",
+        r"20['″\"]?\s*alu",
     ],
-    "camera": [
-        r"r[üu]ckfahr\s*kamera",
-        r"r[üu]ckfahrkamera",
-        r"achteruitrij\s*camera",
-        r"rear\s*view\s*camera",
-        r"backup\s*camera",
-        r"reversing\s*camera",
-        r"360[\s°]*camera",
-        r"360[\s°]?grad[\s-]*kamera",
-        r"rundum[\s-]*kamera",
-        r"surround\s*view",
-        r"umgebungs\s*kamera",
-        r"umgebungskamera",
+    "audio_premium": [
+        r"bang[\s&+]*olufsen",
+        r"b[\s&+]*o\b",
+        r"b&o",
+        r"sonos",
+        r"premium\s*sound",
+        r"sonos\s*premium",
     ],
-    # ── Nice-to-have ──
+    "elektrische_stoelen": [
+        r"elektrische?\s*stoel",
+        r"elektr.*sitz.*verstellung",
+        r"el\.\s*sitz\s*verstellung",
+        r"sitzverstellung.*elektr",
+        r"power\s*seat",
+        r"electric\s*seat",
+        r"elektrisch\s*verstelba",
+        r"memory",
+    ],
     "stoelverwarming": [
         r"stoel\s*verwarming",
         r"sitz\s*heizung",
@@ -409,20 +420,45 @@ FEATURE_PATTERNS = {
         r"beheizbare?\s*sitz",
         r"heated\s*seat",
     ],
-    "elektrische_stoelen": [
-        r"elektrische?\s*stoel",
-        r"elektr.*sitz.*verstellung",
-        r"sitzverstellung.*elektr",
-        r"power\s*seat",
-        r"electric\s*seat",
-        r"elektrisch\s*verstelba",
+    "stuurverwarming": [
+        r"lenkrad\s*beheizt",
+        r"lenkrad\s*heizung",
+        r"lenkradheizung",
+        r"stuur\s*verwarming",
+        r"verwarm.*stuur",
+        r"heated\s*steering",
+        r"beheizbares?\s*lenkrad",
+    ],
+    "acc": [
+        r"abstands?\s*tempo\s*mat",
+        r"abstandstempomat",
+        r"adaptive?\s*cruise",
+        r"acc\b",
+        r"adaptieve?\s*cruise",
+        r"distronic",
+    ],
+    "lane_assist": [
+        r"spur\s*halte\s*assist",
+        r"spurhalteassist",
+        r"lane\s*assist",
+        r"totwinkel",
+        r"tot[\s-]*winkel[\s-]*assist",
+        r"blind\s*spot",
+        r"dode\s*hoek",
+        r"audi\s*side\s*assist",
+        r"side\s*assist",
+    ],
+    "drive_select": [
+        r"drive\s*select",
+        r"audi\s*drive\s*select",
+        r"fahrmodus",
+        r"rijmodus",
     ],
     "adaptief_onderstel": [
         r"adaptie[fv].*onderstel",
         r"sport\s*onderstel",
         r"adaptiv.*fahrwerk",
         r"sport[\s-]*fahrwerk",
-        r"progressive\s*steering",
         r"damper\s*control",
         r"magnetic\s*ride",
         r"dynamic\s*chassis",
@@ -431,32 +467,72 @@ FEATURE_PATTERNS = {
 }
 
 
+def parse_color(text: str) -> str:
+    """Extraheer de exterieur kleur uit een beschrijving."""
+    # Zoek naar expliciete kleur-labels
+    for pat in [
+        r"Au[ßs]en\s*farbe[:\s]+([A-ZÄÖÜa-zäöüß][\w\s-]{2,30})",
+        r"Farbe[:\s]+([A-ZÄÖÜa-zäöüß][\w\s-]{2,30})",
+        r"Exterieur\s*farbe[:\s]+([A-ZÄÖÜa-zäöüß][\w\s-]{2,30})",
+        r"Lack(?:ierung)?[:\s]+([A-ZÄÖÜa-zäöüß][\w\s-]{2,30})",
+        r"colour?[:\s]+([A-Za-z][\w\s-]{2,30})",
+        r"color[:\s]+([A-Za-z][\w\s-]{2,30})",
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            color = m.group(1).strip().rstrip(".,;")
+            # Filter onzinnige matches
+            if len(color) > 2 and not any(w in color.lower() for w in ["fahrzeug", "ausstattung", "technisch"]):
+                return color
+
+    # Fallback: bekende Audi-kleuren
+    known_colors = [
+        "Mythos Schwarz", "Nano Grau", "Chronos Grau", "Glacier Wei",
+        "Turbo Blau", "Pulse Orange", "Atoll Blau", "Florett Silber",
+        "Manhattangrau", "Manhattan Grau", "Daytona Grau", "Perleffekt",
+        "Schwarz", "Weiss", "Weiß", "Grau", "Silber", "Blau", "Rot",
+        "Grün", "Braun", "Orange", "Metallic",
+    ]
+    text_lower = text.lower()
+    for color in known_colors:
+        if color.lower() in text_lower:
+            # Probeer meer context te vinden (bijv. "Mythos Schwarz Metallic")
+            idx = text_lower.index(color.lower())
+            snippet = text[max(0, idx):idx + 40].strip()
+            # Neem de eerste paar woorden
+            words = snippet.split()[:4]
+            result = " ".join(words).rstrip(".,;")
+            if len(result) > 2:
+                return result
+    return ""
+
+
 def score_listing(listing: Listing) -> Listing:
-    """Score a listing. Must-have features count 2 pts, nice-to-have 1 pt."""
+    """Score: tel hoeveel van de 14 full-option features aanwezig zijn."""
     text = f"{listing.title} {listing.description}".lower()
-    found_must = []
-    found_nice = []
+    found = []
     for feature, patterns in FEATURE_PATTERNS.items():
+        if feature not in FULL_OPTION_FEATURES:
+            continue
         for pat in patterns:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
-                if feature in MUST_HAVE_FEATURES:
-                    found_must.append(feature)
-                elif feature in NICE_TO_HAVE_FEATURES:
-                    found_nice.append(feature)
+                found.append(feature)
                 log.info("Feature '%s' gevonden via '%s' => '%s'", feature, pat, m.group())
                 break
-    listing.features = found_must + found_nice
-    # Must-haves tellen dubbel
-    listing.score = len(found_must) * 2 + len(found_nice)
-    listing.must_have_count = len(found_must)
-    listing.nice_to_have_count = len(found_nice)
-    # Log welke required features missen
-    missing = [f for f in REQUIRED_FEATURES if f not in listing.features]
+    listing.features = found
+    listing.score = len(found)
+
+    # Extraheer kleur als die nog niet gezet is
+    if not listing.color:
+        listing.color = parse_color(listing.description)
+
+    missing = [f for f in FULL_OPTION_FEATURES if f not in found]
     if missing:
         log.info(
-            "Score %s: features=%s, MISSING=%s, desc_len=%d",
-            listing.id[:30], listing.features, missing, len(listing.description),
+            "Score %d/%d %s: MISSING=%s, desc_len=%d",
+            listing.score, len(FULL_OPTION_FEATURES),
+            listing.id[:30], missing, len(listing.description),
         )
     return listing
 
@@ -480,62 +556,76 @@ def compute_price_score(price: int) -> str:
 
 
 def send_telegram(listing: Listing):
-    max_score = len(MUST_HAVE_FEATURES) * 2 + len(NICE_TO_HAVE_FEATURES)
+    max_score = len(FULL_OPTION_FEATURES)
 
-    # Bouw checklist per feature met ✅ / ❌
-    must_lines = []
-    for f in MUST_HAVE_FEATURES:
+    # Kleur-indicator op basis van score
+    pct = listing.score / max_score if max_score else 0
+    if pct >= 0.90:
+        header_emoji = "🟢🟢🟢"
+        verdict = "TOPPER — bijna full option!"
+    elif pct >= 0.75:
+        header_emoji = "🟢🟢"
+        verdict = "High spec"
+    elif pct >= 0.55:
+        header_emoji = "🟡"
+        verdict = "Redelijk uitgerust"
+    elif pct >= 0.35:
+        header_emoji = "🟠"
+        verdict = "Basis uitvoering"
+    else:
+        header_emoji = "🔴"
+        verdict = "Kaal"
+
+    # Checklist: alle features met ✅ / ❌
+    check_lines = []
+    missing_names = []
+    for f in FULL_OPTION_FEATURES:
         name = FEATURE_DISPLAY_NAMES.get(f, f)
         if f in listing.features:
-            must_lines.append(f"  ✅ {name}")
+            check_lines.append(f"  ✅ {name}")
         else:
-            must_lines.append(f"  ❌ {name}")
-
-    nice_lines = []
-    for f in NICE_TO_HAVE_FEATURES:
-        name = FEATURE_DISPLAY_NAMES.get(f, f)
-        if f in listing.features:
-            nice_lines.append(f"  ✅ {name}")
-        else:
-            nice_lines.append(f"  ➖ {name}")
+            check_lines.append(f"  ❌ {name}")
+            missing_names.append(name)
 
     price_str = f"€{listing.price:,}" if listing.price else "onbekend"
     price_verdict = compute_price_score(listing.price)
 
-    # Stars gebaseerd op totaalscore
-    pct = listing.score / max_score if max_score else 0
-    if pct >= 0.85:
-        rating = "🔥🔥🔥 TOPPER"
-    elif pct >= 0.65:
-        rating = "⭐⭐ Goed"
-    elif pct >= 0.40:
-        rating = "⭐ Matig"
-    else:
-        rating = "👎 Weinig opties"
-
-    location_line = f"📍 Locatie: {listing.location}\n" if listing.location else ""
+    location_line = f"📍 {listing.location}\n" if listing.location else ""
     date_line = f"🗓 Geplaatst: {listing.listing_date}\n" if listing.listing_date else ""
+    color_line = f"🎨 Kleur: {listing.color}\n" if listing.color else ""
+
+    # Wat ontbreekt sectie
+    missing_section = ""
+    if missing_names:
+        missing_section = (
+            f"\n{'━' * 30}\n"
+            f"<b>Wat ontbreekt:</b>\n"
+            + "\n".join(f"  ❌ {name}" for name in missing_names)
+            + "\n"
+        )
+
+    # Score balk visueel (gevulde/lege blokjes)
+    filled = listing.score
+    empty = max_score - filled
+    score_bar = "▓" * filled + "░" * empty
 
     text = (
-        f"🚗 <b>Nieuwe Q3 Hybrid gevonden!</b>\n"
+        f"{header_emoji} <b>{listing.score}/{max_score}</b> — {verdict}\n"
+        f"<code>{score_bar}</code>\n"
         f"{'━' * 30}\n\n"
         f"<b>{listing.title}</b>\n\n"
         f"💰 <b>{price_str}</b>  {price_verdict}\n"
-        f"📅 Bouwjaar: {listing.year}\n"
-        f"🛣 Kilometerstand: {listing.km:,} km\n"
+        f"📅 Bouwjaar: <b>{listing.year}</b>\n"
+        f"🛣 {listing.km:,} km\n"
+        f"{color_line}"
         f"{location_line}"
         f"{date_line}"
-        f"📊 Score: <b>{listing.score}/{max_score}</b> — {rating}\n\n"
-        f"{'━' * 30}\n"
-        f"<b>Must-have opties:</b>\n"
-        + "\n".join(must_lines)
-        + "\n\n"
-        f"<b>Nice-to-have:</b>\n"
-        + "\n".join(nice_lines)
-        + "\n\n"
-        f"{'━' * 30}\n"
+        f"\n<b>Full option check:</b>\n"
+        + "\n".join(check_lines)
+        + missing_section
+        + f"\n{'━' * 30}\n"
         f"🔗 <a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>\n"
-        f"📍 Bron: {listing.source}"
+        f"📍 {listing.source}"
     )
 
     if DRY_RUN:
@@ -2026,26 +2116,16 @@ async def main():
 
         if is_new:
             new_count += 1
-            # Check HARDE EISEN: alleen alert als ALLE required features aanwezig zijn
-            missing = [f for f in REQUIRED_FEATURES if f not in listing.features]
-            if missing:
-                missing_names = ", ".join(FEATURE_DISPLAY_NAMES.get(f, f) for f in missing)
-                log.info(
-                    "SKIP (mist vereiste features: %s): %s — score %d — %s",
-                    missing_names, listing.title[:50], listing.score, listing.url,
-                )
-            else:
-                send_telegram(listing)
-                alert_count += 1
-                log.info(
-                    "ALERT: %s — must-have %d/%d, score %d — €%s — %s",
-                    listing.title,
-                    listing.must_have_count,
-                    len(MUST_HAVE_FEATURES),
-                    listing.score,
-                    f"{listing.price:,}" if listing.price else "?",
-                    listing.url,
-                )
+            send_telegram(listing)
+            alert_count += 1
+            log.info(
+                "ALERT: %s — score %d/%d — €%s — %s",
+                listing.title,
+                listing.score,
+                len(FULL_OPTION_FEATURES),
+                f"{listing.price:,}" if listing.price else "?",
+                listing.url,
+            )
         else:
             log.info("Bekende listing bijgewerkt: %s", listing.id)
 
@@ -2058,55 +2138,42 @@ async def main():
         alert_count,
     )
 
-    # Send summary — alleen listings die ALLE vereiste features hebben
+    # Send summary
     if all_listings:
-        max_score = len(MUST_HAVE_FEATURES) * 2 + len(NICE_TO_HAVE_FEATURES)
-        qualified = [
-            lst for lst in all_listings
-            if all(f in lst.features for f in REQUIRED_FEATURES)
-        ]
-        sorted_listings = sorted(qualified, key=lambda l: l.score, reverse=True)
-        skipped = len(all_listings) - len(qualified)
+        max_score = len(FULL_OPTION_FEATURES)
+        sorted_listings = sorted(all_listings, key=lambda l: l.score, reverse=True)
 
         summary = (
             f"📊 <b>Scan samenvatting</b>\n\n"
             f"🔍 Totaal gevonden: {len(all_listings)}\n"
-            f"✅ Voldoet aan eisen: {len(qualified)}\n"
-            f"❌ Afgevallen (mist camera/keyless/pano): {skipped}\n"
             f"🔔 Alerts verstuurd: {alert_count}\n"
             f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n\n"
             f"{'━' * 30}\n"
         )
 
         if not sorted_listings:
-            summary += "<i>Geen listings met alle vereiste features gevonden.</i>\n"
+            summary += "<i>Geen listings gevonden.</i>\n"
         else:
-            summary += f"<b>🏆 Top {len(sorted_listings)} listings:</b>\n\n"
+            summary += f"<b>🏆 Top {min(len(sorted_listings), 15)} listings:</b>\n\n"
 
         for i, lst in enumerate(sorted_listings[:15], 1):
-            # Rating
             pct = lst.score / max_score if max_score else 0
-            if pct >= 0.85:
-                rating = "🔥"
-            elif pct >= 0.65:
-                rating = "⭐⭐"
-            elif pct >= 0.40:
-                rating = "⭐"
+            if pct >= 0.90:
+                indicator = "🟢"
+            elif pct >= 0.75:
+                indicator = "🟢"
+            elif pct >= 0.55:
+                indicator = "🟡"
             else:
-                rating = "👎"
+                indicator = "🟠"
 
             price_str = f"€{lst.price:,}" if lst.price else "?"
             km_str = f"{lst.km // 1000}k" if lst.km else "?"
-            loc_str = f" · {lst.location}" if lst.location else ""
-            date_str = f" · {lst.listing_date}" if lst.listing_date else ""
-            features_str = ", ".join(
-                FEATURE_DISPLAY_NAMES.get(f, f) for f in lst.features[:4]
-            )
+            color_str = f" · {lst.color}" if lst.color else ""
 
             summary += (
-                f"{i}. {rating} <b>{lst.title[:45]}</b>\n"
-                f"   {price_str} · {lst.year} · {km_str} km{loc_str}{date_str}\n"
-                f"   Score {lst.score}/{max_score} · {features_str}\n"
+                f"{i}. {indicator} <b>{lst.score}/{max_score}</b> {lst.title[:40]}\n"
+                f"   {price_str} · {lst.year} · {km_str} km{color_str}\n"
                 f"   <a href=\"{lst.url}\">🔗 Bekijken</a>\n\n"
             )
 
