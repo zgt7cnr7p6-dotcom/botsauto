@@ -41,17 +41,16 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
-      - name: Download database
+      - name: Restore database from cache
         # Scheduled runs hergebruiken DB om alleen NIEUWE listings te melden
         # Handmatige trigger met clear_db=true skipt de DB (volledige scan)
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clear_db == false) }}
-        uses: dawidd6/action-download-artifact@v6
+        uses: actions/cache/restore@v4
         with:
-          name: listings-db
-          path: auto-alert
-          search_artifacts: true
-          if_no_artifact_found: warn
-        continue-on-error: true
+          path: auto-alert/listings.db
+          key: listings-db-dummy
+          restore-keys: |
+            listings-db-
 
       - name: Run scraper
         env:
@@ -61,14 +60,12 @@ jobs:
           SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
         run: python scraper.py
 
-      - name: Upload database
-        uses: actions/upload-artifact@v4
+      - name: Save database to cache
         if: always()
+        uses: actions/cache/save@v4
         with:
-          name: listings-db
           path: auto-alert/listings.db
-          retention-days: 90
-          overwrite: true
+          key: listings-db-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload debug screenshots
         uses: actions/upload-artifact@v4

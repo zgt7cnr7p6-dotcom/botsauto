@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass, field
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse, quote, parse_qs
 
 import requests as req_lib
 from bs4 import BeautifulSoup
@@ -811,7 +811,7 @@ def scrape_mobile_de_scrapedo(conn) -> list:
             if href and not href.startswith("http"):
                 href = "https://suchen.mobile.de" + href
 
-            listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{hash(title)}"
+            listing_id = extract_listing_id(href, "mobile", fallback=str(abs(hash(title))))
 
             if listing_exists(conn, listing_id):
                 known_streak += 1
@@ -1136,7 +1136,7 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
                 if href and not href.startswith("http"):
                     href = "https://suchen.mobile.de" + href
 
-                listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{hash(title)}"
+                listing_id = extract_listing_id(href, "mobile", fallback=str(abs(hash(title))))
 
                 if listing_exists(conn, listing_id):
                     known_streak += 1
@@ -1221,6 +1221,40 @@ def parse_year(text: str) -> int:
     """Extract year from text."""
     match = re.search(r"(20[12]\d)", text)
     return int(match.group(1)) if match else 0
+
+
+def extract_listing_id(href: str, source: str, fallback: str = "") -> str:
+    """Extract een stabiel listing ID uit een URL.
+
+    mobile.de: pakt 'id' query parameter of numeriek pad-segment
+    autoscout24: pakt het laatste pad-segment (UUID/slug)
+    Fallback: hash van de volledige URL (zonder tracking params)
+    """
+    if not href:
+        return f"{source}_{fallback}" if fallback else ""
+
+    parsed = urlparse(href)
+
+    if source == "mobile":
+        # mobile.de: ?id=354960329
+        params = parse_qs(parsed.query)
+        if "id" in params:
+            return f"mobile_{params['id'][0]}"
+        # Fallback: zoek numeriek segment in pad
+        nums = re.findall(r"(\d{6,})", parsed.path)
+        if nums:
+            return f"mobile_{nums[-1]}"
+
+    elif source == "as24":
+        # autoscout24: /angebote/audi-q3-...-uuid
+        path = parsed.path.rstrip("/")
+        if path:
+            slug = path.split("/")[-1]
+            return f"as24_{slug}"
+
+    # Fallback: hash van URL zonder query params
+    clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    return f"{source}_{abs(hash(clean_url)) % 10**12}"
 
 
 async def scrape_mobile_de(page, conn) -> list[Listing]:
@@ -1398,7 +1432,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                 if href and not href.startswith("http"):
                     href = "https://suchen.mobile.de" + href
 
-                listing_id = f"mobile_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"mobile_{i}"
+                listing_id = extract_listing_id(href, "mobile", fallback=str(i))
 
                 if listing_exists(conn, listing_id):
                     known_streak += 1
@@ -1945,7 +1979,7 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
                     if href and not href.startswith("http"):
                         href = "https://www.autoscout24.de" + href
 
-                listing_id = f"as24_{re.sub(r'[^a-zA-Z0-9]', '', href[-20:])}" if href else f"as24_{i}"
+                listing_id = extract_listing_id(href, "as24", fallback=str(i))
 
                 if listing_exists(conn, listing_id):
                     known_streak += 1
