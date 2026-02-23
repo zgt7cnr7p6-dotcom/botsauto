@@ -73,20 +73,20 @@ def get_random_proxy() -> str | None:
 SEARCH_CRITERIA = {
     "model": "Audi Q3 45 TFSI e",
     "fuel": "hybrid",
-    "year_min": 2020,          # vanaf 2020
+    "year_min": 2021,          # vanaf 2021
     "km_max": 80_000,          # max 80k km
     "price_max": 40_000,       # max €40.000
     "country": "DE",
 }
 
-# mobile.de zoek-URL — exact zoals de user zoekt
-# ms=1900;37;;pano = Audi Q3 met "pano" in tekst, ft=HYBRID, fr=2020+, ml=max80k, p=max40k
-# sb=doc = sorteer op nieuwste eerst (beter voor monitoring dan sb=rel)
+# mobile.de zoek-URL — exact de link van de gebruiker
+# Audi Q3 hybrid, panoramadak, vanaf 2021, max 80k km, max €40k, nieuwste eerst
+# Alle filtering zit in de URL — Python voegt GEEN extra filters toe
 MOBILE_DE_SEARCH_URL = (
     "https://suchen.mobile.de/fahrzeuge/search.html?"
-    "dam=false&fr=2020%3A&ft=HYBRID&isSearchRequest=true"
+    "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
     "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=down"
-    "&p=%3A40000&ref=srp&s=Car&sb=doc&vc=Car"
+    "&p=%3A40000&s=Car&sb=doc&vc=Car"
 )
 
 # ── Full-option checklist (alle features die een perfecte Q3 heeft) ──
@@ -843,18 +843,6 @@ def scrape_mobile_de_scrapedo(conn) -> list:
             # Year
             year = parse_year(card_text)
 
-            # Filter
-            if price and price > SEARCH_CRITERIA["price_max"]:
-                continue
-            if km and km > SEARCH_CRITERIA["km_max"]:
-                continue
-            if year and year < SEARCH_CRITERIA["year_min"]:
-                continue
-
-            # Hybrid check (op basis van card text)
-            if not is_q3_hybrid(title, card_text, ""):
-                continue
-
             # Detail pagina ophalen via Scrape.do voor feature-detectie
             description = card_text[:500]
             location = ""
@@ -976,11 +964,6 @@ def scrape_mobile_de_scrapedo(conn) -> list:
                 location=location,
                 listing_date=listing_date,
             )
-
-            # Hybrid check opnieuw met volledige beschrijving
-            if not is_q3_hybrid(listing.title, listing.description, ""):
-                log.info("Geen hybrid na detail check: %s", title[:50])
-                continue
 
             log.info("MATCH: %s — €%s — %d km — %d", title[:50], f"{price:,}" if price else "?", km, year)
             listings.append(listing)
@@ -1167,18 +1150,6 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
 
                 # Year
                 year = parse_year(card_text)
-
-                # Filter
-                if price and price > SEARCH_CRITERIA["price_max"]:
-                    continue
-                if km and km > SEARCH_CRITERIA["km_max"]:
-                    continue
-                if year and year < SEARCH_CRITERIA["year_min"]:
-                    continue
-
-                # Hybrid check
-                if not is_q3_hybrid(title, card_text, ""):
-                    continue
 
                 listing = Listing(
                     id=listing_id,
@@ -1479,13 +1450,6 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                     except Exception:
                         pass
 
-                if price and price > SEARCH_CRITERIA["price_max"]:
-                    continue
-                if km and km > SEARCH_CRITERIA["km_max"]:
-                    continue
-                if year and year < SEARCH_CRITERIA["year_min"]:
-                    continue
-
                 listing = Listing(
                     id=listing_id, source="mobile.de", title=title,
                     price=price, year=year, km=km, url=href or search_url,
@@ -1651,10 +1615,6 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                         await dp.close()
                     except Exception as e:
                         log.warning("Detail fout: %s", e)
-
-                if not is_q3_hybrid(listing.title, listing.description):
-                    log.info("Geen Sportback hybrid: %s", title[:50])
-                    continue
 
                 log.info("MATCH: %s — €%s — %d km — %d", title[:50], f"{price:,}" if price else "?", km, year)
                 listings.append(listing)
@@ -2148,9 +2108,9 @@ async def main():
                 log.warning("mobile.de [%s]: 0 listings", label)
 
         all_listings.extend(mobile_listings)
-        log.info("mobile.de: %d NIEUWE hybrid listings gevonden", len(mobile_listings))
+        log.info("mobile.de: %d listings gevonden", len(mobile_listings))
 
-    log.info("Totaal: %d listings gevonden, nu scoren ...", len(all_listings))
+    log.info("Totaal: %d listings, nu scoren ...", len(all_listings))
 
     new_count = 0
     alert_count = 0
