@@ -22,10 +22,14 @@ from urllib.parse import urlparse, quote, parse_qs
 
 import requests as req_lib
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
 
-# curl_cffi: HTTP client die Chrome's TLS-vingerafdruk nabootst
-# Hierdoor ziet mobile.de het als een echte browser (op TLS niveau)
+# Optioneel: Playwright en curl_cffi (niet nodig voor Scrape.do)
+try:
+    from playwright.async_api import async_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
+
 try:
     from curl_cffi import requests as curl_requests
     HAS_CURL_CFFI = True
