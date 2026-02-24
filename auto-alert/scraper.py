@@ -79,15 +79,33 @@ SEARCH_CRITERIA = {
     "country": "DE",
 }
 
-# mobile.de zoek-URL — exact de link van de gebruiker
-# Audi Q3 hybrid, panoramadak, vanaf 2021, max 80k km, max €40k, nieuwste eerst
-# Alle filtering zit in de URL — Python voegt GEEN extra filters toe
-MOBILE_DE_SEARCH_URL = (
-    "https://suchen.mobile.de/fahrzeuge/search.html?"
-    "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
-    "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=down"
-    "&p=%3A40000&s=Car&sb=doc&vc=Car"
-)
+# mobile.de zoek-URLs
+# URL 1: Q3 hybrid met "pano" in titel — alles doorsturen
+# URL 2: Q3 Sportback hybrid ZONDER pano in titel — alleen doorsturen als beschrijving panoramadak bevat
+MOBILE_DE_SEARCH_URLS = [
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
+            "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=down"
+            "&p=%3A40000&s=Car&sb=doc&vc=Car"
+        ),
+        "label": "Q3 pano",
+        "require_pano_in_desc": False,  # pano zit al in URL-filter
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "cn=DE&dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
+            "&ml=%3A80000&ms=1900%3B37%3B%3Bsportback&od=down"
+            "&p=%3A40000&s=Car&sb=doc&vc=Car"
+        ),
+        "label": "Q3 Sportback (pano check)",
+        "require_pano_in_desc": True,  # moet panoramadak in beschrijving hebben
+    },
+]
+# Backwards compat
+MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
 
 # ── Full-option checklist (alle features die een perfecte Q3 heeft) ──
 FULL_OPTION_FEATURES = [
@@ -146,8 +164,8 @@ VIEWPORTS = [
 ]
 
 
-async def human_delay(min_s=1.5, max_s=4.0):
-    """Wacht een willekeurige tijd om menselijk gedrag te simuleren."""
+async def human_delay(min_s=0.5, max_s=1.5):
+    """Korte pauze tegen rate limiting."""
     await asyncio.sleep(random.uniform(min_s, max_s))
 
 
@@ -720,7 +738,7 @@ def scrape_do_fetch(url: str, render: bool = False) -> str | None:
         return None
 
 
-def scrape_mobile_de_scrapedo(conn) -> list:
+def scrape_mobile_de_scrapedo(conn, search_url: str = "") -> list:
     """Scrape mobile.de via Scrape.do API + BeautifulSoup.
 
     Scrape.do bypassed DataDome automatisch — geen TLS spoofing of proxy nodig.
@@ -732,7 +750,8 @@ def scrape_mobile_de_scrapedo(conn) -> list:
         log.info("mobile.de Scrape.do: geen API token, overslaan")
         return listings
 
-    search_url = MOBILE_DE_SEARCH_URL
+    if not search_url:
+        search_url = MOBILE_DE_SEARCH_URL
 
     log.info("mobile.de Scrape.do: zoekpagina ophalen ...")
     html = scrape_do_fetch(search_url)
@@ -816,8 +835,8 @@ def scrape_mobile_de_scrapedo(conn) -> list:
             if listing_exists(conn, listing_id):
                 known_streak += 1
                 log.info("Bekende listing: %s", title[:50])
-                if known_streak >= 3:
-                    log.info("3 bekende op rij — stoppen")
+                if known_streak >= 5:
+                    log.info("5 bekende op rij — stoppen")
                     break
                 continue
             known_streak = 0
@@ -849,7 +868,7 @@ def scrape_mobile_de_scrapedo(conn) -> list:
             listing_date = ""
             if href:
                 log.info("mobile.de Scrape.do: detail ophalen voor %s ...", title[:50])
-                time.sleep(random.uniform(0.5, 1.5))  # Korte pauze tussen requests
+                time.sleep(random.uniform(0.2, 0.5))  # Minimale pauze
                 # render=true zodat JS wordt uitgevoerd en alle content geladen
                 detail_html = scrape_do_fetch(href, render=True)
                 if detail_html:
@@ -976,7 +995,7 @@ def scrape_mobile_de_scrapedo(conn) -> list:
     return listings
 
 
-def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
+def scrape_mobile_de_http(conn, proxy_url: str | None = None, search_url: str = "") -> list:
     """Scrape mobile.de via HTTP + BeautifulSoup.
 
     Gebruikt curl_cffi (Chrome TLS fingerprint) als beschikbaar,
@@ -984,7 +1003,8 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
     """
     listings = []
 
-    search_url = MOBILE_DE_SEARCH_URL
+    if not search_url:
+        search_url = MOBILE_DE_SEARCH_URL
 
     proxy_label = f"MET proxy ({proxy_url.split('@')[-1] if '@' in (proxy_url or '') else proxy_url})" if proxy_url else "ZONDER proxy"
     use_impersonate = HAS_CURL_CFFI
@@ -1018,8 +1038,7 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
         if home_resp.status_code != 200:
             log.warning("mobile.de HTTP: homepage gaf %d", home_resp.status_code)
 
-        # Korte pauze (menselijk)
-        time.sleep(random.uniform(1.0, 3.0))
+        time.sleep(random.uniform(0.3, 0.8))
 
         # Stap 2: Zoekresultaten ophalen
         headers["Referer"] = "https://www.mobile.de/"
@@ -1124,8 +1143,8 @@ def scrape_mobile_de_http(conn, proxy_url: str | None = None) -> list:
                 if listing_exists(conn, listing_id):
                     known_streak += 1
                     log.info("Bekende listing: %s", title[:50])
-                    if known_streak >= 3:
-                        log.info("3 bekende op rij — stoppen")
+                    if known_streak >= 5:
+                        log.info("5 bekende op rij — stoppen")
                         break
                     continue
                 known_streak = 0
@@ -1228,12 +1247,12 @@ def extract_listing_id(href: str, source: str, fallback: str = "") -> str:
     return f"{source}_{abs(hash(clean_url)) % 10**12}"
 
 
-async def scrape_mobile_de(page, conn) -> list[Listing]:
+async def scrape_mobile_de(page, conn, search_url: str = "") -> list[Listing]:
     """Scrape mobile.de for Audi Q3 hybrid listings in Duitsland.
-    Zoekt op 'Q3 Pano' met hybrid filter — matched de user's eigen zoekopdracht.
     Blokkeert images/fonts voor snelheid via proxy."""
     listings = []
-    search_url = MOBILE_DE_SEARCH_URL
+    if not search_url:
+        search_url = MOBILE_DE_SEARCH_URL
 
     log.info("Scraping mobile.de ...")
     try:
@@ -1260,7 +1279,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
 
         # Wacht tot JS content geladen is (mobile.de rendert dynamisch)
-        await page.wait_for_timeout(5000)
+        await page.wait_for_timeout(2000)
 
         page_title = await page.title()
         page_url = page.url
@@ -1273,7 +1292,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
             # Retry: wacht en probeer opnieuw (soms is het tijdelijk)
             await asyncio.sleep(random.uniform(5, 10))
             await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
-            await page.wait_for_timeout(5000)
+            await page.wait_for_timeout(2000)
             page_title = await page.title()
             if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
                 log.error("mobile.de: IP definitief geblokkeerd (Zugriff verweigert)")
@@ -1319,7 +1338,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
             )
         except Exception:
             log.info("mobile.de: wachten op data-testid selectors...")
-            await page.wait_for_timeout(5000)
+            await page.wait_for_timeout(2000)
 
         # ── Zoek listing cards — data-testid eerst (meest betrouwbaar) ──
         count = 0
@@ -1408,8 +1427,8 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                 if listing_exists(conn, listing_id):
                     known_streak += 1
                     log.info("Bekende listing: %s", title[:50])
-                    if known_streak >= 3:
-                        log.info("3 bekende op rij — stoppen")
+                    if known_streak >= 5:
+                        log.info("5 bekende op rij — stoppen")
                         break
                     continue
                 known_streak = 0
@@ -1461,7 +1480,7 @@ async def scrape_mobile_de(page, conn) -> list[Listing]:
                         dp = await page.context.new_page()
                         await human_delay(1, 2)
                         await dp.goto(href, wait_until="domcontentloaded", timeout=30000)
-                        await dp.wait_for_timeout(3000)
+                        await dp.wait_for_timeout(1500)
 
                         # --- Klik "Show all" / "Show more" buttons om alles te tonen ---
                         expand_selectors = [
@@ -1652,7 +1671,7 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
 
         await human_delay(1, 3)
         await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
-        await page.wait_for_timeout(5000)
+        await page.wait_for_timeout(2000)
 
         log.info("AutoScout24 page title: %s", await page.title())
         log.info("AutoScout24 page URL: %s", page.url)
@@ -1740,8 +1759,8 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
                     if listing_exists(conn, listing_id):
                         known_streak += 1
                         log.info("Bekende listing, skip: %s", title[:50])
-                        if known_streak >= 3:
-                            log.info("3 bekende op rij — stoppen")
+                        if known_streak >= 5:
+                            log.info("5 bekende op rij — stoppen")
                             break
                         continue
                     known_streak = 0
@@ -1943,7 +1962,7 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
 
                 if listing_exists(conn, listing_id):
                     known_streak += 1
-                    if known_streak >= 3:
+                    if known_streak >= 5:
                         break
                     continue
                 known_streak = 0
@@ -2032,83 +2051,46 @@ async def main():
 
     conn = init_db()
 
-    browser_args = [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-blink-features=AutomationControlled",
-    ]
-
     all_listings: list[Listing] = []
+    seen_ids: set[str] = set()  # voorkom dubbele listings tussen URLs
 
-    # ── mobile.de: Scrape.do eerst, dan HTTP/proxies, dan Playwright ──
-    mobile_listings = []
+    # Panoramadak patterns voor beschrijving-check (URL 2)
+    pano_patterns = FEATURE_PATTERNS["panoramadak"]
 
-    # PRIMAIR: Scrape.do API (bypassed DataDome automatisch)
-    if SCRAPE_DO_TOKEN:
-        log.info("mobile.de [Scrape.do API] ...")
-        mobile_listings = scrape_mobile_de_scrapedo(conn)
+    def has_pano_in_text(text: str) -> bool:
+        text_lower = text.lower()
+        return any(re.search(p, text_lower, re.IGNORECASE) for p in pano_patterns)
+
+    if not SCRAPE_DO_TOKEN:
+        log.error("Geen SCRAPE_DO_TOKEN — kan niet scrapen!")
+        return
+
+    # ── Loop door alle zoek-URLs ──
+    for search_cfg in MOBILE_DE_SEARCH_URLS:
+        search_url = search_cfg["url"]
+        url_label = search_cfg["label"]
+        require_pano = search_cfg["require_pano_in_desc"]
+
+        log.info("━━━ %s ━━━", url_label)
+
+        mobile_listings = scrape_mobile_de_scrapedo(conn, search_url=search_url)
         if mobile_listings:
-            log.info("mobile.de [Scrape.do]: %d listings!", len(mobile_listings))
+            log.info("[%s] %d listings gevonden", url_label, len(mobile_listings))
         else:
-            log.warning("mobile.de [Scrape.do]: 0 listings, probeer fallback ...")
+            log.warning("[%s] 0 listings", url_label)
 
-    # FALLBACK 1: HTTP met curl_cffi/proxies
-    if not mobile_listings:
-        http_attempts: list[tuple[str, str | None]] = []
-        for pu in PROXY_URLS:
-            label = pu.split("@")[-1] if "@" in pu else pu
-            http_attempts.append((f"HTTP proxy {label}", pu))
-        http_attempts.append(("HTTP direct", None))
+        # Filter: pano-check op beschrijving als nodig + dedup tussen URLs
+        for lst in mobile_listings:
+            if lst.id in seen_ids:
+                log.info("[%s] Overgeslagen (al in andere URL): %s", url_label, lst.title[:40])
+                continue
+            if require_pano and not has_pano_in_text(f"{lst.title} {lst.description}"):
+                log.info("[%s] Overgeslagen (geen pano in beschrijving): %s", url_label, lst.title[:40])
+                continue
+            seen_ids.add(lst.id)
+            all_listings.append(lst)
 
-        for label, proxy in http_attempts:
-            if mobile_listings:
-                break
-            log.info("mobile.de [%s] ...", label)
-            mobile_listings = scrape_mobile_de_http(conn, proxy_url=proxy)
-            if mobile_listings:
-                log.info("mobile.de [%s]: %d listings!", label, len(mobile_listings))
-                break
-            log.warning("mobile.de [%s]: 0 listings", label)
-            time.sleep(random.uniform(1, 3))
-
-    # FALLBACK 2: Playwright browser
-    if not mobile_listings:
-        log.info("mobile.de: HTTP mislukt, probeer Playwright ...")
-
-    async with async_playwright() as p:
-        if not mobile_listings:
-            pw_attempts: list[tuple[str, str | None]] = []
-            for pu in PROXY_URLS:
-                label = pu.split("@")[-1] if "@" in pu else pu
-                pw_attempts.append((f"Playwright proxy {label}", pu))
-            pw_attempts.append(("Playwright direct", None))
-
-            for label, proxy_url in pw_attempts:
-                log.info("mobile.de [%s] ...", label)
-                if proxy_url:
-                    proxy_cfg = parse_proxy_url(proxy_url)
-                    mobile_browser = await p.chromium.launch(
-                        headless=True, args=browser_args, proxy=proxy_cfg,
-                    )
-                else:
-                    mobile_browser = await p.chromium.launch(
-                        headless=True, args=browser_args,
-                    )
-
-                mobile_ctx = await create_stealth_context(mobile_browser)
-                mobile_page = await mobile_ctx.new_page()
-                mobile_listings = await scrape_mobile_de(mobile_page, conn)
-                await mobile_browser.close()
-
-                if mobile_listings:
-                    log.info("mobile.de [%s]: %d listings!", label, len(mobile_listings))
-                    break
-                log.warning("mobile.de [%s]: 0 listings", label)
-
-        all_listings.extend(mobile_listings)
-        log.info("mobile.de: %d listings gevonden", len(mobile_listings))
+        log.info("[%s] %d listings toegevoegd", url_label, len(mobile_listings))
 
     log.info("Totaal: %d listings, nu scoren ...", len(all_listings))
 

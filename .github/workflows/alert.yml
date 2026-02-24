@@ -3,7 +3,6 @@ name: Auto Alert Scraper
 on:
   schedule:
     # Elke 5 minuten, alleen 06:00-19:00 UTC (= 07:00-20:00 CET / 08:00-21:00 CEST)
-    # Python script heeft ook quiet hours check als extra vangnet
     - cron: '*/5 6-19 * * *'
   workflow_dispatch:
     inputs:
@@ -24,7 +23,7 @@ defaults:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -36,14 +35,9 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: |
-          pip install playwright requests beautifulsoup4 curl_cffi
-          playwright install chromium
-          playwright install-deps chromium
+        run: pip install requests beautifulsoup4
 
       - name: Restore database from cache
-        # Scheduled runs hergebruiken DB om alleen NIEUWE listings te melden
-        # Handmatige trigger met clear_db=true skipt de DB (volledige scan)
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clear_db == false) }}
         uses: actions/cache/restore@v4
         with:
@@ -56,7 +50,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PROXY_URL: ${{ secrets.PROXY_URL }}
           SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
         run: python scraper.py
 
@@ -67,14 +60,11 @@ jobs:
           path: auto-alert/listings.db
           key: listings-db-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Upload debug screenshots
+      - name: Upload debug HTML
         uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
-          name: debug-screenshots
-          path: |
-            auto-alert/debug_*.png
-            auto-alert/debug_*.html
-            auto-alert/debug_*.json
+          name: debug-html
+          path: auto-alert/debug_*.html
           retention-days: 3
           if-no-files-found: ignore
