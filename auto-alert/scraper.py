@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Auto-Alert Scraper
-Scraped mobile.de en AutoScout24 voor Audi Q3 45 TFSI e (hybrid) in Duitsland.
+Scraped mobile.de, AutoScout24 en Audi Gebrauchtwagenboerse voor Audi Q3 45 TFSI e (hybrid) in Duitsland.
 Stuurt Telegram alerts met feature-checklist en prijsscore.
 Anti-detectie: random delays, user-agent rotatie, menselijk browse-gedrag.
 """
@@ -1260,6 +1260,21 @@ def extract_listing_id(href: str, source: str, fallback: str = "") -> str:
             slug = path.split("/")[-1]
             return f"as24_{slug}"
 
+    elif source == "audi":
+        # audi-boerse.de: zoek numeriek ID in URL of pad
+        params = parse_qs(parsed.query)
+        if "id" in params:
+            return f"audi_{params['id'][0]}"
+        nums = re.findall(r"(\d{6,})", parsed.path)
+        if nums:
+            return f"audi_{nums[-1]}"
+        # Slug-based fallback
+        path = parsed.path.rstrip("/")
+        if path:
+            slug = path.split("/")[-1]
+            if len(slug) > 3:
+                return f"audi_{slug}"
+
     # Fallback: hash van URL zonder query params
     clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
     return f"{source}_{abs(hash(clean_url)) % 10**12}"
@@ -2036,6 +2051,176 @@ async def scrape_autoscout24(page, conn, base_url: str | None = None) -> list[Li
     return listings
 
 
+# ── Audi Gebrauchtwagenboerse scraper ──────────────────────────────────────
+
+# audi-boerse.de legacy platform (server-rendered HTML via controller.htm)
+# s|10 = merk Audi, l|50 = 50 resultaten, PRICE_SALE,U = sorteer op prijs oplopend
+AUDI_BOERSE_SEARCH_URL = (
+    "https://www.audi-boerse.de/gebrauchtwagen/i/s|10/l|50,1,PRICE_SALE,U/controller.htm"
+)
+
+
+def scrape_audi_boerse(conn) -> list[Listing]:
+    """Scrape Audi Gebrauchtwagenboerse (audi-boerse.de) via Scrape.do.
+
+    Zoekt op alle Audi modellen en filtert op Q3 45 TFSI e hybrid.
+    Detail pagina's worden opgehaald voor feature-detectie.
+    """
+    listings = []
+
+    if not SCRAPE_DO_TOKEN:
+        log.info("Audi Börse: geen SCRAPE_DO_TOKEN, overslaan")
+        return listings
+
+    log.info("━━━ Audi Gebrauchtwagenboerse ━━━")
+    log.info("Audi Börse: zoekpagina ophalen ...")
+    html = scrape_do_fetch(AUDI_BOERSE_SEARCH_URL)
+
+    if not html:
+        log.error("Audi Börse: geen HTML ontvangen")
+        return listings
+
+    # Debug HTML opslaan
+    try:
+        with open("debug_audi_boerse.html", "w", encoding="utf-8") as f:
+            f.write(html[:500_000])
+    except Exception:
+        pass
+
+    if "zugriff verweigert" in html.lower() or "access denied" in html.lower():
+        log.error("Audi Börse: geblokkeerd (Zugriff verweigert)")
+        return listings
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Probeer meerdere selectors voor auto-cards
+    cards = []
+    used_selector = ""
+    for sel in [
+        ".vehicle-card", ".listing-entry", ".result-list-entry",
+        ".car-item", "article.result", "[data-vehicle-id]",
+        ".sc-list-item", ".search-result-item", ".offer-item",
+        ".fahrzeug", ".car-result", ".result-item",
+        "article", ".card",
+    ]:
+        cards = soup.select(sel)
+        if cards:
+            used_selector = sel
+            log.info("Audi Börse: %d cards gevonden met selector '%s'", len(cards), sel)
+            break
+
+    if not cards:
+        # Fallback: zoek alle links naar detail-pagina's
+        all_links = soup.select("a[href*='/gebrauchtwagen/']")
+        log.warning(
+            "Audi Börse: geen bekende card-selectors gevonden. "
+            "Links met /gebrauchtwagen/: %d. HTML preview: %.500s",
+            len(all_links),
+            soup.get_text(separator=" ", strip=True)[:500],
+        )
+        return listings
+
+    for i, card in enumerate(cards):
+        try:
+            card_text = card.get_text(separator=" ", strip=True)
+
+            # Filter: alleen Q3
+            if "q3" not in card_text.lower():
+                continue
+
+            # Filter: alleen hybrid
+            if not is_q3_hybrid(card_text):
+                continue
+
+            # Title
+            title = ""
+            for title_sel in ["h2", "h3", ".title", ".heading", "[class*='title']", "a"]:
+                title_el = card.select_one(title_sel)
+                if title_el and len(title_el.get_text(strip=True)) > 5:
+                    title = title_el.get_text(strip=True)
+                    break
+            if not title:
+                title = card_text[:80]
+
+            # Price
+            price = 0
+            for price_sel in ["[class*='price']", ".price", "[data-price]"]:
+                price_el = card.select_one(price_sel)
+                if price_el:
+                    price = parse_price(price_el.get_text())
+                    if price:
+                        break
+            if not price:
+                price_match = re.search(r"([\d.]+)\s*€|€\s*([\d.]+)", card_text)
+                if price_match:
+                    price = parse_price(price_match.group(1) or price_match.group(2))
+
+            # KM
+            km = parse_km(card_text)
+
+            # Year
+            year = parse_year(card_text)
+
+            # URL
+            link = card.select_one("a[href]")
+            href = link["href"] if link else ""
+            if href and not href.startswith("http"):
+                href = f"https://www.audi-boerse.de{href}"
+
+            # Listing ID
+            listing_id = extract_listing_id(href, "audi", fallback=f"card_{i}")
+            if not listing_id:
+                continue
+
+            # Criteria check
+            if price and price > SEARCH_CRITERIA["price_max"]:
+                continue
+            if km and km > SEARCH_CRITERIA["km_max"]:
+                continue
+            if year and year < SEARCH_CRITERIA["year_min"]:
+                continue
+
+            # Skip bekende listings
+            if listing_exists(conn, listing_id):
+                log.info("Audi Börse: bekende listing, skip: %s", title[:50])
+                continue
+
+            listing = Listing(
+                id=listing_id,
+                source="Audi Börse",
+                title=title,
+                price=price,
+                year=year,
+                km=km,
+                url=href,
+                description=card_text[:500],
+            )
+
+            # Detail pagina ophalen voor features
+            if href:
+                time.sleep(random.uniform(0.3, 0.8))
+                detail_html = scrape_do_fetch(href)
+                if detail_html:
+                    detail_soup = BeautifulSoup(detail_html, "html.parser")
+                    detail_text = detail_soup.get_text(separator=" ", strip=True)
+                    listing.description = detail_text[:3000]
+                    if not listing.color:
+                        listing.color = parse_color(detail_text)
+
+            log.info(
+                "MATCH: %s — €%s — %d km — %d",
+                title[:50], f"{price:,}" if price else "?", km, year,
+            )
+            listings.append(listing)
+
+        except Exception as e:
+            log.warning("Audi Börse card %d: %s", i, e)
+            continue
+
+    log.info("Audi Börse: %d Q3 hybrid listings gevonden", len(listings))
+    return listings
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 
@@ -2109,6 +2294,16 @@ async def main():
             all_listings.append(lst)
 
         log.info("[%s] %d listings toegevoegd", url_label, len(mobile_listings))
+
+    # ── Audi Gebrauchtwagenboerse ──
+    audi_listings = scrape_audi_boerse(conn)
+    for lst in audi_listings:
+        if lst.id in seen_ids:
+            log.info("[Audi Börse] Overgeslagen (al gevonden): %s", lst.title[:40])
+            continue
+        seen_ids.add(lst.id)
+        all_listings.append(lst)
+    log.info("[Audi Börse] %d listings toegevoegd", len(audi_listings))
 
     log.info("Totaal: %d listings, nu scoren ...", len(all_listings))
 
