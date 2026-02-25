@@ -619,7 +619,7 @@ def send_telegram(listing: Listing):
     price_verdict = compute_price_score(listing.price)
 
     location_line = f"📍 {listing.location}\n" if listing.location else ""
-    date_line = f"🗓 Geplaatst: {listing.listing_date}\n" if listing.listing_date else ""
+    date_line = ""
     color_line = f"🎨 Kleur: {listing.color}\n" if listing.color else ""
 
     # Wat ontbreekt sectie
@@ -1213,8 +1213,22 @@ def parse_km(text: str) -> int:
 
 def parse_year(text: str) -> int:
     """Extract year from text."""
-    match = re.search(r"(20[12]\d)", text)
-    return int(match.group(1)) if match else 0
+    # Try EZ (Erstzulassung) pattern specific to mobile.de
+    ez_match = re.search(r"EZ\s*(\d{2}/)?(20[12]\d)", text, re.IGNORECASE)
+    if ez_match:
+        return int(ez_match.group(2))
+
+    # Find all year candidates
+    matches = [int(m) for m in re.findall(r"(20[12]\d)", text)]
+    if not matches:
+        return 0
+
+    current_year = datetime.now().year
+    # Filter out current/future years (likely posting dates, not build years)
+    past_years = [y for y in matches if y < current_year]
+    if past_years:
+        return max(past_years)  # Most recent past year = most likely build year
+    return matches[0]
 
 
 def extract_listing_id(href: str, source: str, fallback: str = "") -> str:
@@ -2130,73 +2144,7 @@ async def main():
         alert_count,
     )
 
-    # Send summary
-    if all_listings:
-        max_score = len(FULL_OPTION_FEATURES)
-        sorted_listings = sorted(all_listings, key=lambda l: l.score, reverse=True)
-
-        summary = (
-            f"📊 <b>Scan samenvatting</b>\n\n"
-            f"🔍 Totaal gevonden: {len(all_listings)}\n"
-            f"🔔 Alerts verstuurd: {alert_count}\n"
-            f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n\n"
-            f"{'━' * 30}\n"
-        )
-
-        if not sorted_listings:
-            summary += "<i>Geen listings gevonden.</i>\n"
-        else:
-            summary += f"<b>🏆 Top {min(len(sorted_listings), 15)} listings:</b>\n\n"
-
-        for i, lst in enumerate(sorted_listings[:15], 1):
-            pct = lst.score / max_score if max_score else 0
-            if pct >= 0.90:
-                indicator = "🟢"
-            elif pct >= 0.75:
-                indicator = "🟢"
-            elif pct >= 0.55:
-                indicator = "🟡"
-            else:
-                indicator = "🟠"
-
-            price_str = f"€{lst.price:,}" if lst.price else "?"
-            km_str = f"{lst.km // 1000}k" if lst.km else "?"
-            color_str = f" · {lst.color}" if lst.color else ""
-
-            # Jaar weergave: "NIEUW" voor 0 km, anders gewoon jaar
-            year_str = "NIEUW" if lst.km == 0 else str(lst.year)
-
-            # Missende features
-            missing = [FEATURE_DISPLAY_NAMES.get(f, f) for f in FULL_OPTION_FEATURES if f not in lst.features]
-
-            summary += (
-                f"{i}. {indicator} <b>{lst.score}/{max_score}</b> {lst.title[:40]}\n"
-                f"   {price_str} · {year_str} · {km_str} km{color_str}\n"
-            )
-            if missing:
-                summary += f"   ❌ <i>{', '.join(missing)}</i>\n"
-            summary += f"   <a href=\"{lst.url}\">🔗 Bekijken</a>\n\n"
-
-        if DRY_RUN:
-            log.info("[DRY-RUN] Telegram summary:\n%s", summary)
-        else:
-            # Telegram max 4096 chars — split als nodig
-            tg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            if len(summary) <= 4096:
-                req_lib.post(
-                    tg_url,
-                    json={"chat_id": TELEGRAM_CHAT_ID, "text": summary, "parse_mode": "HTML", "disable_web_page_preview": True},
-                    timeout=30,
-                )
-            else:
-                # Stuur in delen
-                for chunk_start in range(0, len(summary), 4000):
-                    chunk = summary[chunk_start:chunk_start + 4000]
-                    req_lib.post(
-                        tg_url,
-                        json={"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "parse_mode": "HTML", "disable_web_page_preview": True},
-                        timeout=30,
-                    )
+    log.info("Scan samenvatting niet verstuurd (uitgeschakeld)")
 
 
 if __name__ == "__main__":
