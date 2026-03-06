@@ -58,6 +58,10 @@ if PROXY_URL and PROXY_URL not in PROXY_URLS:
 # Primaire methode voor mobile.de (betrouwbaarder dan TLS spoofing)
 SCRAPE_DO_TOKEN = os.environ.get("SCRAPE_DO_TOKEN", "")
 
+# ScraperAPI — alternatief voor Scrape.do (5000 gratis credits bij aanmelding)
+# Signup: https://www.scraperapi.com/signup — gratis plan: 5000 credits, daarna 1000/maand
+SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY", "")
+
 
 def parse_proxy_url(url: str) -> dict:
     """Parse http://user:pass@host:port naar Playwright proxy dict."""
@@ -706,17 +710,46 @@ def _mobile_de_headers() -> dict:
     }
 
 
-def scrape_do_fetch(url: str, render: bool = False) -> str | None:
-    """Haal een pagina op via Scrape.do API.
+def _fetch_via_scraperapi(url: str, render: bool = False) -> str | None:
+    """Haal pagina op via ScraperAPI (primair).
 
-    Scrape.do handelt DataDome, CAPTCHAs en anti-bot bypass automatisch af.
-    super=true activeert geavanceerde anti-bot bypass (nodig voor mobile.de).
-    geoCode=de zorgt voor Duits IP-adres.
-    Retourneert HTML string of None bij fout.
+    ScraperAPI bypassed DataDome, Cloudflare, Akamai etc.
+    render=true activeert headless browser (kost 5 credits i.p.v. 1).
+    country_code=de zorgt voor Duits IP-adres.
     """
-    if not SCRAPE_DO_TOKEN:
+    api_url = (
+        f"http://api.scraperapi.com"
+        f"?api_key={SCRAPERAPI_KEY}"
+        f"&url={quote(url)}"
+        f"&country_code=de"
+        f"&render={'true' if render else 'false'}"
+    )
+
+    try:
+        resp = req_lib.get(api_url, timeout=90)
+        log.info("ScraperAPI: status=%d, size=%d bytes voor %s", resp.status_code, len(resp.content), url[:80])
+
+        if resp.status_code == 200:
+            return resp.text
+        elif resp.status_code == 401:
+            log.error("ScraperAPI: ongeldige API key")
+        elif resp.status_code == 429:
+            log.warning("ScraperAPI: rate limit / credits op")
+        elif resp.status_code == 403:
+            log.warning("ScraperAPI: geblokkeerd (403) voor %s", url[:80])
+        else:
+            log.warning("ScraperAPI: fout status %d — %s", resp.status_code, resp.text[:200])
+        return None
+    except req_lib.RequestException as e:
+        log.error("ScraperAPI: request mislukt: %s", e)
         return None
 
+
+def _fetch_via_scrape_do(url: str, render: bool = False) -> str | None:
+    """Haal pagina op via Scrape.do (fallback).
+
+    super=true activeert geavanceerde anti-bot bypass (nodig voor mobile.de).
+    """
     api_url = (
         f"https://api.scrape.do"
         f"?token={SCRAPE_DO_TOKEN}"
@@ -733,13 +766,39 @@ def scrape_do_fetch(url: str, render: bool = False) -> str | None:
         elif resp.status_code == 401:
             log.error("Scrape.do: ongeldige API token")
         elif resp.status_code == 429:
-            log.warning("Scrape.do: rate limit bereikt")
+            log.warning("Scrape.do: rate limit / credits op")
         else:
             log.warning("Scrape.do: fout status %d — %s", resp.status_code, resp.text[:200])
         return None
     except req_lib.RequestException as e:
         log.error("Scrape.do: request mislukt: %s", e)
         return None
+
+
+def scrape_do_fetch(url: str, render: bool = False) -> str | None:
+    """Haal een pagina op via anti-bot scraping API.
+
+    Probeert providers in volgorde:
+      1. ScraperAPI (SCRAPERAPI_KEY) — 5000 gratis credits bij signup
+      2. Scrape.do (SCRAPE_DO_TOKEN) — fallback
+    Retourneert HTML string of None bij fout.
+    """
+    # Provider 1: ScraperAPI
+    if SCRAPERAPI_KEY:
+        result = _fetch_via_scraperapi(url, render=render)
+        if result:
+            return result
+        log.info("ScraperAPI mislukt, probeer fallback ...")
+
+    # Provider 2: Scrape.do
+    if SCRAPE_DO_TOKEN:
+        result = _fetch_via_scrape_do(url, render=render)
+        if result:
+            return result
+
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
+        log.error("Geen scraping API key geconfigureerd (SCRAPERAPI_KEY of SCRAPE_DO_TOKEN)")
+    return None
 
 
 def scrape_mobile_de_scrapedo(conn, search_url: str = "") -> list:
@@ -750,8 +809,8 @@ def scrape_mobile_de_scrapedo(conn, search_url: str = "") -> list:
     """
     listings = []
 
-    if not SCRAPE_DO_TOKEN:
-        log.info("mobile.de Scrape.do: geen API token, overslaan")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
+        log.info("mobile.de: geen scraping API key, overslaan")
         return listings
 
     if not search_url:
@@ -2068,8 +2127,8 @@ def scrape_audi_boerse(conn) -> list[Listing]:
     """
     listings = []
 
-    if not SCRAPE_DO_TOKEN:
-        log.info("Audi Börse: geen SCRAPE_DO_TOKEN, overslaan")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
+        log.info("Audi Börse: geen scraping API key, overslaan")
         return listings
 
     log.info("━━━ Audi Gebrauchtwagenboerse ━━━")
@@ -2264,8 +2323,8 @@ async def main():
         text_lower = text.lower()
         return any(re.search(p, text_lower, re.IGNORECASE) for p in pano_patterns)
 
-    if not SCRAPE_DO_TOKEN:
-        log.error("Geen SCRAPE_DO_TOKEN — kan niet scrapen!")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
+        log.error("Geen scraping API key (SCRAPERAPI_KEY of SCRAPE_DO_TOKEN) — kan niet scrapen!")
         return
 
     # ── Loop door alle zoek-URLs ──
