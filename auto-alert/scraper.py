@@ -2428,6 +2428,40 @@ async def main():
     log.info("Scraping: ScraperAPI=%s, Scrape.do=%s, Proxy=%s (%d URLs)",
              bool(SCRAPERAPI_KEY), bool(SCRAPE_DO_TOKEN), bool(PROXY_URLS), len(PROXY_URLS))
 
+    # ── Bepaal scraping methode ──
+    # Playwright + proxy is primair (DataDome vereist JS execution)
+    # Scrape.do/ScraperAPI is fallback (als Playwright niet beschikbaar)
+    use_playwright = HAS_PLAYWRIGHT and PROXY_URLS
+    if use_playwright:
+        log.info("Methode: Playwright + residential proxy (DataDome bypass via echte browser)")
+    elif SCRAPERAPI_KEY or SCRAPE_DO_TOKEN:
+        log.info("Methode: ScraperAPI/Scrape.do API")
+    else:
+        log.info("Methode: curl_cffi + proxy (kan falen bij DataDome)")
+
+    # ── Playwright browser starten (indien beschikbaar) ──
+    pw_browser = None
+    pw_context = None
+    pw_page = None
+    if use_playwright:
+        try:
+            pw = await async_playwright().start()
+            proxy_url = get_random_proxy()
+            proxy_conf = parse_proxy_url(proxy_url) if proxy_url else None
+            pw_browser = await pw.chromium.launch(headless=True, proxy=proxy_conf)
+            pw_context = await create_stealth_context(pw_browser)
+            # Blokkeer zware resources — bespaart ~70% bandwidth
+            await pw_context.route(
+                "**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf,eot,css}",
+                lambda route: route.abort(),
+            )
+            pw_page = await pw_context.new_page()
+            log.info("Playwright browser gestart met proxy %s",
+                     proxy_url.split("@")[-1] if proxy_url and "@" in proxy_url else "")
+        except Exception as e:
+            log.error("Playwright starten mislukt: %s — fallback naar API", e)
+            use_playwright = False
+
     # ── Loop door alle zoek-URLs ──
     for search_cfg in MOBILE_DE_SEARCH_URLS:
         search_url = search_cfg["url"]
@@ -2436,7 +2470,11 @@ async def main():
 
         log.info("━━━ %s ━━━", url_label)
 
-        mobile_listings = scrape_mobile_de_scrapedo(conn, search_url=search_url)
+        if use_playwright and pw_page:
+            mobile_listings = await scrape_mobile_de(pw_page, conn, search_url=search_url)
+        else:
+            mobile_listings = scrape_mobile_de_scrapedo(conn, search_url=search_url)
+
         if mobile_listings:
             log.info("[%s] %d listings gevonden", url_label, len(mobile_listings))
         else:
@@ -2481,6 +2519,13 @@ async def main():
             log.info("Bekende listing bijgewerkt: %s", listing.id)
 
     conn.close()
+
+    # Playwright browser sluiten
+    if pw_browser:
+        try:
+            await pw_browser.close()
+        except Exception:
+            pass
 
     log.info(
         "=== Klaar: %d totaal, %d nieuw, %d alerts verstuurd ===",
