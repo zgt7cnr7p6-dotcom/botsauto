@@ -2480,21 +2480,30 @@ async def main():
             proxy_url = get_random_proxy()
             proxy_conf = parse_proxy_url(proxy_url) if proxy_url else None
 
-            # Patchright: gebruik chromium headless (CDP leaks gefixt)
-            # Playwright: zelfde maar minder stealth
+            # Patchright: CDP leaks gefixt, ondetecteerbaar door DataDome
+            # BELANGRIJK: geen custom user_agent/headers — laat de echte browser
+            # z'n eigen fingerprint genereren. Custom headers veroorzaken mismatches.
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
                 "--no-first-run",
                 "--no-default-browser-check",
-                "--disable-component-update",
             ]
             pw_browser = await pw.chromium.launch(
                 headless=True,
                 proxy=proxy_conf,
                 args=launch_args,
             )
-            pw_context = await create_stealth_context(pw_browser)
-            # Blokkeer alleen images/fonts — CSS en JS moeten intact blijven voor DataDome
+            # Minimale context — geen custom UA, geen custom viewport
+            # DataDome cross-checkt UA header met browser fingerprint
+            pw_context = await pw_browser.new_context(
+                locale="de-DE",
+                timezone_id="Europe/Berlin",
+                geolocation={"latitude": 50.1109, "longitude": 8.6821},
+                permissions=["geolocation"],
+                color_scheme="light",
+                java_script_enabled=True,
+            )
+            # Blokkeer alleen images/fonts — CSS en JS moeten intact voor DataDome
             await pw_context.route(
                 "**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf,eot}",
                 lambda route: route.abort(),
