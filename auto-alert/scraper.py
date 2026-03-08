@@ -2455,16 +2455,6 @@ async def main():
 
         log.info("[%s] %d listings toegevoegd", url_label, len(mobile_listings))
 
-    # ── Audi Gebrauchtwagenboerse ──
-    audi_listings = scrape_audi_boerse(conn)
-    for lst in audi_listings:
-        if lst.id in seen_ids:
-            log.info("[Audi Börse] Overgeslagen (al gevonden): %s", lst.title[:40])
-            continue
-        seen_ids.add(lst.id)
-        all_listings.append(lst)
-    log.info("[Audi Börse] %d listings toegevoegd", len(audi_listings))
-
     log.info("Totaal: %d listings, nu scoren ...", len(all_listings))
 
     new_count = 0
