@@ -1453,11 +1453,18 @@ async def scrape_mobile_de(page, conn, search_url: str = "") -> list[Listing]:
 
     log.info("Scraping mobile.de ...")
     try:
-        # Blokkeer zware resources — maakt proxy 3x sneller
-        await page.context.route(
-            "**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf,eot}",
-            lambda route: route.abort(),
-        )
+        # Blokkeer alleen third-party fonts (niet mobile.de resources!)
+        # DataDome serveert een tracking pixel — als je die blokkeert word je gedetecteerd
+        async def _selective_block(route):
+            url = route.request.url
+            if "mobile.de" in url or "datadome" in url:
+                await route.continue_()
+            elif any(url.endswith(ext) for ext in (".woff", ".woff2", ".ttf", ".eot")):
+                await route.abort()
+            else:
+                await route.continue_()
+
+        await page.context.route("**/*.{woff,woff2,ttf,eot}", _selective_block)
 
         # ── Warm-up: bezoek homepage eerst ──
         # DataDome serveert een JS challenge die een cookie zet.
@@ -2503,11 +2510,8 @@ async def main():
                 color_scheme="light",
                 java_script_enabled=True,
             )
-            # Blokkeer alleen images/fonts — CSS en JS moeten intact voor DataDome
-            await pw_context.route(
-                "**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf,eot}",
-                lambda route: route.abort(),
-            )
+            # GEEN resource blocking hier — DataDome tracking pixel moet laden
+            # scrape_mobile_de() blokkeert alleen third-party fonts
             pw_page = await pw_context.new_page()
             log.info("%s browser gestart met proxy %s",
                      PLAYWRIGHT_ENGINE, proxy_url.split("@")[-1] if proxy_url and "@" in proxy_url else "")
