@@ -62,6 +62,11 @@ SCRAPE_DO_TOKEN = os.environ.get("SCRAPE_DO_TOKEN", "")
 # Signup: https://www.scraperapi.com/signup — gratis plan: 5000 credits, daarna 1000/maand
 SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY", "")
 
+# Max aantal detail pagina's per run — beperkt bandwidth bij proxy-only mode
+# Elke detail pagina kost ~300KB. Bij 10 max = ~3MB per run, ~400MB/maand bij 5min interval
+MAX_DETAIL_PAGES_PER_RUN = int(os.environ.get("MAX_DETAIL_PAGES", "10"))
+_detail_page_count = 0  # teller voor detail pagina's per run
+
 
 def parse_proxy_url(url: str) -> dict:
     """Parse http://user:pass@host:port naar Playwright proxy dict."""
@@ -789,24 +794,32 @@ def _fetch_via_proxy(url: str, render: bool = False) -> str | None:
 
     proxy_label = proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url
     headers = _mobile_de_headers()
+    # Forceer gzip compressie — bespaart ~70% bandwidth
+    headers["Accept-Encoding"] = "gzip, deflate, br"
     proxies = {"http": proxy_url, "https": proxy_url}
+
+    # Bepaal of warm-up nodig is (alleen voor mobile.de, niet voor audi-boerse etc.)
+    is_mobile_de = "mobile.de" in url
+    target_host = urlparse(url).hostname or ""
 
     try:
         if HAS_CURL_CFFI:
             session = curl_requests.Session(impersonate="chrome124")
             session.proxies = proxies
 
-            # Warm-up: homepage eerst voor cookies/referer
-            log.info("Proxy [curl_cffi]: warm-up homepage via %s ...", proxy_label)
-            try:
-                home_resp = session.get("https://www.mobile.de", headers=headers, timeout=30)
-                log.info("Proxy: homepage status=%d", home_resp.status_code)
-            except Exception as e:
-                log.warning("Proxy: homepage warm-up mislukt: %s", e)
-
-            time.sleep(random.uniform(0.5, 1.5))
-            headers["Referer"] = "https://www.mobile.de/"
-            headers["Sec-Fetch-Site"] = "same-origin"
+            # Warm-up: homepage eerst voor cookies/referer (alleen mobile.de)
+            if is_mobile_de:
+                log.info("Proxy [curl_cffi]: warm-up homepage via %s ...", proxy_label)
+                try:
+                    home_resp = session.get("https://www.mobile.de", headers=headers, timeout=30)
+                    log.info("Proxy: homepage status=%d", home_resp.status_code)
+                except Exception as e:
+                    log.warning("Proxy: homepage warm-up mislukt: %s", e)
+                time.sleep(random.uniform(0.5, 1.5))
+                headers["Referer"] = "https://www.mobile.de/"
+                headers["Sec-Fetch-Site"] = "same-origin"
+            else:
+                log.info("Proxy [curl_cffi]: ophalen via %s ...", proxy_label)
 
             resp = session.get(url, headers=headers, timeout=45)
         else:
@@ -816,14 +829,15 @@ def _fetch_via_proxy(url: str, render: bool = False) -> str | None:
             session.headers["User-Agent"] = random.choice(USER_AGENTS)
             session.proxies = proxies
 
-            log.info("Proxy [requests]: warm-up homepage via %s ...", proxy_label)
-            try:
-                session.get("https://www.mobile.de", timeout=30)
-            except Exception:
-                pass
+            if is_mobile_de:
+                log.info("Proxy [requests]: warm-up homepage via %s ...", proxy_label)
+                try:
+                    session.get("https://www.mobile.de", timeout=30)
+                except Exception:
+                    pass
+                time.sleep(random.uniform(0.5, 1.5))
+                headers["Referer"] = "https://www.mobile.de/"
 
-            time.sleep(random.uniform(0.5, 1.5))
-            headers["Referer"] = "https://www.mobile.de/"
             resp = session.get(url, timeout=45)
 
         log.info("Proxy: status=%d, size=%d bytes voor %s", resp.status_code, len(resp.content), url[:80])
@@ -1006,14 +1020,16 @@ def scrape_mobile_de_scrapedo(conn, search_url: str = "") -> list:
             # Year
             year = parse_year(card_text)
 
-            # Detail pagina ophalen via Scrape.do voor feature-detectie
+            # Detail pagina ophalen voor feature-detectie (bandwidth-bewust)
+            global _detail_page_count
             description = card_text[:500]
             location = ""
             listing_date = ""
-            if href:
-                log.info("mobile.de Scrape.do: detail ophalen voor %s ...", title[:50])
+            if href and _detail_page_count < MAX_DETAIL_PAGES_PER_RUN:
+                _detail_page_count += 1
+                log.info("mobile.de: detail ophalen [%d/%d] voor %s ...",
+                         _detail_page_count, MAX_DETAIL_PAGES_PER_RUN, title[:50])
                 time.sleep(random.uniform(0.2, 0.5))  # Minimale pauze
-                # render=true zodat JS wordt uitgevoerd en alle content geladen
                 detail_html = scrape_do_fetch(href, render=True)
                 if detail_html:
                     detail_soup = BeautifulSoup(detail_html, "html.parser")
@@ -2336,8 +2352,10 @@ def scrape_audi_boerse(conn) -> list[Listing]:
                 description=card_text[:500],
             )
 
-            # Detail pagina ophalen voor features
-            if href:
+            # Detail pagina ophalen voor features (bandwidth-bewust)
+            if href and _detail_page_count < MAX_DETAIL_PAGES_PER_RUN:
+                _detail_page_count += 1
+                log.info("Audi Börse: detail ophalen [%d/%d] ...", _detail_page_count, MAX_DETAIL_PAGES_PER_RUN)
                 time.sleep(random.uniform(0.3, 0.8))
                 detail_html = scrape_do_fetch(href)
                 if detail_html:
