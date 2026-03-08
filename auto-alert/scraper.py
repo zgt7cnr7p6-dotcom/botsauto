@@ -775,12 +775,86 @@ def _fetch_via_scrape_do(url: str, render: bool = False) -> str | None:
         return None
 
 
+def _fetch_via_proxy(url: str, render: bool = False) -> str | None:
+    """Haal pagina op via residential proxy + curl_cffi (Chrome TLS fingerprint).
+
+    Geen externe API nodig — alleen een residential proxy (bijv. SmartProxy).
+    curl_cffi bootst Chrome's TLS fingerprint na, waardoor DataDome het als
+    echt browserverkeer ziet. render parameter wordt genegeerd (geen JS rendering).
+    """
+    proxy_url = get_random_proxy()
+    if not proxy_url:
+        log.warning("Directe proxy: geen PROXY_URL(S) geconfigureerd")
+        return None
+
+    proxy_label = proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url
+    headers = _mobile_de_headers()
+    proxies = {"http": proxy_url, "https": proxy_url}
+
+    try:
+        if HAS_CURL_CFFI:
+            session = curl_requests.Session(impersonate="chrome124")
+            session.proxies = proxies
+
+            # Warm-up: homepage eerst voor cookies/referer
+            log.info("Proxy [curl_cffi]: warm-up homepage via %s ...", proxy_label)
+            try:
+                home_resp = session.get("https://www.mobile.de", headers=headers, timeout=30)
+                log.info("Proxy: homepage status=%d", home_resp.status_code)
+            except Exception as e:
+                log.warning("Proxy: homepage warm-up mislukt: %s", e)
+
+            time.sleep(random.uniform(0.5, 1.5))
+            headers["Referer"] = "https://www.mobile.de/"
+            headers["Sec-Fetch-Site"] = "same-origin"
+
+            resp = session.get(url, headers=headers, timeout=45)
+        else:
+            # Fallback: plain requests (minder effectief tegen DataDome)
+            session = req_lib.Session()
+            session.headers.update(headers)
+            session.headers["User-Agent"] = random.choice(USER_AGENTS)
+            session.proxies = proxies
+
+            log.info("Proxy [requests]: warm-up homepage via %s ...", proxy_label)
+            try:
+                session.get("https://www.mobile.de", timeout=30)
+            except Exception:
+                pass
+
+            time.sleep(random.uniform(0.5, 1.5))
+            headers["Referer"] = "https://www.mobile.de/"
+            resp = session.get(url, timeout=45)
+
+        log.info("Proxy: status=%d, size=%d bytes voor %s", resp.status_code, len(resp.content), url[:80])
+
+        if resp.status_code == 200:
+            html = resp.text
+            # Check op IP-block
+            if "zugriff verweigert" in html.lower() or "access denied" in html.lower():
+                log.warning("Proxy: IP geblokkeerd door DataDome (Zugriff verweigert)")
+                return None
+            return html
+        elif resp.status_code == 403:
+            log.warning("Proxy: 403 Forbidden — DataDome block voor %s", url[:80])
+        elif resp.status_code == 429:
+            log.warning("Proxy: 429 rate limited")
+        else:
+            log.warning("Proxy: fout status %d", resp.status_code)
+        return None
+
+    except Exception as e:
+        log.error("Proxy: request mislukt: %s", e)
+        return None
+
+
 def scrape_do_fetch(url: str, render: bool = False) -> str | None:
     """Haal een pagina op met anti-bot bypass.
 
     Probeert providers in volgorde:
       1. ScraperAPI (SCRAPERAPI_KEY) — $49/100k credits, 1 credit/req
       2. Scrape.do (SCRAPE_DO_TOKEN) — fallback
+      3. Directe proxy + curl_cffi (PROXY_URL) — gratis (alleen proxy kosten)
     Retourneert HTML string of None bij fout.
     """
     # Provider 1: ScraperAPI (primair)
@@ -795,9 +869,16 @@ def scrape_do_fetch(url: str, render: bool = False) -> str | None:
         result = _fetch_via_scrape_do(url, render=render)
         if result:
             return result
+        log.info("Scrape.do mislukt, probeer proxy fallback ...")
 
-    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
-        log.error("Geen scraping API geconfigureerd (SCRAPERAPI_KEY of SCRAPE_DO_TOKEN)")
+    # Provider 3: Directe residential proxy + curl_cffi
+    if PROXY_URLS:
+        result = _fetch_via_proxy(url, render=render)
+        if result:
+            return result
+
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
+        log.error("Geen scraping methode geconfigureerd (SCRAPERAPI_KEY, SCRAPE_DO_TOKEN, of PROXY_URL)")
     return None
 
 
@@ -809,8 +890,8 @@ def scrape_mobile_de_scrapedo(conn, search_url: str = "") -> list:
     """
     listings = []
 
-    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
-        log.info("mobile.de: geen scraping API key, overslaan")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
+        log.info("mobile.de: geen scraping methode beschikbaar, overslaan")
         return listings
 
     if not search_url:
@@ -2127,8 +2208,8 @@ def scrape_audi_boerse(conn) -> list[Listing]:
     """
     listings = []
 
-    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
-        log.info("Audi Börse: geen scraping API key, overslaan")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
+        log.info("Audi Börse: geen scraping methode beschikbaar, overslaan")
         return listings
 
     log.info("━━━ Audi Gebrauchtwagenboerse ━━━")
@@ -2323,10 +2404,11 @@ async def main():
         text_lower = text.lower()
         return any(re.search(p, text_lower, re.IGNORECASE) for p in pano_patterns)
 
-    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
-        log.error("Geen scraping API key (SCRAPERAPI_KEY of SCRAPE_DO_TOKEN) — kan niet scrapen!")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
+        log.error("Geen scraping methode geconfigureerd (SCRAPERAPI_KEY, SCRAPE_DO_TOKEN, of PROXY_URL)")
         return
-    log.info("Scraping API: ScraperAPI=%s, Scrape.do=%s", bool(SCRAPERAPI_KEY), bool(SCRAPE_DO_TOKEN))
+    log.info("Scraping: ScraperAPI=%s, Scrape.do=%s, Proxy=%s (%d URLs)",
+             bool(SCRAPERAPI_KEY), bool(SCRAPE_DO_TOKEN), bool(PROXY_URLS), len(PROXY_URLS))
 
     # ── Loop door alle zoek-URLs ──
     for search_cfg in MOBILE_DE_SEARCH_URLS:

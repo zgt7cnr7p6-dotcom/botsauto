@@ -35,7 +35,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 curl_cffi
 
       - name: Restore database from cache
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clear_db == false) }}
@@ -52,6 +52,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
           SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
         run: python scraper.py
 
       - name: Save database to cache
