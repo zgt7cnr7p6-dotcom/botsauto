@@ -710,63 +710,6 @@ def _mobile_de_headers() -> dict:
     }
 
 
-def _fetch_via_proxy(url: str, render: bool = False) -> str | None:
-    """Haal pagina op via residential proxy + curl_cffi (gratis laag).
-
-    curl_cffi spooft Chrome's TLS fingerprint identiek — gecombineerd met
-    een residential IP is dit vaak genoeg om DataDome te bypassen.
-    render parameter wordt genegeerd (geen JS rendering mogelijk).
-    """
-    proxy_url = get_random_proxy()
-    if not proxy_url:
-        return None
-    if not HAS_CURL_CFFI:
-        log.info("Proxy fetch: curl_cffi niet beschikbaar, overslaan")
-        return None
-
-    proxies = {"http": proxy_url, "https": proxy_url}
-    proxy_label = proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url[:30]
-
-    try:
-        session = curl_requests.Session(impersonate="chrome124")
-        session.proxies = proxies
-
-        headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-            "Cache-Control": "max-age=0",
-        }
-
-        resp = session.get(url, headers=headers, timeout=30)
-        log.info(
-            "Proxy+curl_cffi: status=%d, size=%d bytes via %s voor %s",
-            resp.status_code, len(resp.content), proxy_label, url[:60],
-        )
-
-        if resp.status_code == 200:
-            html = resp.text
-            # Check voor anti-bot blocks
-            if "zugriff verweigert" in html.lower() or "access denied" in html.lower():
-                log.warning("Proxy+curl_cffi: geblokkeerd (anti-bot) via %s", proxy_label)
-                return None
-            if len(html) < 1000 and ("captcha" in html.lower() or "challenge" in html.lower()):
-                log.warning("Proxy+curl_cffi: CAPTCHA challenge via %s", proxy_label)
-                return None
-            return html
-        else:
-            log.warning("Proxy+curl_cffi: fout status %d via %s", resp.status_code, proxy_label)
-            return None
-    except Exception as e:
-        log.warning("Proxy+curl_cffi: request mislukt via %s: %s", proxy_label, e)
-        return None
-
-
 def _fetch_via_scraperapi(url: str, render: bool = False) -> str | None:
     """Haal pagina op via ScraperAPI (primair).
 
@@ -835,34 +778,26 @@ def _fetch_via_scrape_do(url: str, render: bool = False) -> str | None:
 def scrape_do_fetch(url: str, render: bool = False) -> str | None:
     """Haal een pagina op met anti-bot bypass.
 
-    Probeert providers in volgorde (goedkoopst eerst):
-      1. Residential proxy + curl_cffi (PROXY_URLS) — gratis/goedkoop
-      2. ScraperAPI (SCRAPERAPI_KEY) — betaalde credits
-      3. Scrape.do (SCRAPE_DO_TOKEN) — betaalde credits
+    Probeert providers in volgorde:
+      1. ScraperAPI (SCRAPERAPI_KEY) — $49/100k credits, 1 credit/req
+      2. Scrape.do (SCRAPE_DO_TOKEN) — fallback
     Retourneert HTML string of None bij fout.
     """
-    # Laag 1: Residential proxy + curl_cffi (gratis)
-    if PROXY_URLS and HAS_CURL_CFFI:
-        result = _fetch_via_proxy(url, render=render)
-        if result:
-            return result
-        log.info("Proxy+curl_cffi mislukt, probeer API fallback ...")
-
-    # Laag 2: ScraperAPI (betaald)
+    # Provider 1: ScraperAPI (primair)
     if SCRAPERAPI_KEY:
         result = _fetch_via_scraperapi(url, render=render)
         if result:
             return result
-        log.info("ScraperAPI mislukt, probeer volgende fallback ...")
+        log.info("ScraperAPI mislukt, probeer fallback ...")
 
-    # Laag 3: Scrape.do (betaald)
+    # Provider 2: Scrape.do (fallback)
     if SCRAPE_DO_TOKEN:
         result = _fetch_via_scrape_do(url, render=render)
         if result:
             return result
 
-    if not PROXY_URLS and not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
-        log.error("Geen scraping methode geconfigureerd (PROXY_URLS, SCRAPERAPI_KEY, of SCRAPE_DO_TOKEN)")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
+        log.error("Geen scraping API geconfigureerd (SCRAPERAPI_KEY of SCRAPE_DO_TOKEN)")
     return None
 
 
@@ -874,8 +809,8 @@ def scrape_mobile_de_scrapedo(conn, search_url: str = "") -> list:
     """
     listings = []
 
-    if not (PROXY_URLS and HAS_CURL_CFFI) and not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
-        log.info("mobile.de: geen scraping methode beschikbaar, overslaan")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
+        log.info("mobile.de: geen scraping API key, overslaan")
         return listings
 
     if not search_url:
@@ -2192,8 +2127,8 @@ def scrape_audi_boerse(conn) -> list[Listing]:
     """
     listings = []
 
-    if not (PROXY_URLS and HAS_CURL_CFFI) and not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
-        log.info("Audi Börse: geen scraping methode beschikbaar, overslaan")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
+        log.info("Audi Börse: geen scraping API key, overslaan")
         return listings
 
     log.info("━━━ Audi Gebrauchtwagenboerse ━━━")
@@ -2388,15 +2323,10 @@ async def main():
         text_lower = text.lower()
         return any(re.search(p, text_lower, re.IGNORECASE) for p in pano_patterns)
 
-    has_proxy = bool(PROXY_URLS and HAS_CURL_CFFI)
-    has_api = bool(SCRAPERAPI_KEY or SCRAPE_DO_TOKEN)
-    if not has_proxy and not has_api:
-        log.error("Geen scraping methode (PROXY_URLS+curl_cffi, SCRAPERAPI_KEY, of SCRAPE_DO_TOKEN)!")
+    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN:
+        log.error("Geen scraping API key (SCRAPERAPI_KEY of SCRAPE_DO_TOKEN) — kan niet scrapen!")
         return
-    if has_proxy:
-        log.info("Proxy: %d residential proxies beschikbaar (curl_cffi=%s)", len(PROXY_URLS), HAS_CURL_CFFI)
-    if has_api:
-        log.info("API fallback: ScraperAPI=%s, Scrape.do=%s", bool(SCRAPERAPI_KEY), bool(SCRAPE_DO_TOKEN))
+    log.info("Scraping API: ScraperAPI=%s, Scrape.do=%s", bool(SCRAPERAPI_KEY), bool(SCRAPE_DO_TOKEN))
 
     # ── Loop door alle zoek-URLs ──
     for search_cfg in MOBILE_DE_SEARCH_URLS:
