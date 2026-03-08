@@ -1451,42 +1451,65 @@ async def scrape_mobile_de(page, conn, search_url: str = "") -> list[Listing]:
             lambda route: route.abort(),
         )
 
-        # ── Warm-up: bezoek homepage eerst (minder verdacht dan directe zoek-URL) ──
+        # ── Warm-up: bezoek homepage eerst ──
+        # DataDome serveert een JS challenge die een cookie zet.
+        # We MOETEN wachten tot die klaar is voordat we naar de zoekpagina gaan.
         log.info("mobile.de: warm-up via homepage ...")
-        await human_delay(2, 4)
+        await human_delay(1, 2)
         try:
-            await page.goto("https://www.mobile.de", wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(random.randint(2000, 4000))
-            # Scroll een beetje om menselijk te lijken
+            # networkidle wacht tot alle JS klaar is (incl. DataDome challenge)
+            await page.goto("https://www.mobile.de", wait_until="networkidle", timeout=45000)
+            home_title = await page.title()
+            log.info("mobile.de: homepage title = '%s'", home_title)
+
+            # Check of DataDome challenge actief is en wacht tot die opgelost is
+            for attempt in range(3):
+                cookies = await page.context.cookies()
+                dd_cookie = [c for c in cookies if "datadome" in c["name"].lower()]
+                if dd_cookie:
+                    log.info("mobile.de: DataDome cookie gezet (%d cookies)", len(dd_cookie))
+                    break
+                log.info("mobile.de: wachten op DataDome challenge (poging %d) ...", attempt + 1)
+                await page.wait_for_timeout(3000)
+
+            # Menselijk gedrag: scroll en wacht
             await page.evaluate("window.scrollTo(0, Math.random() * 300)")
-            await human_delay(1, 2)
+            await human_delay(2, 4)
         except Exception as e:
             log.warning("mobile.de: warm-up mislukt: %s", e)
 
         # ── Navigeer naar zoekresultaten ──
-        await human_delay(1, 3)
-        await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
+        await human_delay(1, 2)
+        await page.goto(search_url, wait_until="networkidle", timeout=90000)
 
-        # Wacht tot JS content geladen is (mobile.de rendert dynamisch)
-        await page.wait_for_timeout(2000)
+        # Wacht extra voor dynamische content
+        await page.wait_for_timeout(3000)
 
         page_title = await page.title()
         page_url = page.url
         log.info("mobile.de page title: '%s'", page_title)
         log.info("mobile.de page URL: %s", page_url)
 
-        # ── Detecteer IP-block ──
+        # ── Detecteer DataDome block ──
         if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
-            log.warning("mobile.de: IP geblokkeerd, wacht en retry ...")
-            # Retry: wacht en probeer opnieuw (soms is het tijdelijk)
-            await asyncio.sleep(random.uniform(5, 10))
-            await page.goto(search_url, wait_until="domcontentloaded", timeout=90000)
-            await page.wait_for_timeout(2000)
+            log.warning("mobile.de: DataDome block, wacht langer en retry ...")
+            # Wacht langer — DataDome soms lost zichzelf op na JS execution
+            await page.wait_for_timeout(5000)
             page_title = await page.title()
-            if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
-                log.error("mobile.de: IP definitief geblokkeerd (Zugriff verweigert)")
-                return listings
-            log.info("mobile.de: retry succesvol! title: '%s'", page_title)
+            if "zugriff verweigert" not in page_title.lower():
+                log.info("mobile.de: DataDome challenge opgelost na wachten!")
+            else:
+                # Retry: terug naar homepage, nieuw cookie, opnieuw proberen
+                log.info("mobile.de: retry via homepage ...")
+                await page.goto("https://www.mobile.de", wait_until="networkidle", timeout=45000)
+                await page.wait_for_timeout(random.randint(5000, 8000))
+                await page.goto(search_url, wait_until="networkidle", timeout=90000)
+                await page.wait_for_timeout(3000)
+                page_title = await page.title()
+                if "zugriff verweigert" in page_title.lower() or "access denied" in page_title.lower():
+                    log.error("mobile.de: IP definitief geblokkeerd (Zugriff verweigert)")
+                    return listings
+                log.info("mobile.de: retry succesvol! title: '%s'", page_title)
 
         # ── Debug: sla HTML op ──
         try:
@@ -2450,9 +2473,9 @@ async def main():
             proxy_conf = parse_proxy_url(proxy_url) if proxy_url else None
             pw_browser = await pw.chromium.launch(headless=True, proxy=proxy_conf)
             pw_context = await create_stealth_context(pw_browser)
-            # Blokkeer zware resources — bespaart ~70% bandwidth
+            # Blokkeer alleen images/fonts — CSS en JS moeten intact blijven voor DataDome
             await pw_context.route(
-                "**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf,eot,css}",
+                "**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf,eot}",
                 lambda route: route.abort(),
             )
             pw_page = await pw_context.new_page()
