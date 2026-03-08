@@ -83,6 +83,11 @@ SCRAPE_DO_TOKEN = os.environ.get("SCRAPE_DO_TOKEN", "")
 # Signup: https://www.scraperapi.com/signup — gratis plan: 5000 credits, daarna 1000/maand
 SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY", "")
 
+# ScrapFly — beste DataDome bypass (96% success rate)
+# Signup: https://scrapfly.io/register — gratis plan: 1000 credits/maand
+# ASP (anti-scraping protection) kost ~25 credits per request
+SCRAPFLY_KEY = os.environ.get("SCRAPFLY_KEY", "")
+
 # Max aantal detail pagina's per run — beperkt bandwidth bij proxy-only mode
 # Elke detail pagina kost ~300KB. Bij 10 max = ~3MB per run, ~400MB/maand bij 5min interval
 MAX_DETAIL_PAGES_PER_RUN = int(os.environ.get("MAX_DETAIL_PAGES", "10"))
@@ -736,6 +741,52 @@ def _mobile_de_headers() -> dict:
     }
 
 
+def _fetch_via_scrapfly(url: str, render: bool = False) -> str | None:
+    """Haal pagina op via ScrapFly (beste DataDome bypass, 96% success).
+
+    asp=true activeert anti-scraping bypass (DataDome, Cloudflare, etc.)
+    render_js=true activeert headless browser (nodig voor JS challenges).
+    country=de zorgt voor Duits IP-adres.
+    Kost ~10-25 credits per request (afhankelijk van opties).
+    """
+    params = {
+        "key": SCRAPFLY_KEY,
+        "url": url,
+        "asp": "true",
+        "country": "de",
+    }
+    if render:
+        params["render_js"] = "true"
+        params["rendering_wait"] = "3000"
+
+    try:
+        resp = req_lib.get("https://api.scrapfly.io/scrape", params=params, timeout=90)
+        log.info("ScrapFly: status=%d, size=%d bytes voor %s", resp.status_code, len(resp.content), url[:80])
+
+        if resp.status_code == 200:
+            data = resp.json()
+            result = data.get("result", {})
+            content = result.get("content", "")
+            if content and len(content) > 500:
+                log.info("ScrapFly: succes — %d chars", len(content))
+                return content
+            else:
+                log.warning("ScrapFly: lege of te kleine response (%d chars)", len(content))
+                return None
+        elif resp.status_code == 401:
+            log.error("ScrapFly: ongeldige API key")
+        elif resp.status_code == 429:
+            log.warning("ScrapFly: rate limit / credits op")
+        elif resp.status_code == 422:
+            log.warning("ScrapFly: anti-bot bypass mislukt voor %s", url[:80])
+        else:
+            log.warning("ScrapFly: fout status %d — %s", resp.status_code, resp.text[:200])
+        return None
+    except req_lib.RequestException as e:
+        log.error("ScrapFly: request mislukt: %s", e)
+        return None
+
+
 def _fetch_via_scraperapi(url: str, render: bool = False) -> str | None:
     """Haal pagina op via ScraperAPI (primair).
 
@@ -748,6 +799,7 @@ def _fetch_via_scraperapi(url: str, render: bool = False) -> str | None:
         f"?api_key={SCRAPERAPI_KEY}"
         f"&url={quote(url)}"
         f"&country_code=de"
+        f"&premium=true"
         f"&render={'true' if render else 'false'}"
     )
 
@@ -887,33 +939,41 @@ def scrape_do_fetch(url: str, render: bool = False) -> str | None:
     """Haal een pagina op met anti-bot bypass.
 
     Probeert providers in volgorde:
-      1. ScraperAPI (SCRAPERAPI_KEY) — $49/100k credits, 1 credit/req
-      2. Scrape.do (SCRAPE_DO_TOKEN) — fallback
-      3. Directe proxy + curl_cffi (PROXY_URL) — gratis (alleen proxy kosten)
+      1. ScrapFly (SCRAPFLY_KEY) — beste DataDome bypass (96% success), 1000 gratis/maand
+      2. ScraperAPI (SCRAPERAPI_KEY) — premium mode voor DataDome, 5000 credits bij signup
+      3. Scrape.do (SCRAPE_DO_TOKEN) — fallback
+      4. Directe proxy + curl_cffi (PROXY_URL) — gratis (alleen proxy kosten)
     Retourneert HTML string of None bij fout.
     """
-    # Provider 1: ScraperAPI (primair)
+    # Provider 1: ScrapFly (beste DataDome bypass)
+    if SCRAPFLY_KEY:
+        result = _fetch_via_scrapfly(url, render=render)
+        if result:
+            return result
+        log.info("ScrapFly mislukt, probeer ScraperAPI ...")
+
+    # Provider 2: ScraperAPI (premium mode)
     if SCRAPERAPI_KEY:
         result = _fetch_via_scraperapi(url, render=render)
         if result:
             return result
         log.info("ScraperAPI mislukt, probeer fallback ...")
 
-    # Provider 2: Scrape.do (fallback)
+    # Provider 3: Scrape.do (fallback)
     if SCRAPE_DO_TOKEN:
         result = _fetch_via_scrape_do(url, render=render)
         if result:
             return result
         log.info("Scrape.do mislukt, probeer proxy fallback ...")
 
-    # Provider 3: Directe residential proxy + curl_cffi
+    # Provider 4: Directe residential proxy + curl_cffi
     if PROXY_URLS:
         result = _fetch_via_proxy(url, render=render)
         if result:
             return result
 
-    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
-        log.error("Geen scraping methode geconfigureerd (SCRAPERAPI_KEY, SCRAPE_DO_TOKEN, of PROXY_URL)")
+    if not SCRAPFLY_KEY and not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
+        log.error("Geen scraping methode geconfigureerd (SCRAPFLY_KEY, SCRAPERAPI_KEY, SCRAPE_DO_TOKEN, of PROXY_URL)")
     return None
 
 
@@ -925,7 +985,7 @@ def scrape_mobile_de_scrapedo(conn, search_url: str = "") -> list:
     """
     listings = []
 
-    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
+    if not SCRAPFLY_KEY and not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
         log.info("mobile.de: geen scraping methode beschikbaar, overslaan")
         return listings
 
