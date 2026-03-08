@@ -23,20 +23,33 @@ from urllib.parse import urlparse, quote, parse_qs
 import requests as req_lib
 from bs4 import BeautifulSoup
 
-# Optioneel: Patchright (ondetecteerbare Playwright fork) of Playwright
-# Patchright fixt CDP Runtime.Enable leak die DataDome detecteert
+# Optioneel: Camoufox (Firefox anti-detect) > Patchright > Playwright
+# Camoufox: Firefox met C++ level fingerprint spoofing — beste tegen DataDome
+# Patchright: Chromium met CDP leak fix
+# Playwright: standaard (wordt gedetecteerd door DataDome)
+HAS_CAMOUFOX = False
+HAS_PLAYWRIGHT = False
+PLAYWRIGHT_ENGINE = None
+
 try:
-    from patchright.async_api import async_playwright
-    HAS_PLAYWRIGHT = True
-    PLAYWRIGHT_ENGINE = "patchright"
+    from camoufox.async_api import AsyncCamoufox
+    HAS_CAMOUFOX = True
+    PLAYWRIGHT_ENGINE = "camoufox"
 except ImportError:
+    pass
+
+if not HAS_CAMOUFOX:
     try:
-        from playwright.async_api import async_playwright
+        from patchright.async_api import async_playwright
         HAS_PLAYWRIGHT = True
-        PLAYWRIGHT_ENGINE = "playwright"
+        PLAYWRIGHT_ENGINE = "patchright"
     except ImportError:
-        HAS_PLAYWRIGHT = False
-        PLAYWRIGHT_ENGINE = None
+        try:
+            from playwright.async_api import async_playwright
+            HAS_PLAYWRIGHT = True
+            PLAYWRIGHT_ENGINE = "playwright"
+        except ImportError:
+            pass
 
 try:
     from curl_cffi import requests as curl_requests
@@ -2467,10 +2480,9 @@ async def main():
              bool(SCRAPERAPI_KEY), bool(SCRAPE_DO_TOKEN), bool(PROXY_URLS), len(PROXY_URLS))
 
     # ── Bepaal scraping methode ──
-    # Playwright + proxy is primair (DataDome vereist JS execution)
-    # Scrape.do/ScraperAPI is fallback (als Playwright niet beschikbaar)
-    use_playwright = HAS_PLAYWRIGHT and PROXY_URLS
-    if use_playwright:
+    # Camoufox (Firefox anti-detect) > Patchright > ScraperAPI/Scrape.do > curl_cffi
+    use_browser = (HAS_CAMOUFOX or HAS_PLAYWRIGHT) and PROXY_URLS
+    if use_browser:
         log.info("Methode: %s + residential proxy (DataDome bypass)", PLAYWRIGHT_ENGINE)
     elif SCRAPERAPI_KEY or SCRAPE_DO_TOKEN:
         log.info("Methode: ScraperAPI/Scrape.do API")
@@ -2479,45 +2491,56 @@ async def main():
 
     # ── Browser starten (indien beschikbaar) ──
     pw_browser = None
-    pw_context = None
     pw_page = None
-    if use_playwright:
-        try:
-            pw = await async_playwright().start()
-            proxy_url = get_random_proxy()
-            proxy_conf = parse_proxy_url(proxy_url) if proxy_url else None
+    _camoufox_ctx = None  # voor context manager cleanup
+    if use_browser:
+        proxy_url = get_random_proxy()
+        proxy_conf = parse_proxy_url(proxy_url) if proxy_url else None
+        proxy_label = proxy_url.split("@")[-1] if proxy_url and "@" in proxy_url else ""
 
-            # Patchright: CDP leaks gefixt, ondetecteerbaar door DataDome
-            # BELANGRIJK: geen custom user_agent/headers — laat de echte browser
-            # z'n eigen fingerprint genereren. Custom headers veroorzaken mismatches.
-            launch_args = [
-                "--disable-blink-features=AutomationControlled",
-                "--no-first-run",
-                "--no-default-browser-check",
-            ]
-            pw_browser = await pw.chromium.launch(
-                headless=True,
-                proxy=proxy_conf,
-                args=launch_args,
-            )
-            # Minimale context — geen custom UA, geen custom viewport
-            # DataDome cross-checkt UA header met browser fingerprint
-            pw_context = await pw_browser.new_context(
-                locale="de-DE",
-                timezone_id="Europe/Berlin",
-                geolocation={"latitude": 50.1109, "longitude": 8.6821},
-                permissions=["geolocation"],
-                color_scheme="light",
-                java_script_enabled=True,
-            )
-            # GEEN resource blocking hier — DataDome tracking pixel moet laden
-            # scrape_mobile_de() blokkeert alleen third-party fonts
-            pw_page = await pw_context.new_page()
-            log.info("%s browser gestart met proxy %s",
-                     PLAYWRIGHT_ENGINE, proxy_url.split("@")[-1] if proxy_url and "@" in proxy_url else "")
-        except Exception as e:
-            log.error("Playwright starten mislukt: %s — fallback naar API", e)
-            use_playwright = False
+        if HAS_CAMOUFOX:
+            # Camoufox: Firefox met C++ level fingerprint spoofing
+            # headless='virtual' gebruikt Xvfb op Linux (GitHub Actions)
+            # geoip=True matcht timezone/locale automatisch met proxy locatie
+            try:
+                _camoufox_ctx = AsyncCamoufox(
+                    headless="virtual",
+                    proxy=proxy_conf,
+                    geoip=True,
+                    humanize=True,
+                )
+                pw_browser = await _camoufox_ctx.__aenter__()
+                pw_page = await pw_browser.new_page()
+                log.info("Camoufox (Firefox anti-detect) gestart met proxy %s", proxy_label)
+            except Exception as e:
+                log.error("Camoufox starten mislukt: %s — probeer fallback", e)
+                _camoufox_ctx = None
+                use_browser = False
+
+        if not pw_page and HAS_PLAYWRIGHT:
+            # Fallback: Patchright/Playwright
+            try:
+                pw = await async_playwright().start()
+                launch_args = [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                ]
+                pw_browser = await pw.chromium.launch(
+                    headless=True,
+                    proxy=proxy_conf,
+                    args=launch_args,
+                )
+                pw_context = await pw_browser.new_context(
+                    locale="de-DE",
+                    timezone_id="Europe/Berlin",
+                )
+                pw_page = await pw_context.new_page()
+                log.info("%s browser gestart met proxy %s", PLAYWRIGHT_ENGINE, proxy_label)
+                use_browser = True
+            except Exception as e:
+                log.error("Playwright starten mislukt: %s — fallback naar API", e)
+                use_browser = False
 
     # ── Loop door alle zoek-URLs ──
     for search_cfg in MOBILE_DE_SEARCH_URLS:
@@ -2527,7 +2550,7 @@ async def main():
 
         log.info("━━━ %s ━━━", url_label)
 
-        if use_playwright and pw_page:
+        if use_browser and pw_page:
             mobile_listings = await scrape_mobile_de(pw_page, conn, search_url=search_url)
         else:
             mobile_listings = scrape_mobile_de_scrapedo(conn, search_url=search_url)
@@ -2577,8 +2600,13 @@ async def main():
 
     conn.close()
 
-    # Playwright browser sluiten
-    if pw_browser:
+    # Browser sluiten
+    if _camoufox_ctx:
+        try:
+            await _camoufox_ctx.__aexit__(None, None, None)
+        except Exception:
+            pass
+    elif pw_browser:
         try:
             await pw_browser.close()
         except Exception:
