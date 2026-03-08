@@ -36,9 +36,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 curl_cffi playwright
-          playwright install chromium
-          playwright install-deps chromium
+          pip install requests beautifulsoup4 curl_cffi patchright
+          patchright install chromium
+          patchright install-deps chromium
 
       - name: Restore database from cache
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clear_db == false) }}
