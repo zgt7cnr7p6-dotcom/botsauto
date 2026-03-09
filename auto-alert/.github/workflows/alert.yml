@@ -2,14 +2,23 @@ name: Auto Alert Scraper
 
 on:
   schedule:
-    # Elke 5 minuten draaien
-    - cron: '*/5 * * * *'
-  workflow_dispatch: # Handmatig triggeren mogelijk
+    - cron: '*/5 7-18 * * *'
+  workflow_dispatch:
+    inputs:
+      clear_db:
+        description: 'Database wissen (volledige nieuwe scan)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -20,31 +29,37 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: |
-          pip install playwright requests
-          playwright install chromium
-          playwright install-deps chromium
+      - name: Install Python dependencies
+        run: pip install requests beautifulsoup4
 
-      - name: Download database
-        uses: dawidd6/action-download-artifact@v3
+      - name: Restore database from cache
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clear_db == false) }}
+        uses: actions/cache/restore@v4
         with:
-          name: listings-db
-          path: .
-          search_artifacts: true
-          if_no_artifact_found: warn
+          path: listings.db
+          key: listings-db-dummy
+          restore-keys: |
+            listings-db-
 
       - name: Run scraper
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
         run: python scraper.py
 
-      - name: Upload database
+      - name: Save database to cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: listings.db
+          key: listings-db-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload debug HTML
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: listings-db
-          path: listings.db
-          retention-days: 90
-          overwrite: true
+          name: debug-html
+          path: debug_*.html
+          retention-days: 3
+          if-no-files-found: ignore

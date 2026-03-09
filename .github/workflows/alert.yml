@@ -34,13 +34,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y xvfb
-
       - name: Install Python dependencies
-        run: |
-          pip install requests beautifulsoup4 curl_cffi "camoufox[geoip]"
-          python -m camoufox fetch
+        run: pip install requests beautifulsoup4
 
       - name: Restore database from cache
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clear_db == false) }}
@@ -55,10 +50,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SCRAPFLY_KEY: ${{ secrets.SCRAPFLY_KEY }}
-          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
           SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
-          PROXY_URL: ${{ secrets.PROXY_URL }}
         run: python scraper.py
 
       - name: Save database to cache
