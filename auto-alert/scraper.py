@@ -939,32 +939,32 @@ def scrape_do_fetch(url: str, render: bool = False) -> str | None:
     """Haal een pagina op met anti-bot bypass.
 
     Probeert providers in volgorde:
-      1. ScrapFly (SCRAPFLY_KEY) — beste DataDome bypass (96% success), 1000 gratis/maand
-      2. ScraperAPI (SCRAPERAPI_KEY) — premium mode voor DataDome, 5000 credits bij signup
-      3. Scrape.do (SCRAPE_DO_TOKEN) — fallback
+      1. Scrape.do (SCRAPE_DO_TOKEN) — primaire DataDome bypass
+      2. ScraperAPI (SCRAPERAPI_KEY) — fallback, premium mode voor DataDome
+      3. ScrapFly (SCRAPFLY_KEY) — tweede fallback
       4. Directe proxy + curl_cffi (PROXY_URL) — gratis (alleen proxy kosten)
     Retourneert HTML string of None bij fout.
     """
-    # Provider 1: ScrapFly (beste DataDome bypass)
-    if SCRAPFLY_KEY:
-        result = _fetch_via_scrapfly(url, render=render)
-        if result:
-            return result
-        log.info("ScrapFly mislukt, probeer ScraperAPI ...")
-
-    # Provider 2: ScraperAPI (premium mode)
-    if SCRAPERAPI_KEY:
-        result = _fetch_via_scraperapi(url, render=render)
-        if result:
-            return result
-        log.info("ScraperAPI mislukt, probeer fallback ...")
-
-    # Provider 3: Scrape.do (fallback)
+    # Provider 1: Scrape.do (primair)
     if SCRAPE_DO_TOKEN:
         result = _fetch_via_scrape_do(url, render=render)
         if result:
             return result
-        log.info("Scrape.do mislukt, probeer proxy fallback ...")
+        log.info("Scrape.do mislukt, probeer ScraperAPI ...")
+
+    # Provider 2: ScraperAPI (fallback)
+    if SCRAPERAPI_KEY:
+        result = _fetch_via_scraperapi(url, render=render)
+        if result:
+            return result
+        log.info("ScraperAPI mislukt, probeer ScrapFly ...")
+
+    # Provider 3: ScrapFly (tweede fallback)
+    if SCRAPFLY_KEY:
+        result = _fetch_via_scrapfly(url, render=render)
+        if result:
+            return result
+        log.info("ScrapFly mislukt, probeer proxy fallback ...")
 
     # Provider 4: Directe residential proxy + curl_cffi
     if PROXY_URLS:
@@ -2533,19 +2533,19 @@ async def main():
         text_lower = text.lower()
         return any(re.search(p, text_lower, re.IGNORECASE) for p in pano_patterns)
 
-    if not SCRAPERAPI_KEY and not SCRAPE_DO_TOKEN and not PROXY_URLS:
-        log.error("Geen scraping methode geconfigureerd (SCRAPERAPI_KEY, SCRAPE_DO_TOKEN, of PROXY_URL)")
+    if not SCRAPE_DO_TOKEN and not SCRAPERAPI_KEY and not PROXY_URLS:
+        log.error("Geen scraping methode geconfigureerd (SCRAPE_DO_TOKEN, SCRAPERAPI_KEY, of PROXY_URL)")
         return
-    log.info("Scraping: ScraperAPI=%s, Scrape.do=%s, Proxy=%s (%d URLs)",
-             bool(SCRAPERAPI_KEY), bool(SCRAPE_DO_TOKEN), bool(PROXY_URLS), len(PROXY_URLS))
+    log.info("Scraping: Scrape.do=%s, ScraperAPI=%s, Proxy=%s (%d URLs)",
+             bool(SCRAPE_DO_TOKEN), bool(SCRAPERAPI_KEY), bool(PROXY_URLS), len(PROXY_URLS))
 
     # ── Bepaal scraping methode ──
-    # Camoufox (Firefox anti-detect) > Patchright > ScraperAPI/Scrape.do > curl_cffi
+    # Camoufox (Firefox anti-detect) > Patchright > Scrape.do/ScraperAPI > curl_cffi
     use_browser = (HAS_CAMOUFOX or HAS_PLAYWRIGHT) and PROXY_URLS
     if use_browser:
         log.info("Methode: %s + residential proxy (DataDome bypass)", PLAYWRIGHT_ENGINE)
-    elif SCRAPERAPI_KEY or SCRAPE_DO_TOKEN:
-        log.info("Methode: ScraperAPI/Scrape.do API")
+    elif SCRAPE_DO_TOKEN or SCRAPERAPI_KEY:
+        log.info("Methode: Scrape.do/ScraperAPI API")
     else:
         log.info("Methode: curl_cffi + proxy (kan falen bij DataDome)")
 
