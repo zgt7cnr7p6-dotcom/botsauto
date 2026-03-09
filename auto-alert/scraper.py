@@ -538,11 +538,12 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 2) -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True) -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
-    super=true activeert geavanceerde anti-bot bypass (DataDome, Cloudflare, etc.)
-    render=true activeert JS rendering (nodig voor SPA's zoals AutoScout24).
+    super=true activeert geavanceerde anti-bot bypass (10 credits per request).
+    super=false gebruikt standaard modus (1 credit per request).
+    render=true activeert JS rendering (extra credits).
     """
     if not SCRAPE_DO_TOKEN:
         log.error("SCRAPE_DO_TOKEN niet geconfigureerd")
@@ -553,8 +554,9 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 2) -> str | N
             params = {
                 "token": SCRAPE_DO_TOKEN,
                 "url": url,
-                "super": "true",
             }
+            if super_mode:
+                params["super"] = "true"
             if render:
                 params["render"] = "true"
                 params["wait"] = "3000"
@@ -669,14 +671,27 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
     if not search_url:
         search_url = MOBILE_DE_SEARCH_URL
 
-    log.info("mobile.de: zoekpagina ophalen ...")
-    html = scrape_do_fetch(search_url)
+    # Zoekpagina eerst zonder super mode (1 credit ipv 10)
+    # Fallback naar super mode als we geblokkeerd worden
+    log.info("mobile.de: zoekpagina ophalen (standaard modus) ...")
+    html = scrape_do_fetch(search_url, super_mode=False, retries=0)
+
+    blocked = False
+    if html and ("zugriff verweigert" in html.lower() or "access denied" in html.lower()):
+        log.warning("mobile.de: geblokkeerd zonder super mode, retry met super=true ...")
+        blocked = True
+        html = None
+
+    if not html:
+        if not blocked:
+            log.warning("mobile.de: standaard modus mislukt, retry met super=true ...")
+        html = scrape_do_fetch(search_url, super_mode=True, retries=1)
 
     if not html:
         log.error("mobile.de: geen HTML ontvangen")
         return listings
 
-    # Detecteer block
+    # Detecteer block (ook na super mode)
     if "zugriff verweigert" in html.lower() or "access denied" in html.lower():
         log.error("mobile.de: geblokkeerd (Zugriff verweigert / Access denied)")
         try:
