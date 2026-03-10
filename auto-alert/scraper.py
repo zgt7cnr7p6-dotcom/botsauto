@@ -52,19 +52,28 @@ SEARCH_CRITERIA = {
 }
 
 # mobile.de zoek-URLs
-# Brede zoek-URL zonder keyword-filter: vangt ALLE Q3 hybrids op
-# ms=1900%3B37 = Audi Q3 (alle varianten incl. Sportback)
-# Geen keyword-filter zodat ook listings zonder "pano"/"sportback" in titel gevonden worden
+# URL 1: Q3 hybrid met "pano" in titel — alles doorsturen
+# URL 2: Q3 Sportback hybrid — alleen doorsturen als beschrijving panoramadak/glasdach/schuifdak bevat
 MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
             "https://suchen.mobile.de/fahrzeuge/search.html?"
             "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
-            "&ml=%3A80000&ms=1900%3B37&od=down"
+            "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=down"
             "&p=%3A40000&s=Car&sb=doc&vc=Car"
         ),
-        "label": "Q3 hybrid (alle)",
+        "label": "Q3 pano",
         "require_pano_in_desc": False,
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "cn=DE&dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
+            "&ml=%3A80000&ms=1900%3B37%3B%3Bsportback&od=down"
+            "&p=%3A40000&s=Car&sb=doc&vc=Car"
+        ),
+        "label": "Q3 Sportback (pano check)",
+        "require_pano_in_desc": True,
     },
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
