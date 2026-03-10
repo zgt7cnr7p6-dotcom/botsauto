@@ -980,6 +980,9 @@ def main():
 
         log.info("━━━ %s ━━━", url_label)
 
+        global _detail_page_count
+        _detail_page_count = 0
+
         mobile_listings = scrape_mobile_de(conn, search_url=search_url)
 
         if mobile_listings:
