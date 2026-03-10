@@ -857,11 +857,17 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
                         if el:
                             description += " " + el.get_text(separator=" ", strip=True)
 
-                    # Fallback: volledige body text
+                    # Altijd volledige body text toevoegen voor feature-detectie
+                    # CSS selectors zijn fragiel en mobile.de wijzigt regelmatig hun DOM
+                    body_text = detail_soup.get_text(separator=" ", strip=True)
                     if len(description.strip()) < 100:
-                        body_text = detail_soup.get_text(separator=" ", strip=True)
+                        # Selectors faalden, gebruik volledige body text
                         description = body_text[:15000]
-                        log.info("Detail fallback (body text): %d chars", len(description))
+                        log.info("Detail: selectors faalden, body text gebruikt (%d chars)", len(description))
+                    else:
+                        # Voeg body text toe zodat features niet gemist worden
+                        description += " " + body_text[:10000]
+                        log.info("Detail: selectors + body text (%d chars)", len(description))
 
                     # Locatie
                     for sel in [
