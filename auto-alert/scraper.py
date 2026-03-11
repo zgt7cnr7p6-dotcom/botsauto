@@ -484,8 +484,6 @@ def send_telegram(listing: Listing):
             check_lines.append(f"  ❌ {name}")
             missing_names.append(name)
 
-    location_line = f"📍 {listing.location}\n" if listing.location else ""
-    color_line = f"🎨 Kleur: {listing.color}\n" if listing.color else ""
     date_line = f"🕐 Online sinds: {listing.listing_date}\n" if listing.listing_date else ""
 
     missing_section = ""
@@ -506,8 +504,6 @@ def send_telegram(listing: Listing):
         f"<code>{score_bar}</code>\n"
         f"{'━' * 30}\n\n"
         f"<b>{listing.title}</b>\n\n"
-        f"{color_line}"
-        f"{location_line}"
         f"{date_line}"
         f"\n<b>Full option check:</b>\n"
         + "\n".join(check_lines)
