@@ -475,25 +475,14 @@ def send_telegram(listing: Listing):
         verdict = "Kaal"
 
     check_lines = []
-    missing_names = []
     for f in FULL_OPTION_FEATURES:
         name = FEATURE_DISPLAY_NAMES.get(f, f)
         if f in listing.features:
             check_lines.append(f"  ✅ {name}")
         else:
             check_lines.append(f"  ❌ {name}")
-            missing_names.append(name)
 
     date_line = f"🕐 Online sinds: {listing.listing_date}\n" if listing.listing_date else ""
-
-    missing_section = ""
-    if missing_names:
-        missing_section = (
-            f"\n{'━' * 30}\n"
-            f"<b>Wat ontbreekt:</b>\n"
-            + "\n".join(f"  ❌ {name}" for name in missing_names)
-            + "\n"
-        )
 
     filled = listing.score
     empty = max_score - filled
@@ -507,7 +496,6 @@ def send_telegram(listing: Listing):
         f"{date_line}"
         f"\n<b>Full option check:</b>\n"
         + "\n".join(check_lines)
-        + missing_section
         + f"\n{'━' * 30}\n"
         f"🔗 <a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>\n"
         f"📍 {listing.source}"
