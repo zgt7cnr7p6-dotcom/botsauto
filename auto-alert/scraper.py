@@ -82,6 +82,7 @@ MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
 FULL_OPTION_FEATURES = [
     "panoramadak",
     "keyless",
+    "camera_achteruit",
     "camera_360",
     "s_line",
     "matrix_led",
@@ -99,6 +100,7 @@ FULL_OPTION_FEATURES = [
 FEATURE_DISPLAY_NAMES = {
     "panoramadak": "Panoramadak",
     "keyless": "Keyless Entry",
+    "camera_achteruit": "Achteruitrijcamera",
     "camera_360": "360° Camera",
     "s_line": "S-Line interieur",
     "matrix_led": "Matrix LED",
@@ -264,6 +266,14 @@ FEATURE_PATTERNS = {
         r"convenience\s*key",
         r"sleutel\s*loos",
         r"kessy",
+    ],
+    "camera_achteruit": [
+        r"r[üu]ckfahr\s*kamera",
+        r"rear\s*view\s*camera",
+        r"achteruit\s*rij\s*camera",
+        r"parking\s*camera",
+        r"einpark\s*kamera",
+        r"r[üu]ck\s*kamera",
     ],
     "camera_360": [
         r"360[\s°]*camera",
