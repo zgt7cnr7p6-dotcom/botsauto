@@ -484,9 +484,6 @@ def send_telegram(listing: Listing):
             check_lines.append(f"  ❌ {name}")
             missing_names.append(name)
 
-    price_str = f"€{listing.price:,}" if listing.price else "onbekend"
-    price_verdict = compute_price_score(listing.price)
-
     location_line = f"📍 {listing.location}\n" if listing.location else ""
     color_line = f"🎨 Kleur: {listing.color}\n" if listing.color else ""
     date_line = f"🕐 Online sinds: {listing.listing_date}\n" if listing.listing_date else ""
@@ -504,19 +501,11 @@ def send_telegram(listing: Listing):
     empty = max_score - filled
     score_bar = "▓" * filled + "░" * empty
 
-    if listing.km == 0:
-        year_display = "NIEUW"
-    else:
-        year_display = str(listing.year)
-
     text = (
         f"{header_emoji} <b>{model_tag}</b> — <b>{listing.score}/{max_score}</b> — {verdict}\n"
         f"<code>{score_bar}</code>\n"
         f"{'━' * 30}\n\n"
         f"<b>{listing.title}</b>\n\n"
-        f"💰 <b>{price_str}</b>  {price_verdict}\n"
-        f"📅 Bouwjaar: <b>{year_display}</b>\n"
-        f"🛣 {listing.km:,} km\n"
         f"{color_line}"
         f"{location_line}"
         f"{date_line}"
