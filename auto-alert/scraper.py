@@ -267,6 +267,8 @@ FEATURE_PATTERNS = {
         r"sleutel\s*loos",
         r"kessy",
         r"schl[üu]ssellose",
+        r"komfort\s*zugang",
+        r"komfortzugang",
     ],
     "camera_achteruit": [
         r"r[üu]ckfahr\s*kamera",
@@ -286,6 +288,7 @@ FEATURE_PATTERNS = {
         r"surround\s*view",
         r"umgebungs\s*kamera",
         r"umgebungskamera",
+        r"4\s*kamera",
     ],
     "s_line": [
         r"s[\s-]?line",
@@ -299,6 +302,7 @@ FEATURE_PATTERNS = {
         r"led[\s-]*matrix",
         r"matrixbeam",
         r"led\s*scheinwerfer",
+        r"digital.*matrix",
     ],
     "velgen_20": [
         r"20[\s-]*zoll",
@@ -307,6 +311,8 @@ FEATURE_PATTERNS = {
         r"alufelgen\s*20",
         r"felgen\s*20",
         r"20['″\"]?\s*alu",
+        r"leichtmetallfelgen\s*20",
+        r"20.*leichtmetall",
     ],
     "audio_premium": [
         r"bang[\s&+]*olufsen",
@@ -327,6 +333,8 @@ FEATURE_PATTERNS = {
         r"memory\s*(?:sitze?|paket|funktion|seat)?",
         r"sitze?\s*elektr",
         r"komfort\s*sitze?",
+        r"elektr\.\s*sitz\s*einstellung",
+        r"elektrische?\s*sitz\s*einstellung",
     ],
     "stoelverwarming": [
         r"stoel\s*verwarming",
@@ -359,6 +367,7 @@ FEATURE_PATTERNS = {
         r"distronic",
         r"abstands\s*regel\s*tempomat",
         r"geschwindigkeitsregel",
+        r"adaptiv.*fahr\s*assist",
     ],
     "lane_assist": [
         r"spur\s*halte\s*assist",
@@ -390,6 +399,8 @@ FEATURE_PATTERNS = {
         r"magnetic\s*ride",
         r"dynamic\s*chassis",
         r"fahrwerk\s*sport",
+        r"d[äa]mpfer\s*regelung",
+        r"d[äa]mpferregelung",
     ],
 }
 
