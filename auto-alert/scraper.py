@@ -755,7 +755,7 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
 
             title = re.sub(r"^Gesponsert\s*", "", title, flags=re.IGNORECASE)
 
-            if not title or "q3" not in title.lower():
+            if not title:
                 continue
 
             # URL
