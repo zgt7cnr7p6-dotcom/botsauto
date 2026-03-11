@@ -266,14 +266,18 @@ FEATURE_PATTERNS = {
         r"convenience\s*key",
         r"sleutel\s*loos",
         r"kessy",
+        r"schl[üu]ssellose",
     ],
     "camera_achteruit": [
         r"r[üu]ckfahr\s*kamera",
+        r"r[üu]ckfahrkamera",
         r"rear\s*view\s*camera",
+        r"rear\s*camera",
         r"achteruit\s*rij\s*camera",
         r"parking\s*camera",
         r"einpark\s*kamera",
         r"r[üu]ck\s*kamera",
+        r"heck\s*kamera",
     ],
     "camera_360": [
         r"360[\s°]*camera",
@@ -294,6 +298,7 @@ FEATURE_PATTERNS = {
         r"matrix[\s-]*scheinwerfer",
         r"led[\s-]*matrix",
         r"matrixbeam",
+        r"led\s*scheinwerfer",
     ],
     "velgen_20": [
         r"20[\s-]*zoll",
@@ -319,7 +324,9 @@ FEATURE_PATTERNS = {
         r"power\s*seat",
         r"electric\s*seat",
         r"elektrisch\s*verstelba",
-        r"memory",
+        r"memory\s*(?:sitze?|paket|funktion|seat)?",
+        r"sitze?\s*elektr",
+        r"komfort\s*sitze?",
     ],
     "stoelverwarming": [
         r"stoel\s*verwarming",
@@ -327,6 +334,8 @@ FEATURE_PATTERNS = {
         r"sitzheizung",
         r"verwarmde?\s*stoel",
         r"beheizbare?\s*sitz",
+        r"beheizt.*sitz",
+        r"sitz.*beheizt",
         r"heated\s*seat",
     ],
     "stuurverwarming": [
@@ -337,6 +346,9 @@ FEATURE_PATTERNS = {
         r"verwarm.*stuur",
         r"heated\s*steering",
         r"beheizbares?\s*lenkrad",
+        r"beheizbar.*lenkrad",
+        r"lenkrad.*beheiz",
+        r"multifunktionslenkrad.*heiz",
     ],
     "acc": [
         r"abstands?\s*tempo\s*mat",
@@ -345,6 +357,8 @@ FEATURE_PATTERNS = {
         r"acc\b",
         r"adaptieve?\s*cruise",
         r"distronic",
+        r"abstands\s*regel\s*tempomat",
+        r"geschwindigkeitsregel",
     ],
     "lane_assist": [
         r"spur\s*halte\s*assist",
@@ -356,6 +370,10 @@ FEATURE_PATTERNS = {
         r"dode\s*hoek",
         r"audi\s*side\s*assist",
         r"side\s*assist",
+        r"spur\s*wechsel",
+        r"spurwechsel",
+        r"audi\s*pre\s*sense",
+        r"pre\s*sense",
     ],
     "drive_select": [
         r"drive\s*select",
@@ -412,8 +430,9 @@ def parse_color(text: str) -> str:
 
 
 def score_listing(listing: Listing) -> Listing:
-    """Score: tel hoeveel van de 14 full-option features aanwezig zijn."""
+    """Score: tel hoeveel van de full-option features aanwezig zijn."""
     text = f"{listing.title} {listing.description}".lower()
+    log.debug("SCORE INPUT [%s]: %s", listing.id[:30], text[:2000])
     found = []
     for feature, patterns in FEATURE_PATTERNS.items():
         if feature not in FULL_OPTION_FEATURES:
@@ -801,6 +820,13 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
                 time.sleep(random.uniform(0.3, 0.8))
                 detail_html = scrape_do_fetch(href, render=True)
                 if detail_html:
+                    # Sla eerste detail page op als debug
+                    if _detail_page_count <= 2:
+                        debug_fn = f"debug_detail_{_detail_page_count}.html"
+                        with open(debug_fn, "w", encoding="utf-8") as dbg:
+                            dbg.write(detail_html)
+                        log.info("Debug HTML opgeslagen: %s (%d bytes)", debug_fn, len(detail_html))
+
                     detail_soup = BeautifulSoup(detail_html, "html.parser")
                     description = ""
 
