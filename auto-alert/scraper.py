@@ -489,6 +489,7 @@ def send_telegram(listing: Listing):
 
     location_line = f"📍 {listing.location}\n" if listing.location else ""
     color_line = f"🎨 Kleur: {listing.color}\n" if listing.color else ""
+    date_line = f"🕐 Online sinds: {listing.listing_date}\n" if listing.listing_date else ""
 
     missing_section = ""
     if missing_names:
@@ -518,6 +519,7 @@ def send_telegram(listing: Listing):
         f"🛣 {listing.km:,} km\n"
         f"{color_line}"
         f"{location_line}"
+        f"{date_line}"
         f"\n<b>Full option check:</b>\n"
         + "\n".join(check_lines)
         + missing_section
@@ -901,19 +903,30 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
                         el = detail_soup.select_one(sel)
                         if el:
                             date_text = el.get_text(strip=True)
-                            date_match = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4})", date_text)
+                            # "Ad online since 3/11/2026, 12:55" of "11.03.2026"
+                            date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{4},?\s*\d{1,2}:\d{2})", date_text)
                             if date_match:
                                 listing_date = date_match.group(1)
-                            break
+                            else:
+                                date_match = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4})", date_text)
+                                if date_match:
+                                    listing_date = date_match.group(1)
+                            if listing_date:
+                                break
                     if not listing_date:
                         full_text = detail_soup.get_text()
-                        date_match = re.search(r"Inseriert?\s*(?:am\s*)?:?\s*(\d{1,2}\.\d{1,2}\.\d{4})", full_text)
+                        # "Ad online since 3/11/2026, 12:55"
+                        date_match = re.search(r"[Aa]d\s+online\s+since\s+(\d{1,2}/\d{1,2}/\d{4},?\s*\d{1,2}:\d{2})", full_text)
                         if date_match:
                             listing_date = date_match.group(1)
-                        else:
-                            date_match = re.search(r"seit\s+(\d{1,2}\.\d{1,2}\.\d{4})", full_text, re.IGNORECASE)
+                        if not listing_date:
+                            date_match = re.search(r"Inseriert?\s*(?:am\s*)?:?\s*(\d{1,2}\.\d{1,2}\.\d{4})", full_text)
                             if date_match:
                                 listing_date = date_match.group(1)
+                            else:
+                                date_match = re.search(r"seit\s+(\d{1,2}\.\d{1,2}\.\d{4})", full_text, re.IGNORECASE)
+                                if date_match:
+                                    listing_date = date_match.group(1)
 
                     log.info("mobile.de: detail %d chars, locatie=%s, datum=%s",
                              len(description), location or "?", listing_date or "?")
