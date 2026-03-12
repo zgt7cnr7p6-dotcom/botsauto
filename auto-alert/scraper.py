@@ -22,6 +22,12 @@ from urllib.parse import urlparse, parse_qs
 import requests as req_lib
 from bs4 import BeautifulSoup
 
+try:
+    import anthropic
+    HAS_ANTHROPIC = True
+except ImportError:
+    HAS_ANTHROPIC = False
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -37,6 +43,7 @@ DRY_RUN = "--dry-run" in sys.argv or not TELEGRAM_BOT_TOKEN
 # Scrape.do API token — enige scraping provider
 # Bypasses DataDome, anti-bot, CAPTCHAs automatisch
 SCRAPE_DO_TOKEN = os.environ.get("SCRAPE_DO_TOKEN", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # Max aantal detail pagina's per run (beperkt API credits)
 MAX_DETAIL_PAGES_PER_RUN = int(os.environ.get("MAX_DETAIL_PAGES", "15"))
@@ -439,10 +446,9 @@ def parse_color(text: str) -> str:
     return ""
 
 
-def score_listing(listing: Listing) -> Listing:
-    """Score: tel hoeveel van de full-option features aanwezig zijn."""
+def score_listing_regex(listing: Listing) -> Listing:
+    """Regex-based scoring (fallback als Claude API niet beschikbaar is)."""
     text = f"{listing.title} {listing.description}".lower()
-    log.debug("SCORE INPUT [%s]: %s", listing.id[:30], text[:2000])
     found = []
     for feature, patterns in FEATURE_PATTERNS.items():
         if feature not in FULL_OPTION_FEATURES:
@@ -451,7 +457,7 @@ def score_listing(listing: Listing) -> Listing:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
                 found.append(feature)
-                log.info("Feature '%s' gevonden via '%s' => '%s'", feature, pat, m.group())
+                log.info("[REGEX] Feature '%s' gevonden via '%s' => '%s'", feature, pat, m.group())
                 break
     listing.features = found
     listing.score = len(found)
@@ -462,11 +468,129 @@ def score_listing(listing: Listing) -> Listing:
     missing = [f for f in FULL_OPTION_FEATURES if f not in found]
     if missing:
         log.info(
-            "Score %d/%d %s: MISSING=%s, desc_len=%d",
+            "[REGEX] Score %d/%d %s: MISSING=%s",
             listing.score, len(FULL_OPTION_FEATURES),
-            listing.id[:30], missing, len(listing.description),
+            listing.id[:30], missing,
         )
     return listing
+
+
+# ── Claude AI scoring ─────────────────────────────────────────────────────
+
+AI_SCORING_PROMPT = """\
+Je bent een auto-expert die advertenties analyseert voor een Audi Q3 Sportback 45 TFSI e (plug-in hybrid).
+Analyseer de titel en beschrijving hieronder en bepaal welke opties aanwezig zijn.
+
+De beschrijving kan in het Duits, Nederlands of Engels zijn. Let op synoniemen en variaties:
+- "Sitzheizung" / "Sitzheizung vorne" = stoelverwarming
+- "Audi Side Assist" / "Spurwechselassistent" = dodehoek-assistent (onderdeel van lane_assist)
+- "Spurhalteassistent" / "Active lane Assist" = rijstrookassistent (onderdeel van lane_assist)
+- "Audi Drive Select" / "drive select" = drive_select
+- "elektrische Sitzverstellung" = elektrische stoelen (elektrische_stoelen)
+- "Memory" bij stoelen = memory functie (onderdeel van elektrische_stoelen)
+- "Panorama-Schiebedach" / "Panoramadach" / "Glasdach" = panoramadak
+- "Matrix LED" / "Matrix-LED-Scheinwerfer" = matrix_led (LET OP: gewone "LED-Scheinwerfer" is GEEN matrix LED)
+- "Bang & Olufsen" / "B&O" / "Sonos" = audio_premium
+- "Rückfahrkamera" = camera_achteruit
+- "Komfortschlüssel" / "Keyless" / "kessy" = keyless
+- "Lenkradheizung" / "beheizbares Lenkrad" = stuurverwarming
+- "Abstandstempomat" / "ACC" / "adaptive cruise" = acc
+- "adaptives Fahrwerk" / "Sportfahrwerk" / "DCC" = adaptief_onderstel
+
+BELANGRIJK:
+- "LED-Scheinwerfer" alleen (zonder "Matrix") is GEEN matrix_led
+- "Einparkhilfe" (parkeersensoren) is GEEN camera
+- Stoelverwarming en stuurverwarming zijn APART
+- lane_assist is ALLEEN aanwezig als er ZOWEL rijstrookassistent (lane assist/Spurhalteassistent) ALS dodehoek-assistent (Side Assist/Spurwechselassistent/Totwinkelassistent) wordt genoemd
+- elektrische_stoelen: "elektrische Sitzverstellung" telt, maar memory hoeft er niet bij
+
+Geef je antwoord ALLEEN als een JSON object met exact deze keys, elk true of false:
+{
+  "panoramadak": false,
+  "keyless": false,
+  "camera_achteruit": false,
+  "camera_360": false,
+  "s_line": false,
+  "matrix_led": false,
+  "velgen_20": false,
+  "audio_premium": false,
+  "elektrische_stoelen": false,
+  "stoelverwarming": false,
+  "stuurverwarming": false,
+  "acc": false,
+  "lane_assist": false,
+  "drive_select": false,
+  "adaptief_onderstel": false
+}
+
+Geen uitleg, alleen het JSON object."""
+
+
+def score_listing_ai(listing: Listing) -> Listing | None:
+    """Score een listing via Claude AI. Retourneert None als het niet lukt."""
+    if not HAS_ANTHROPIC or not ANTHROPIC_API_KEY:
+        return None
+
+    text = f"{listing.title}\n\n{listing.description}"
+    # Beperk tekst tot ~8000 chars om kosten laag te houden
+    if len(text) > 8000:
+        text = text[:8000]
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"{AI_SCORING_PROMPT}\n\n---\nTITEL: {listing.title}\n\nBESCHRIJVING:\n{text}",
+                }
+            ],
+        )
+
+        result_text = response.content[0].text.strip()
+        # Verwijder eventuele markdown code blocks
+        if result_text.startswith("```"):
+            result_text = re.sub(r"^```(?:json)?\s*", "", result_text)
+            result_text = re.sub(r"\s*```$", "", result_text)
+
+        features_dict = json.loads(result_text)
+
+        found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
+        listing.features = found
+        listing.score = len(found)
+
+        if not listing.color:
+            listing.color = parse_color(listing.description)
+
+        missing = [f for f in FULL_OPTION_FEATURES if f not in found]
+        log.info(
+            "[AI] Score %d/%d %s: FOUND=%s, MISSING=%s",
+            listing.score, len(FULL_OPTION_FEATURES),
+            listing.id[:30], found, missing,
+        )
+        return listing
+
+    except json.JSONDecodeError as e:
+        log.warning("[AI] JSON parse fout: %s — response: %s", e, result_text[:200])
+        return None
+    except Exception as e:
+        log.warning("[AI] Claude API fout: %s", e)
+        return None
+
+
+def score_listing(listing: Listing) -> Listing:
+    """Score listing via Claude AI, met regex als fallback."""
+    # Probeer eerst AI scoring
+    result = score_listing_ai(listing)
+    if result is not None:
+        return result
+
+    # Fallback naar regex
+    if ANTHROPIC_API_KEY:
+        log.warning("AI scoring mislukt, fallback naar regex voor %s", listing.id[:30])
+    return score_listing_regex(listing)
 
 
 def compute_price_score(price: int) -> str:
