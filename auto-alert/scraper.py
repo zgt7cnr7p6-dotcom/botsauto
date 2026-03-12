@@ -654,41 +654,85 @@ def compute_price_score(price: int) -> str:
 # ── Telegram ────────────────────────────────────────────────────────────────
 
 
-def _buy_advice(price: int, score: int, max_score: int) -> str:
-    """Genereer koopadvies op basis van prijs + opties combinatie."""
+# Opties die er echt toe doen — als deze er allemaal op zitten is het een must buy
+MUST_HAVE_FEATURES = [
+    "panoramadak",
+    "audio_premium",
+    "s_line",
+    "lane_assist",
+    "acc",
+    "ambient_lighting",
+    "stoelverwarming",
+    "camera_achteruit",
+    "keyless",
+]
+
+
+def _buy_advice(price: int, score: int, max_score: int, features: list, km: int) -> str:
+    """Genereer koopadvies op basis van prijs + must-haves + km-stand."""
     pct = score / max_score if max_score else 0
 
+    # Tel hoeveel must-haves aanwezig zijn
+    must_have_count = sum(1 for f in MUST_HAVE_FEATURES if f in features)
+    must_have_total = len(MUST_HAVE_FEATURES)
+    must_have_pct = must_have_count / must_have_total
+    has_all_musts = must_have_count == must_have_total
+    missing_musts = [FEATURE_DISPLAY_NAMES.get(f, f) for f in MUST_HAVE_FEATURES if f not in features]
+
     if not price:
-        if pct >= 0.80:
-            return "🔥 MOET KOPEN — check de prijs!"
+        if has_all_musts:
+            return "🔥 ALLE must-haves aanwezig — check de prijs!"
         return ""
 
-    # Prijs/optie matrix
-    if price <= 30_000:
-        if pct >= 0.70:
-            return "🔥🔥 DIRECT KOPEN — topprijs + goed uitgerust"
-        if pct >= 0.50:
-            return "🔥 MOET KOPEN — scherpe prijs"
-        return "👍 Goede prijs, minder opties"
-    elif price <= 33_000:
-        if pct >= 0.80:
-            return "🔥🔥 DIRECT KOPEN — veel opties voor deze prijs"
-        if pct >= 0.65:
-            return "🔥 MOET KOPEN — goede deal"
-        if pct >= 0.50:
-            return "👍 Redelijke deal"
+    # km-correctie: lage km = meer waard
+    # ≤30k km = premium, 30-50k = normaal, 50k+ = moet goedkoper
+    km_bonus = ""
+    if km and km <= 30_000:
+        km_bonus = " + lage km!"
+    elif km and km <= 20_000:
+        km_bonus = " + zeer lage km!"
+
+    # Hoofdlogica: must-haves + prijs + km
+    if has_all_musts:
+        if price <= 33_000:
+            return f"🔥🔥🔥 DIRECT BELLEN — alles erop + scherpe prijs{km_bonus}"
+        if price <= 35_000:
+            if km and km <= 40_000:
+                return f"🔥🔥 MOET KOPEN — alles erop + nette km{km_bonus}"
+            return "🔥🔥 MOET KOPEN — alle must-haves aanwezig"
+        if price <= 37_000:
+            if km and km <= 30_000:
+                return f"🔥🔥 MOET KOPEN — alles erop + lage km"
+            return "🔥 MOET KOPEN — alles erop, prijs is fair"
+        if price <= 38_500:
+            if km and km <= 30_000:
+                return "🔥 Duurder maar alles erop + lage km"
+            return "👍 Alles erop maar aan de bovenkant qua prijs"
+        return "⚠️ Boven budget — alles erop maar te duur"
+
+    if must_have_pct >= 0.78:  # 7 van 9 must-haves
+        missing_str = ", ".join(missing_musts[:3])
+        if price <= 32_000:
+            return f"🔥🔥 Topprijs! Mist alleen: {missing_str}"
+        if price <= 35_000:
+            if km and km <= 40_000:
+                return f"🔥 Goede deal! Mist: {missing_str}"
+            return f"👍 Redelijk. Mist: {missing_str}"
+        if price <= 37_000:
+            return f"👍 OK voor de prijs. Mist: {missing_str}"
+        return f"⚠️ Boven budget + mist: {missing_str}"
+
+    if must_have_pct >= 0.56:  # 5-6 van 9
+        if price <= 30_000:
+            return "👍 Scherpe prijs, mist een paar must-haves"
+        if price <= 33_000 and km and km <= 40_000:
+            return "👍 Redelijke deal voor de prijs"
         return ""
-    elif price <= 37_000:
-        if pct >= 0.85:
-            return "🔥 MOET KOPEN — bijna full option"
-        if pct >= 0.70:
-            return "👍 Goed uitgerust voor de prijs"
-        return ""
-    else:
-        # Boven 37k — alleen als het echt bijna alles heeft
-        if pct >= 0.90:
-            return "⚠️ Duur maar bijna full option"
-        return "⚠️ Boven budget"
+
+    # Weinig must-haves
+    if price <= 28_000 and pct >= 0.50:
+        return "👍 Goedkoop maar mist veel must-haves"
+    return ""
 
 
 def send_telegram(listing: Listing):
@@ -724,17 +768,19 @@ def send_telegram(listing: Listing):
     info_line = " · ".join(info_parts)
 
     # Koopadvies
-    advice = _buy_advice(listing.price, listing.score, max_score)
+    advice = _buy_advice(listing.price, listing.score, max_score, listing.features, listing.km)
 
     # Feature check — groepeer in aanwezig / afwezig
+    # Must-haves krijgen een ⭐ markering
     found_lines = []
     missing_lines = []
     for f in FULL_OPTION_FEATURES:
         name = FEATURE_DISPLAY_NAMES.get(f, f)
+        star = " ⭐" if f in MUST_HAVE_FEATURES else ""
         if f in listing.features:
-            found_lines.append(f"  ✅ {name}")
+            found_lines.append(f"  ✅ {name}{star}")
         else:
-            missing_lines.append(f"  ❌ {name}")
+            missing_lines.append(f"  ❌ {name}{star}")
 
     # Tijdstip van plaatsing
     date_line = ""
