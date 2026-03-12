@@ -654,6 +654,43 @@ def compute_price_score(price: int) -> str:
 # ── Telegram ────────────────────────────────────────────────────────────────
 
 
+def _buy_advice(price: int, score: int, max_score: int) -> str:
+    """Genereer koopadvies op basis van prijs + opties combinatie."""
+    pct = score / max_score if max_score else 0
+
+    if not price:
+        if pct >= 0.80:
+            return "🔥 MOET KOPEN — check de prijs!"
+        return ""
+
+    # Prijs/optie matrix
+    if price <= 30_000:
+        if pct >= 0.70:
+            return "🔥🔥 DIRECT KOPEN — topprijs + goed uitgerust"
+        if pct >= 0.50:
+            return "🔥 MOET KOPEN — scherpe prijs"
+        return "👍 Goede prijs, minder opties"
+    elif price <= 33_000:
+        if pct >= 0.80:
+            return "🔥🔥 DIRECT KOPEN — veel opties voor deze prijs"
+        if pct >= 0.65:
+            return "🔥 MOET KOPEN — goede deal"
+        if pct >= 0.50:
+            return "👍 Redelijke deal"
+        return ""
+    elif price <= 37_000:
+        if pct >= 0.85:
+            return "🔥 MOET KOPEN — bijna full option"
+        if pct >= 0.70:
+            return "👍 Goed uitgerust voor de prijs"
+        return ""
+    else:
+        # Boven 37k — alleen als het echt bijna alles heeft
+        if pct >= 0.90:
+            return "⚠️ Duur maar bijna full option"
+        return "⚠️ Boven budget"
+
+
 def send_telegram(listing: Listing):
     max_score = len(FULL_OPTION_FEATURES)
 
@@ -664,11 +701,11 @@ def send_telegram(listing: Listing):
         model_tag = "Q3"
 
     pct = listing.score / max_score if max_score else 0
-    if pct >= 0.90:
+    if pct >= 0.85:
         verdict_line = "🟢 TOPPER — bijna full option!"
-    elif pct >= 0.75:
+    elif pct >= 0.70:
         verdict_line = "🟢 High spec"
-    elif pct >= 0.55:
+    elif pct >= 0.50:
         verdict_line = "🟡 Redelijk uitgerust"
     elif pct >= 0.35:
         verdict_line = "🟠 Basis uitvoering"
@@ -686,6 +723,9 @@ def send_telegram(listing: Listing):
         info_parts.append(str(listing.year))
     info_line = " · ".join(info_parts)
 
+    # Koopadvies
+    advice = _buy_advice(listing.price, listing.score, max_score)
+
     # Feature check — groepeer in aanwezig / afwezig
     found_lines = []
     missing_lines = []
@@ -696,11 +736,24 @@ def send_telegram(listing: Listing):
         else:
             missing_lines.append(f"  ❌ {name}")
 
-    date_line = f"📅 {listing.listing_date}\n" if listing.listing_date else ""
+    # Tijdstip van plaatsing
+    date_line = ""
+    if listing.listing_date:
+        date_line = f"📅 Online sinds {listing.listing_date}\n"
+
+    # Gevonden op tijdstip
+    now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
+    found_time = now_cet.strftime("%d-%m-%Y %H:%M")
 
     text = (
         f"<b>Audi {model_tag} 45 TFSI e</b>\n"
         f"{info_line}\n"
+    )
+
+    if advice:
+        text += f"\n<b>{advice}</b>\n"
+
+    text += (
         f"\n"
         f"{verdict_line}\n"
         f"<b>{listing.score}/{max_score}</b> opties gevonden\n"
@@ -717,6 +770,7 @@ def send_telegram(listing: Listing):
     text += (
         f"\n"
         f"{date_line}"
+        f"🕐 Gevonden op {found_time}\n"
         f"📍 {listing.source}\n"
         f"\n"
         f"<a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>"
