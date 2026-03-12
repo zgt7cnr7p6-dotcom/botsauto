@@ -301,7 +301,6 @@ FEATURE_PATTERNS = {
         r"matrix[\s-]*scheinwerfer",
         r"led[\s-]*matrix",
         r"matrixbeam",
-        r"led\s*scheinwerfer",
         r"digital.*matrix",
     ],
     "velgen_20": [
@@ -586,7 +585,7 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 params["super"] = "true"
             if render:
                 params["render"] = "true"
-                params["wait"] = "3000"
+                params["wait"] = "5000"
 
             resp = req_lib.get("https://api.scrape.do", params=params, timeout=90)
             log.info("Scrape.do: status=%d, size=%d bytes voor %s",
@@ -865,20 +864,35 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
                         "[data-testid='ad-detail-features']",
                         "[data-testid='ad-detail-equipment']",
                         "[data-testid='equipment']",
+                        "[data-testid='features']",
                         "[class*='FeatureList']",
+                        "[class*='featureList']",
                         "[class*='equipment']",
                         "[class*='Equipment']",
+                        "[class*='Ausstattung']",
+                        "[class*='ausstattung']",
+                        "#rbt-features",
+                        ".cBox--equipment",
                     ]:
                         el = detail_soup.select_one(sel)
                         if el:
                             description += " " + el.get_text(separator=" ", strip=True)
 
-                    # 4. Vehicle Description
+                    # 4. Vehicle Description (seller beschrijving met feature-lijsten)
                     for sel in [
                         "#description", ".cBox--vehicleDescription",
                         "[data-testid='ad-detail-description']",
+                        "[data-testid='description']",
+                        "[data-testid='seller-description']",
                         "[class*='VehicleDescription']",
                         "[class*='vehicleDescription']",
+                        "[class*='description-text']",
+                        "[class*='DescriptionText']",
+                        "[class*='seller-description']",
+                        "[class*='SellerDescription']",
+                        "[class*='listing-description']",
+                        ".cBox--description",
+                        "#rbt-description",
                     ]:
                         el = detail_soup.select_one(sel)
                         if el:
@@ -886,14 +900,15 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
 
                     # Altijd volledige body text toevoegen voor feature-detectie
                     # CSS selectors zijn fragiel en mobile.de wijzigt regelmatig hun DOM
+                    # Seller beschrijvingen staan vaak diep in de pagina, dus ruime limiet
                     body_text = detail_soup.get_text(separator=" ", strip=True)
                     if len(description.strip()) < 100:
                         # Selectors faalden, gebruik volledige body text
-                        description = body_text[:15000]
+                        description = body_text[:50000]
                         log.info("Detail: selectors faalden, body text gebruikt (%d chars)", len(description))
                     else:
                         # Voeg body text toe zodat features niet gemist worden
-                        description += " " + body_text[:10000]
+                        description += " " + body_text[:40000]
                         log.info("Detail: selectors + body text (%d chars)", len(description))
 
                     # Locatie
