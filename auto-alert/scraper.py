@@ -665,46 +665,61 @@ def send_telegram(listing: Listing):
 
     pct = listing.score / max_score if max_score else 0
     if pct >= 0.90:
-        header_emoji = "🟢🟢🟢"
-        verdict = "TOPPER — bijna full option!"
+        verdict_line = "🟢 TOPPER — bijna full option!"
     elif pct >= 0.75:
-        header_emoji = "🟢🟢"
-        verdict = "High spec"
+        verdict_line = "🟢 High spec"
     elif pct >= 0.55:
-        header_emoji = "🟡"
-        verdict = "Redelijk uitgerust"
+        verdict_line = "🟡 Redelijk uitgerust"
     elif pct >= 0.35:
-        header_emoji = "🟠"
-        verdict = "Basis uitvoering"
+        verdict_line = "🟠 Basis uitvoering"
     else:
-        header_emoji = "🔴"
-        verdict = "Kaal"
+        verdict_line = "🔴 Kaal"
 
-    check_lines = []
+    # Prijs formatting
+    price_str = f"€{listing.price:,.0f}".replace(",", ".") if listing.price else "Prijs onbekend"
+
+    # Info regels
+    info_parts = [price_str]
+    if listing.km:
+        info_parts.append(f"{listing.km:,} km".replace(",", "."))
+    if listing.year:
+        info_parts.append(str(listing.year))
+    info_line = " · ".join(info_parts)
+
+    # Feature check — groepeer in aanwezig / afwezig
+    found_lines = []
+    missing_lines = []
     for f in FULL_OPTION_FEATURES:
         name = FEATURE_DISPLAY_NAMES.get(f, f)
         if f in listing.features:
-            check_lines.append(f"  ✅ {name}")
+            found_lines.append(f"  ✅ {name}")
         else:
-            check_lines.append(f"  ❌ {name}")
+            missing_lines.append(f"  ❌ {name}")
 
-    date_line = f"🕐 Online sinds: {listing.listing_date}\n" if listing.listing_date else ""
-
-    filled = listing.score
-    empty = max_score - filled
-    score_bar = "▓" * filled + "░" * empty
+    date_line = f"📅 {listing.listing_date}\n" if listing.listing_date else ""
 
     text = (
-        f"{header_emoji} <b>{model_tag}</b> — <b>{listing.score}/{max_score}</b> — {verdict}\n"
-        f"<code>{score_bar}</code>\n"
-        f"{'━' * 30}\n\n"
-        f"<b>{listing.title}</b>\n\n"
+        f"<b>Audi {model_tag} 45 TFSI e</b>\n"
+        f"{info_line}\n"
+        f"\n"
+        f"{verdict_line}\n"
+        f"<b>{listing.score}/{max_score}</b> opties gevonden\n"
+        f"\n"
+    )
+
+    if found_lines:
+        text += "\n".join(found_lines) + "\n"
+    if missing_lines:
+        if found_lines:
+            text += "\n"
+        text += "\n".join(missing_lines) + "\n"
+
+    text += (
+        f"\n"
         f"{date_line}"
-        f"\n<b>Full option check:</b>\n"
-        + "\n".join(check_lines)
-        + f"\n{'━' * 30}\n"
-        f"🔗 <a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>\n"
-        f"📍 {listing.source}"
+        f"📍 {listing.source}\n"
+        f"\n"
+        f"<a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>"
     )
 
     if DRY_RUN:
