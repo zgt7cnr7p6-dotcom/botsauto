@@ -102,6 +102,9 @@ FULL_OPTION_FEATURES = [
     "lane_assist",
     "drive_select",
     "adaptief_onderstel",
+    "emergency_assist",
+    "side_assist",
+    "ambient_lighting",
 ]
 
 FEATURE_DISPLAY_NAMES = {
@@ -120,6 +123,9 @@ FEATURE_DISPLAY_NAMES = {
     "lane_assist": "Lane assist + dodehoek",
     "drive_select": "Drive select",
     "adaptief_onderstel": "Adaptief onderstel",
+    "emergency_assist": "Noodrem-assistent",
+    "side_assist": "Dodehoek-assistent",
+    "ambient_lighting": "Sfeerverlichting",
 }
 
 DB_PATH = "listings.db"
@@ -408,6 +414,37 @@ FEATURE_PATTERNS = {
         r"d[äa]mpfer\s*regelung",
         r"d[äa]mpferregelung",
     ],
+    "emergency_assist": [
+        r"notbrems?\s*assist",
+        r"notbremsassist",
+        r"emergency\s*assist",
+        r"pre\s*sense\s*front",
+        r"audi\s*pre\s*sense\s*front",
+        r"front\s*assist",
+        r"nood\s*rem\s*assist",
+        r"assist[ae]nz\s*paket",
+    ],
+    "side_assist": [
+        r"side\s*assist",
+        r"audi\s*side\s*assist",
+        r"spur\s*wechsel\s*assist",
+        r"spurwechselassist",
+        r"totwinkel",
+        r"tot[\s-]*winkel",
+        r"dode\s*hoek",
+        r"blind\s*spot",
+    ],
+    "ambient_lighting": [
+        r"ambient[ae]?\s*beleuchtung",
+        r"ambientebeleuchtung",
+        r"ambient\s*light",
+        r"sfeer\s*verlichting",
+        r"sfeerverlichting",
+        r"contour\s*verlichting",
+        r"innenraum\s*beleuchtung\s*plus",
+        r"ambiente\s*beleuchtung",
+        r"ambient\s*lighting",
+    ],
 }
 
 
@@ -496,6 +533,9 @@ De beschrijving kan in het Duits, Nederlands of Engels zijn. Let op synoniemen e
 - "Lenkradheizung" / "beheizbares Lenkrad" = stuurverwarming
 - "Abstandstempomat" / "ACC" / "adaptive cruise" = acc
 - "adaptives Fahrwerk" / "Sportfahrwerk" / "DCC" = adaptief_onderstel
+- "Notbremassistent" / "pre sense front" / "Front Assist" / "Emergency Assist" / "Assistenzpaket" = emergency_assist
+- "Audi Side Assist" / "Spurwechselassistent" / "Totwinkelassistent" / "blind spot" = side_assist (LET OP: dit is APART van lane_assist)
+- "Ambiente Beleuchtung" / "Ambientebeleuchtung" / "ambient lighting" = ambient_lighting
 
 BELANGRIJK:
 - "LED-Scheinwerfer" alleen (zonder "Matrix") is GEEN matrix_led
@@ -520,7 +560,10 @@ Geef je antwoord ALLEEN als een JSON object met exact deze keys, elk true of fal
   "acc": false,
   "lane_assist": false,
   "drive_select": false,
-  "adaptief_onderstel": false
+  "adaptief_onderstel": false,
+  "emergency_assist": false,
+  "side_assist": false,
+  "ambient_lighting": false
 }
 
 Geen uitleg, alleen het JSON object."""
