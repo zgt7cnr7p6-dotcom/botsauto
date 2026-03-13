@@ -976,21 +976,9 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
     if not search_url:
         search_url = MOBILE_DE_SEARCH_URL
 
-    # Zoekpagina eerst zonder super mode (1 credit ipv 10)
-    # Fallback naar super mode als we geblokkeerd worden
-    log.info("mobile.de: zoekpagina ophalen (standaard modus) ...")
-    html = scrape_do_fetch(search_url, super_mode=False, retries=0)
-
-    blocked = False
-    if html and ("zugriff verweigert" in html.lower() or "access denied" in html.lower()):
-        log.warning("mobile.de: geblokkeerd zonder super mode, retry met super=true ...")
-        blocked = True
-        html = None
-
-    if not html:
-        if not blocked:
-            log.warning("mobile.de: standaard modus mislukt, retry met super=true ...")
-        html = scrape_do_fetch(search_url, super_mode=True, retries=1)
+    # Direct super mode — standaard modus geeft altijd 502 op mobile.de
+    log.info("mobile.de: zoekpagina ophalen ...")
+    html = scrape_do_fetch(search_url, super_mode=True, retries=1)
 
     if not html:
         log.error("mobile.de: geen HTML ontvangen")
