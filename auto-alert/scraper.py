@@ -10,7 +10,6 @@ import os
 import re
 import sys
 import json
-import random
 import sqlite3
 import logging
 import time
@@ -45,9 +44,6 @@ DRY_RUN = "--dry-run" in sys.argv or not TELEGRAM_BOT_TOKEN
 SCRAPE_DO_TOKEN = os.environ.get("SCRAPE_DO_TOKEN", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
-# Max aantal detail pagina's per run (beperkt API credits)
-MAX_DETAIL_PAGES_PER_RUN = int(os.environ.get("MAX_DETAIL_PAGES", "15"))
-_detail_page_count = 0
 
 SEARCH_CRITERIA = {
     "model": "Audi Q3 45 TFSI e",
@@ -71,7 +67,6 @@ MOBILE_DE_SEARCH_URLS = [
         ),
         "label": "Q3 pano",
         "require_pano_in_desc": False,
-        "fetch_details": False,  # Alles doorsturen, geen detail nodig
     },
     {
         "url": (
@@ -82,7 +77,6 @@ MOBILE_DE_SEARCH_URLS = [
         ),
         "label": "Q3 Sportback (pano check)",
         "require_pano_in_desc": True,
-        "fetch_details": True,
     },
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
@@ -967,11 +961,11 @@ def extract_listing_id(href: str, source: str, fallback: str = "") -> str:
 # ── mobile.de scraper ───────────────────────────────────────────────────────
 
 
-def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = True) -> list:
-    """Scrape mobile.de via Scrape.do + BeautifulSoup.
+def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) -> list:
+    """Scrape mobile.de zoekpagina via Scrape.do + BeautifulSoup.
 
-    Haalt zoekpagina op en optioneel detail pagina's voor feature-detectie.
-    Als fetch_details=False worden alleen listings van de zoekpagina verzameld (snel).
+    fetch_details=False: alleen zoekpagina, supersnel (URL 1).
+    fetch_details=True: ook detail pagina's ophalen voor feature-detectie (URL 2).
     """
     listings = []
 
@@ -1097,163 +1091,23 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = True) -> 
             # Year
             year = parse_year(card_text)
 
-            # Detail pagina ophalen voor feature-detectie
-            global _detail_page_count
             description = card_text[:500]
-            location = ""
-            listing_date = ""
-            if fetch_details and href and _detail_page_count < MAX_DETAIL_PAGES_PER_RUN:
-                _detail_page_count += 1
-                log.info("mobile.de: detail ophalen [%d/%d] voor %s ...",
-                         _detail_page_count, MAX_DETAIL_PAGES_PER_RUN, title[:50])
-                time.sleep(random.uniform(0.3, 0.8))
-                detail_html = scrape_do_fetch(href, render=True)
 
-                # Detecteer geblokkeerde detail pagina's (typisch ~2600 bytes met lege body)
-                if detail_html and len(detail_html) < 5000:
-                    detail_body = BeautifulSoup(detail_html, "html.parser").get_text(strip=True)
-                    if len(detail_body) < 100:
-                        log.warning("mobile.de: detail pagina geblokkeerd (%d bytes, %d chars body) — overslaan",
-                                    len(detail_html), len(detail_body))
-                        _detail_page_count -= 1  # Telt niet mee als opgehaald
-                        detail_html = None
+            # Detail pagina ophalen voor feature-detectie (URL 2 pano check)
+            if fetch_details and href:
+                log.info("mobile.de: detail ophalen voor %s ...", title[:50])
+                detail_html = scrape_do_fetch(href, render=False, super_mode=True, retries=0)
 
-                if detail_html:
-                    # Sla eerste detail page op als debug
-                    if _detail_page_count <= 2:
-                        debug_fn = f"debug_detail_{_detail_page_count}.html"
-                        with open(debug_fn, "w", encoding="utf-8") as dbg:
-                            dbg.write(detail_html)
-                        log.info("Debug HTML opgeslagen: %s (%d bytes)", debug_fn, len(detail_html))
-
+                if detail_html and len(detail_html) > 5000:
                     detail_soup = BeautifulSoup(detail_html, "html.parser")
-                    description = ""
-
-                    # 1. Titel
-                    for sel in ["h1", "#rbt-ad-title", "[data-testid='ad-title']"]:
-                        el = detail_soup.select_one(sel)
-                        if el:
-                            description += " " + el.get_text(separator=" ", strip=True)
-                            break
-
-                    # 2. Technische data
-                    for sel in [
-                        "div.cBox-body.cBox-body--technical-data",
-                        ".cBox--technicalData",
-                        "#rbt-td",
-                        "[data-testid='ad-detail-technical-data']",
-                    ]:
-                        el = detail_soup.select_one(sel)
-                        if el:
-                            description += " " + el.get_text(separator=" ", strip=True)
-
-                    # 3. Features / Ausstattung
-                    for sel in [
-                        ".cBox--features", "#features",
-                        "[data-testid='ad-detail-features']",
-                        "[data-testid='ad-detail-equipment']",
-                        "[data-testid='equipment']",
-                        "[data-testid='features']",
-                        "[class*='FeatureList']",
-                        "[class*='featureList']",
-                        "[class*='equipment']",
-                        "[class*='Equipment']",
-                        "[class*='Ausstattung']",
-                        "[class*='ausstattung']",
-                        "#rbt-features",
-                        ".cBox--equipment",
-                    ]:
-                        el = detail_soup.select_one(sel)
-                        if el:
-                            description += " " + el.get_text(separator=" ", strip=True)
-
-                    # 4. Vehicle Description (seller beschrijving met feature-lijsten)
-                    for sel in [
-                        "#description", ".cBox--vehicleDescription",
-                        "[data-testid='ad-detail-description']",
-                        "[data-testid='description']",
-                        "[data-testid='seller-description']",
-                        "[class*='VehicleDescription']",
-                        "[class*='vehicleDescription']",
-                        "[class*='description-text']",
-                        "[class*='DescriptionText']",
-                        "[class*='seller-description']",
-                        "[class*='SellerDescription']",
-                        "[class*='listing-description']",
-                        ".cBox--description",
-                        "#rbt-description",
-                    ]:
-                        el = detail_soup.select_one(sel)
-                        if el:
-                            description += " " + el.get_text(separator=" ", strip=True)
-
-                    # Altijd volledige body text toevoegen voor feature-detectie
-                    # CSS selectors zijn fragiel en mobile.de wijzigt regelmatig hun DOM
-                    # Seller beschrijvingen staan vaak diep in de pagina, dus ruime limiet
                     body_text = detail_soup.get_text(separator=" ", strip=True)
-                    if len(description.strip()) < 100:
-                        # Selectors faalden, gebruik volledige body text
-                        description = body_text[:50000]
-                        log.info("Detail: selectors faalden, body text gebruikt (%d chars)", len(description))
+                    if len(body_text) > 100:
+                        description = body_text[:20000]
+                        log.info("Detail: %d chars opgehaald", len(description))
                     else:
-                        # Voeg body text toe zodat features niet gemist worden
-                        description += " " + body_text[:40000]
-                        log.info("Detail: selectors + body text (%d chars)", len(description))
-
-                    # Locatie
-                    for sel in [
-                        "#dealer-hp-link-bottom",
-                        ".seller-info .seller-address",
-                        "[data-testid='seller-info'] p",
-                        ".cBox--seller .u-text-break-word",
-                        ".cBox--seller",
-                        "#rbt-seller",
-                    ]:
-                        el = detail_soup.select_one(sel)
-                        if el:
-                            loc_text = el.get_text(separator=" ", strip=True)
-                            loc_match = re.search(r"(\d{5}\s+\S+(?:\s+\S+)?)", loc_text)
-                            if loc_match:
-                                location = loc_match.group(1).strip()
-                            elif len(loc_text) < 100:
-                                location = loc_text
-                            break
-
-                    # Listing datum
-                    for sel in [
-                        "[data-testid='creation-date']",
-                        ".cBox--attributes .u-text-break-word",
-                    ]:
-                        el = detail_soup.select_one(sel)
-                        if el:
-                            date_text = el.get_text(strip=True)
-                            # "Ad online since 3/11/2026, 12:55" of "11.03.2026"
-                            date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{4},?\s*\d{1,2}:\d{2})", date_text)
-                            if date_match:
-                                listing_date = date_match.group(1)
-                            else:
-                                date_match = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4})", date_text)
-                                if date_match:
-                                    listing_date = date_match.group(1)
-                            if listing_date:
-                                break
-                    if not listing_date:
-                        full_text = detail_soup.get_text()
-                        # "Ad online since 3/11/2026, 12:55"
-                        date_match = re.search(r"[Aa]d\s+online\s+since\s+(\d{1,2}/\d{1,2}/\d{4},?\s*\d{1,2}:\d{2})", full_text)
-                        if date_match:
-                            listing_date = date_match.group(1)
-                        if not listing_date:
-                            date_match = re.search(r"Inseriert?\s*(?:am\s*)?:?\s*(\d{1,2}\.\d{1,2}\.\d{4})", full_text)
-                            if date_match:
-                                listing_date = date_match.group(1)
-                            else:
-                                date_match = re.search(r"seit\s+(\d{1,2}\.\d{1,2}\.\d{4})", full_text, re.IGNORECASE)
-                                if date_match:
-                                    listing_date = date_match.group(1)
-
-                    log.info("mobile.de: detail %d chars, locatie=%s, datum=%s",
-                             len(description), location or "?", listing_date or "?")
+                        log.warning("Detail: geblokkeerd (body %d chars)", len(body_text))
+                elif detail_html:
+                    log.warning("Detail: te klein (%d bytes)", len(detail_html))
 
             listing = Listing(
                 id=listing_id,
@@ -1264,8 +1118,6 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = True) -> 
                 km=km,
                 url=href,
                 description=description,
-                location=location,
-                listing_date=listing_date,
             )
 
             log.info("MATCH: %s — €%s — %d km — %d", title[:50], f"{price:,}" if price else "?", km, year)
@@ -1325,14 +1177,12 @@ def main():
         search_url = search_cfg["url"]
         url_label = search_cfg["label"]
         require_pano = search_cfg["require_pano_in_desc"]
-        fetch_details = search_cfg.get("fetch_details", True)
 
         log.info("━━━ %s ━━━", url_label)
 
-        global _detail_page_count
-        _detail_page_count = 0
-
-        mobile_listings = scrape_mobile_de(conn, search_url=search_url, fetch_details=fetch_details)
+        # URL 1: geen details nodig (alles doorsturen)
+        # URL 2: details nodig voor pano check in beschrijving
+        mobile_listings = scrape_mobile_de(conn, search_url=search_url, fetch_details=require_pano)
 
         if mobile_listings:
             log.info("[%s] %d listings gevonden", url_label, len(mobile_listings))
@@ -1344,7 +1194,7 @@ def main():
                 log.info("[%s] Overgeslagen (al in andere URL): %s", url_label, lst.title[:40])
                 continue
             if require_pano and not has_pano_in_text(f"{lst.title} {lst.description}"):
-                log.info("[%s] Overgeslagen (geen pano in beschrijving): %s", url_label, lst.title[:40])
+                log.info("[%s] Overgeslagen (geen pano gevonden): %s", url_label, lst.title[:40])
                 continue
             seen_ids.add(lst.id)
             all_listings.append(lst)
