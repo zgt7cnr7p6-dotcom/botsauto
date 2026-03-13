@@ -810,11 +810,15 @@ def send_telegram(listing: Listing):
             text += "\n"
         text += "\n".join(missing_lines) + "\n"
 
+    location_line = ""
+    if listing.location:
+        location_line = f"📍 {listing.location}\n"
+
     text += (
         f"\n"
         f"{date_line}"
+        f"{location_line}"
         f"🕐 Gevonden op {found_time}\n"
-        f"📍 {listing.source}\n"
         f"\n"
         f"<a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>"
     )
@@ -1082,6 +1086,18 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             # Year
             year = parse_year(card_text)
 
+            # Locatie (dealer stad)
+            location = ""
+            loc_match = re.search(r"(\d{4,5})\s+([A-ZÄÖÜa-zäöüß][\w\s\-äöüßÄÖÜ]{2,40})", card_text)
+            if loc_match:
+                location = loc_match.group(0).strip()
+
+            # Listing datum (bijv. "13.3.2026, 10:50")
+            listing_date = ""
+            date_match = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4}),?\s*(\d{1,2}:\d{2})", card_text)
+            if date_match:
+                listing_date = date_match.group(0).strip()
+
             listing = Listing(
                 id=listing_id,
                 source="mobile.de",
@@ -1091,6 +1107,8 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 km=km,
                 url=href,
                 description=card_text[:500],
+                location=location,
+                listing_date=listing_date,
             )
 
             log.info("MATCH: %s — €%s — %d km — %d", title[:50], f"{price:,}" if price else "?", km, year)
