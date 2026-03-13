@@ -1035,7 +1035,6 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
         log.info("mobile.de body (2000 chars): %s", body[:2000])
         return listings
 
-    known_streak = 0
     for card in cards[:50]:
         try:
             card_full_text = card.get_text(separator=" ", strip=True)
@@ -1071,13 +1070,8 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
             listing_id = extract_listing_id(href, "mobile", fallback=str(abs(hash(title))))
 
             if listing_exists(conn, listing_id):
-                known_streak += 1
-                log.info("Bekende listing: %s", title[:50])
-                if known_streak >= 5:
-                    log.info("5 bekende op rij — stoppen")
-                    break
+                log.info("Bekende listing overgeslagen: %s", title[:50])
                 continue
-            known_streak = 0
 
             # Price
             card_text = card_full_text
