@@ -13,6 +13,7 @@ import json
 import sqlite3
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass, field
@@ -842,7 +843,7 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True) -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45) -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
     super=true activeert geavanceerde anti-bot bypass (10 credits per request).
@@ -865,7 +866,7 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 params["render"] = "true"
                 params["wait"] = "5000"
 
-            resp = req_lib.get("https://api.scrape.do", params=params, timeout=90)
+            resp = req_lib.get("https://api.scrape.do", params=params, timeout=timeout)
             log.info("Scrape.do: status=%d, size=%d bytes voor %s",
                      resp.status_code, len(resp.content), url[:80])
 
@@ -1079,24 +1080,6 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             # Year
             year = parse_year(card_text)
 
-            description = card_text[:500]
-
-            # Detail pagina ophalen voor feature-detectie (URL 2 pano check)
-            if fetch_details and href:
-                log.info("mobile.de: detail ophalen voor %s ...", title[:50])
-                detail_html = scrape_do_fetch(href, render=False, super_mode=True, retries=0)
-
-                if detail_html and len(detail_html) > 5000:
-                    detail_soup = BeautifulSoup(detail_html, "html.parser")
-                    body_text = detail_soup.get_text(separator=" ", strip=True)
-                    if len(body_text) > 100:
-                        description = body_text[:20000]
-                        log.info("Detail: %d chars opgehaald", len(description))
-                    else:
-                        log.warning("Detail: geblokkeerd (body %d chars)", len(body_text))
-                elif detail_html:
-                    log.warning("Detail: te klein (%d bytes)", len(detail_html))
-
             listing = Listing(
                 id=listing_id,
                 source="mobile.de",
@@ -1105,7 +1088,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 year=year,
                 km=km,
                 url=href,
-                description=description,
+                description=card_text[:500],
             )
 
             log.info("MATCH: %s — €%s — %d km — %d", title[:50], f"{price:,}" if price else "?", km, year)
@@ -1115,7 +1098,36 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             log.warning("mobile.de card: %s", e)
             continue
 
-    log.info("mobile.de: %d listings gevonden", len(listings))
+    log.info("mobile.de: %d nieuwe listings gevonden", len(listings))
+
+    # ── Detail pages parallel ophalen ──
+    if fetch_details and listings:
+        urls_to_fetch = {i: lst.url for i, lst in enumerate(listings) if lst.url}
+        log.info("Detail pages ophalen voor %d listings (parallel) ...", len(urls_to_fetch))
+
+        def _fetch_detail(idx_url):
+            idx, url = idx_url
+            html = scrape_do_fetch(url, render=False, super_mode=True, retries=0, timeout=30)
+            return idx, html
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = {pool.submit(_fetch_detail, item): item for item in urls_to_fetch.items()}
+            for future in as_completed(futures):
+                try:
+                    idx, detail_html = future.result()
+                    lst = listings[idx]
+                    if detail_html and len(detail_html) > 5000:
+                        detail_soup = BeautifulSoup(detail_html, "html.parser")
+                        body_text = detail_soup.get_text(separator=" ", strip=True)
+                        if len(body_text) > 100:
+                            lst.description = body_text[:20000]
+                            log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
+                        else:
+                            log.warning("Detail geblokkeerd: %s (body %d chars)", lst.title[:40], len(body_text))
+                    elif detail_html:
+                        log.warning("Detail te klein: %s (%d bytes)", lst.title[:40], len(detail_html))
+                except Exception as e:
+                    log.warning("Detail fetch fout: %s", e)
     return listings
 
 
@@ -1188,14 +1200,19 @@ def main():
 
         log.info("[%s] %d listings toegevoegd", url_label, len(mobile_listings))
 
-    # ── Score en alert ──
-    log.info("Totaal: %d listings, nu scoren ...", len(all_listings))
+    # ── Score (parallel) en alert ──
+    log.info("Totaal: %d listings, nu scoren (parallel) ...", len(all_listings))
 
     new_count = 0
     alert_count = 0
 
+    # Score alle listings parallel via ThreadPool
+    if all_listings:
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            scored = list(pool.map(score_listing, all_listings))
+        all_listings = scored
+
     for listing in all_listings:
-        listing = score_listing(listing)
         is_new = not listing_exists(conn, listing.id)
         save_listing(conn, listing)
 
