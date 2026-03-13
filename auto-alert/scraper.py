@@ -1192,11 +1192,9 @@ def main():
             if lst.id in seen_ids:
                 log.info("[%s] Overgeslagen (al in andere URL): %s", url_label, lst.title[:40])
                 continue
-            if require_pano and not has_pano_in_text(f"{lst.title} {lst.description}"):
-                log.info("[%s] Overgeslagen (geen pano gevonden): %s | desc=%d chars | snippet: %s",
-                         url_label, lst.title[:40], len(lst.description), lst.description[:150].replace('\n', ' '))
-                continue
             seen_ids.add(lst.id)
+            # Tag listing met require_pano flag voor AI check later
+            lst._require_pano = require_pano
             all_listings.append(lst)
 
         log.info("[%s] %d listings toegevoegd", url_label, len(mobile_listings))
@@ -1207,14 +1205,26 @@ def main():
     new_count = 0
     alert_count = 0
 
-    # Score alle listings parallel via ThreadPool
+    # Score alle listings parallel via ThreadPool (inclusief URL 2)
     if all_listings:
         with ThreadPoolExecutor(max_workers=5) as pool:
             scored = list(pool.map(score_listing, all_listings))
+        # Restore _require_pano flags
+        for orig, sc in zip(all_listings, scored):
+            sc._require_pano = getattr(orig, '_require_pano', False)
         all_listings = scored
 
     for listing in all_listings:
         is_new = not listing_exists(conn, listing.id)
+
+        # URL 2 pano check: laat Claude AI bepalen of panoramadak aanwezig is
+        require_pano = getattr(listing, '_require_pano', False)
+        if require_pano and "panoramadak" not in listing.features:
+            log.info("[pano-AI] Overgeslagen (AI zegt geen pano): %s | features=%s",
+                     listing.title[:40], listing.features)
+            save_listing(conn, listing)  # wel opslaan zodat we 'm niet opnieuw checken
+            continue
+
         save_listing(conn, listing)
 
         if is_new:
