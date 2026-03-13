@@ -1193,7 +1193,8 @@ def main():
                 log.info("[%s] Overgeslagen (al in andere URL): %s", url_label, lst.title[:40])
                 continue
             if require_pano and not has_pano_in_text(f"{lst.title} {lst.description}"):
-                log.info("[%s] Overgeslagen (geen pano gevonden): %s", url_label, lst.title[:40])
+                log.info("[%s] Overgeslagen (geen pano gevonden): %s | desc=%d chars | snippet: %s",
+                         url_label, lst.title[:40], len(lst.description), lst.description[:150].replace('\n', ' '))
                 continue
             seen_ids.add(lst.id)
             all_listings.append(lst)
