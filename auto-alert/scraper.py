@@ -836,8 +836,10 @@ def send_telegram(listing: Listing):
     )
     if resp.ok:
         log.info("Telegram alert verstuurd voor %s", listing.id)
+        return True
     else:
         log.error("Telegram fout: %s %s", resp.status_code, resp.text)
+        return False
 
 
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
@@ -1226,21 +1228,25 @@ def main():
             save_listing(conn, listing)  # wel opslaan zodat we 'm niet opnieuw checken
             continue
 
-        save_listing(conn, listing)
-
         if is_new:
             new_count += 1
-            send_telegram(listing)
-            alert_count += 1
-            log.info(
-                "ALERT: %s — score %d/%d — €%s — %s",
-                listing.title,
-                listing.score,
-                len(FULL_OPTION_FEATURES),
-                f"{listing.price:,}" if listing.price else "?",
-                listing.url,
-            )
+            sent = send_telegram(listing)
+            if sent:
+                # Alleen opslaan NA succesvolle Telegram send
+                save_listing(conn, listing)
+                alert_count += 1
+                log.info(
+                    "ALERT: %s — score %d/%d — €%s — %s",
+                    listing.title,
+                    listing.score,
+                    len(FULL_OPTION_FEATURES),
+                    f"{listing.price:,}" if listing.price else "?",
+                    listing.url,
+                )
+            else:
+                log.error("NIET opgeslagen (Telegram mislukt, retry volgende run): %s", listing.title[:40])
         else:
+            save_listing(conn, listing)
             log.info("Bekende listing bijgewerkt: %s", listing.id)
 
     conn.close()
