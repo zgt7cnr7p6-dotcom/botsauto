@@ -71,6 +71,7 @@ MOBILE_DE_SEARCH_URLS = [
         ),
         "label": "Q3 pano",
         "require_pano_in_desc": False,
+        "fetch_details": False,  # Alles doorsturen, geen detail nodig
     },
     {
         "url": (
@@ -81,6 +82,7 @@ MOBILE_DE_SEARCH_URLS = [
         ),
         "label": "Q3 Sportback (pano check)",
         "require_pano_in_desc": True,
+        "fetch_details": True,
     },
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
@@ -965,10 +967,11 @@ def extract_listing_id(href: str, source: str, fallback: str = "") -> str:
 # ── mobile.de scraper ───────────────────────────────────────────────────────
 
 
-def scrape_mobile_de(conn, search_url: str = "") -> list:
+def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = True) -> list:
     """Scrape mobile.de via Scrape.do + BeautifulSoup.
 
-    Haalt zoekpagina op en detail pagina's voor feature-detectie.
+    Haalt zoekpagina op en optioneel detail pagina's voor feature-detectie.
+    Als fetch_details=False worden alleen listings van de zoekpagina verzameld (snel).
     """
     listings = []
 
@@ -1099,12 +1102,22 @@ def scrape_mobile_de(conn, search_url: str = "") -> list:
             description = card_text[:500]
             location = ""
             listing_date = ""
-            if href and _detail_page_count < MAX_DETAIL_PAGES_PER_RUN:
+            if fetch_details and href and _detail_page_count < MAX_DETAIL_PAGES_PER_RUN:
                 _detail_page_count += 1
                 log.info("mobile.de: detail ophalen [%d/%d] voor %s ...",
                          _detail_page_count, MAX_DETAIL_PAGES_PER_RUN, title[:50])
                 time.sleep(random.uniform(0.3, 0.8))
                 detail_html = scrape_do_fetch(href, render=True)
+
+                # Detecteer geblokkeerde detail pagina's (typisch ~2600 bytes met lege body)
+                if detail_html and len(detail_html) < 5000:
+                    detail_body = BeautifulSoup(detail_html, "html.parser").get_text(strip=True)
+                    if len(detail_body) < 100:
+                        log.warning("mobile.de: detail pagina geblokkeerd (%d bytes, %d chars body) — overslaan",
+                                    len(detail_html), len(detail_body))
+                        _detail_page_count -= 1  # Telt niet mee als opgehaald
+                        detail_html = None
+
                 if detail_html:
                     # Sla eerste detail page op als debug
                     if _detail_page_count <= 2:
@@ -1312,13 +1325,14 @@ def main():
         search_url = search_cfg["url"]
         url_label = search_cfg["label"]
         require_pano = search_cfg["require_pano_in_desc"]
+        fetch_details = search_cfg.get("fetch_details", True)
 
         log.info("━━━ %s ━━━", url_label)
 
         global _detail_page_count
         _detail_page_count = 0
 
-        mobile_listings = scrape_mobile_de(conn, search_url=search_url)
+        mobile_listings = scrape_mobile_de(conn, search_url=search_url, fetch_details=fetch_details)
 
         if mobile_listings:
             log.info("[%s] %d listings gevonden", url_label, len(mobile_listings))
