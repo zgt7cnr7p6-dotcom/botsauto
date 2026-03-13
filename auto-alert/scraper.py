@@ -1168,9 +1168,8 @@ def main():
 
         log.info("━━━ %s ━━━", url_label)
 
-        # URL 1: geen details nodig (alles doorsturen)
-        # URL 2: details nodig voor pano check in beschrijving
-        mobile_listings = scrape_mobile_de(conn, search_url=search_url, fetch_details=require_pano)
+        # Altijd details ophalen voor AI scoring + pano check
+        mobile_listings = scrape_mobile_de(conn, search_url=search_url, fetch_details=True)
 
         if mobile_listings:
             log.info("[%s] %d listings gevonden", url_label, len(mobile_listings))
