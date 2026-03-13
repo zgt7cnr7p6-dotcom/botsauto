@@ -1107,7 +1107,8 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
 
         def _fetch_detail(idx_url):
             idx, url = idx_url
-            html = scrape_do_fetch(url, render=False, super_mode=True, retries=0, timeout=30)
+            # render=True zodat "Show more" / features volledig geladen worden
+            html = scrape_do_fetch(url, render=True, super_mode=True, retries=0, timeout=60)
             return idx, html
 
         with ThreadPoolExecutor(max_workers=5) as pool:
