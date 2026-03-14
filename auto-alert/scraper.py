@@ -299,6 +299,8 @@ FEATURE_PATTERNS = {
         r"umgebungs\s*kamera",
         r"umgebungskamera",
         r"4\s*kamera",
+        r"area\s*view",
+        r"audi\s*area\s*view",
     ],
     "s_line": [
         r"s[\s-]?line",
@@ -375,7 +377,7 @@ FEATURE_PATTERNS = {
         r"adaptieve?\s*cruise",
         r"distronic",
         r"abstands\s*regel\s*tempomat",
-        r"geschwindigkeitsregel",
+        r"adaptive?\s*geschwindigkeits\s*regel",
         r"adaptiv.*fahr\s*assist",
     ],
     "lane_assist": [
@@ -441,6 +443,9 @@ FEATURE_PATTERNS = {
         r"innenraum\s*beleuchtung\s*plus",
         r"ambiente\s*beleuchtung",
         r"ambient\s*lighting",
+        r"kontur.*ambiente.*licht",
+        r"ambiente.*licht.*paket",
+        r"licht\s*paket.*ambiente",
     ],
 }
 
@@ -493,6 +498,10 @@ def score_listing_regex(listing: Listing) -> Listing:
                 found.append(feature)
                 log.info("[REGEX] Feature '%s' gevonden via '%s' => '%s'", feature, pat, m.group())
                 break
+    # 360° camera impliceert altijd achteruitrijcamera
+    if "camera_360" in found and "camera_achteruit" not in found:
+        found.append("camera_achteruit")
+
     listing.features = found
     listing.score = len(found)
 
@@ -513,33 +522,78 @@ def score_listing_regex(listing: Listing) -> Listing:
 
 AI_SCORING_PROMPT = """\
 Je bent een auto-expert die advertenties analyseert voor een Audi Q3 Sportback 45 TFSI e (plug-in hybrid).
-Analyseer de titel en beschrijving hieronder en bepaal welke opties aanwezig zijn.
+Analyseer de titel en VOLLEDIGE beschrijving hieronder zeer zorgvuldig en bepaal welke opties aanwezig zijn.
 
-De beschrijving kan in het Duits, Nederlands of Engels zijn. Let op synoniemen en variaties:
-- "Sitzheizung" / "Sitzheizung vorne" = stoelverwarming
-- "Audi Side Assist" / "Spurwechselassistent" = dodehoek-assistent (onderdeel van lane_assist)
-- "Spurhalteassistent" / "Active lane Assist" = rijstrookassistent (onderdeel van lane_assist)
-- "Audi Drive Select" / "drive select" = drive_select
-- "elektrische Sitzverstellung" = elektrische stoelen (elektrische_stoelen)
-- "Memory" bij stoelen = memory functie (onderdeel van elektrische_stoelen)
-- "Panorama-Schiebedach" / "Panoramadach" / "Glasdach" = panoramadak
-- "Matrix LED" / "Matrix-LED-Scheinwerfer" = matrix_led (LET OP: gewone "LED-Scheinwerfer" is GEEN matrix LED)
-- "Bang & Olufsen" / "B&O" / "Sonos" = audio_premium
-- "Rückfahrkamera" = camera_achteruit
-- "Komfortschlüssel" / "Keyless" / "kessy" = keyless
-- "Lenkradheizung" / "beheizbares Lenkrad" = stuurverwarming
-- "Abstandstempomat" / "ACC" / "adaptive cruise" = acc
-- "adaptives Fahrwerk" / "Sportfahrwerk" / "DCC" = adaptief_onderstel
-- "Notbremassistent" / "pre sense front" / "Front Assist" / "Emergency Assist" / "Assistenzpaket" = emergency_assist
-- "Audi Side Assist" / "Spurwechselassistent" / "Totwinkelassistent" / "blind spot" = side_assist (LET OP: dit is APART van lane_assist)
-- "Ambiente Beleuchtung" / "Ambientebeleuchtung" / "ambient lighting" = ambient_lighting
+LEES DE HELE BESCHRIJVING WOORD VOOR WOORD. Opties staan vaak verspreid door de hele tekst, ook helemaal onderaan in secties zoals "Sonstiges".
+
+De beschrijving kan in het Duits, Nederlands of Engels zijn. Hier zijn ALLE synoniemen die je moet herkennen:
+
+PANORAMADAK (panoramadak):
+  "Panoramadach", "Panorama-Schiebedach", "Panoramadak", "Glasdach", "Schiebedach", "Elektr. Schiebe-/Hubdach"
+
+KEYLESS ENTRY (keyless):
+  "Komfortschlüssel", "Keyless", "Keyless Entry", "Keyless Go", "kessy", "Komfortzugang", "schlüssellos"
+
+ACHTERUITRIJCAMERA (camera_achteruit):
+  "Rückfahrkamera", "rear camera", "achteruitrijcamera", "reversing camera"
+  LET OP: als camera_360 = true, dan is camera_achteruit OOK ALTIJD true (360° camera bevat achteruitrijcamera)
+
+360° CAMERA (camera_360):
+  "360 Grad Kamera", "360°-Kamera", "Area View", "Audi Area View", "Rundumkamera", "Surround View", "Umgebungskamera", "4 Kamera"
+
+S-LINE (s_line):
+  "S line", "S-line", "S line Interieur", "S-line Interieur", "S line Exterieur"
+
+MATRIX LED (matrix_led):
+  "Matrix LED", "Matrix-LED-Scheinwerfer", "LED Matrix"
+  LET OP: gewone "LED-Scheinwerfer" of "LED-Hauptscheinwerfer" zonder "Matrix" is GEEN matrix_led!
+
+20 INCH VELGEN (velgen_20):
+  "20 Zoll", "20 inch", "20\"", "Leichtmetallräder 20", "Alufelgen 20"
+
+PREMIUM AUDIO (audio_premium):
+  "Bang & Olufsen", "B&O", "Sonos", "Bose", "Premium Sound", "Bang und Olufsen"
+  LET OP: gewoon "Soundsystem" of "Audi Soundsystem" zonder merknaam (B&O/Sonos/Bose) is GEEN audio_premium!
+
+ELEKTRISCHE STOELEN (elektrische_stoelen):
+  "elektrische Sitzverstellung", "el. Sitzverstellung", "elektrisch verstellbare Sitze", "power seats", "Memory Sitze"
+
+STOELVERWARMING (stoelverwarming):
+  "Sitzheizung", "Sitzheizung vorne", "beheizbare Sitze", "verwarmde stoelen", "heated seats"
+
+STUURVERWARMING (stuurverwarming):
+  "Lenkradheizung", "beheizbares Lenkrad", "beheizbar Lenkrad", "heated steering wheel", "stuurverwarming"
+
+ACC / ADAPTIEVE CRUISE CONTROL (acc):
+  "Abstandstempomat", "ACC", "adaptive cruise control", "adaptieve cruise", "Distronic", "Abstandsregeltempomat", "adaptive Geschwindigkeitsregelung"
+  LET OP: gewone "Geschwindigkeitsregelanlage" / "Tempomat" / "cruise control" ZONDER "Abstand"/"adaptive" is GEEN acc!
+
+LANE ASSIST + DODEHOEK (lane_assist):
+  Vereist BEIDE: rijstrookassistent EN dodehoek-assistent.
+  Rijstrookassistent = "Lane Assist", "Spurhalteassistent", "Active Lane Assist"
+  Dodehoek = "Side Assist", "Spurwechselassistent", "Totwinkelassistent", "blind spot"
+  Alleen als BEIDE aanwezig zijn → lane_assist = true
+
+DRIVE SELECT (drive_select):
+  "Drive Select", "Audi Drive Select", "Fahrmodus", "rijmodus"
+
+ADAPTIEF ONDERSTEL (adaptief_onderstel):
+  "adaptives Fahrwerk", "Sportfahrwerk", "DCC", "adaptive Dämpfer", "Magnetic Ride", "sport onderstel"
+
+NOODREM-ASSISTENT (emergency_assist):
+  "Notbremsassistent", "Notbremassistent", "pre sense front", "Audi pre sense front", "Front Assist", "Emergency Assist", "Assistenzpaket", "Audi pre sense basic"
+
+DODEHOEK-ASSISTENT (side_assist):
+  "Side Assist", "Audi Side Assist", "Spurwechselassistent", "Totwinkelassistent", "blind spot", "dodehoek"
+
+SFEERVERLICHTING (ambient_lighting):
+  "Ambientebeleuchtung", "Ambiente Beleuchtung", "Kontur/Ambiente Lichtpaket", "Kontur-Ambientelichtpaket", "ambient lighting", "Ambiente-Lichtpaket", "sfeerverlichting", "contourverlichting"
 
 BELANGRIJK:
-- "LED-Scheinwerfer" alleen (zonder "Matrix") is GEEN matrix_led
-- "Einparkhilfe" (parkeersensoren) is GEEN camera
+- Lees de HELE beschrijving, inclusief de secties onderaan
+- "Einparkhilfe" / "ParkDistanceControl" (parkeersensoren) is GEEN camera
 - Stoelverwarming en stuurverwarming zijn APART
-- lane_assist is ALLEEN aanwezig als er ZOWEL rijstrookassistent (lane assist/Spurhalteassistent) ALS dodehoek-assistent (Side Assist/Spurwechselassistent/Totwinkelassistent) wordt genoemd
-- elektrische_stoelen: "elektrische Sitzverstellung" telt, maar memory hoeft er niet bij
+- Als camera_360 = true, dan moet camera_achteruit OOK true zijn
 
 Geef je antwoord ALLEEN als een JSON object met exact deze keys, elk true of false:
 {
@@ -579,7 +633,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-5-20241022",
             max_tokens=300,
             messages=[
                 {
@@ -596,6 +650,10 @@ def score_listing_ai(listing: Listing) -> Listing | None:
             result_text = re.sub(r"\s*```$", "", result_text)
 
         features_dict = json.loads(result_text)
+
+        # 360° camera impliceert altijd achteruitrijcamera
+        if features_dict.get("camera_360", False):
+            features_dict["camera_achteruit"] = True
 
         found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
         listing.features = found
