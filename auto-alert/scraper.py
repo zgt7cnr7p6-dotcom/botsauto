@@ -514,21 +514,29 @@ def score_listing_regex(listing: Listing) -> Listing:
 
 AI_SCORING_PROMPT = """\
 Je bent een auto-expert die advertenties analyseert voor een Audi Q3 Sportback 45 TFSI e (plug-in hybrid).
-Analyseer de titel en VOLLEDIGE beschrijving hieronder zeer zorgvuldig en bepaal welke opties aanwezig zijn.
 
-LEES DE HELE BESCHRIJVING WOORD VOOR WOORD. Opties staan vaak verspreid door de hele tekst, ook helemaal onderaan in secties zoals "Sonstiges".
+INSTRUCTIE: Lees de VOLLEDIGE beschrijving hieronder WOORD VOOR WOORD door. Opties staan verspreid door:
+- De titel
+- Sonderausstattung (speciale uitrusting)
+- Serienausstattung (standaard uitrusting)
+- Sonstiges (overig)
+- Alle andere secties
 
-De beschrijving kan in het Duits, Nederlands of Engels zijn. Hier zijn ALLE synoniemen die je moet herkennen:
+ELKE sectie telt mee! Een optie in "Serienausstattung" is NET ZO GELDIG als in "Sonderausstattung".
+
+De beschrijving is vaak in het Duits. Zoek naar deze specifieke termen en varianten:
 
 PANORAMADAK (panoramadak):
   "Panoramadach", "Panorama-Schiebedach", "Panoramadak", "Glasdach", "Schiebedach", "Elektr. Schiebe-/Hubdach"
+  Voorbeeld: "Panoramadach vorn elektrisch" → TRUE
 
 KEYLESS ENTRY (keyless):
   "Komfortschlüssel", "Keyless", "Keyless Entry", "Keyless Go", "kessy", "Komfortzugang", "schlüssellos"
 
 ACHTERUITRIJCAMERA (camera_achteruit):
-  "Rückfahrkamera", "rear camera", "achteruitrijcamera", "reversing camera"
-  LET OP: als camera_360 = true, dan is camera_achteruit OOK ALTIJD true (360° camera bevat achteruitrijcamera)
+  "Rückfahrkamera", "rear camera", "achteruitrijcamera", "reversing camera", "Kamera hinten"
+  LET OP: als camera_360 = true, dan is camera_achteruit OOK ALTIJD true
+  Voorbeeld: "Rückfahrkamera" → TRUE
 
 360° CAMERA (camera_360):
   "360 Grad Kamera", "360°-Kamera", "Area View", "Audi Area View", "Rundumkamera", "Surround View", "Umgebungskamera", "4 Kamera"
@@ -538,27 +546,32 @@ S-LINE (s_line):
 
 MATRIX LED (matrix_led):
   "Matrix LED", "Matrix-LED-Scheinwerfer", "LED Matrix"
-  LET OP: gewone "LED-Scheinwerfer" of "LED-Hauptscheinwerfer" zonder "Matrix" is GEEN matrix_led!
+  LET OP: gewone "LED-Scheinwerfer" of "Scheinwerfer LED" zonder "Matrix" is GEEN matrix_led!
 
 20 INCH VELGEN (velgen_20):
   "20 Zoll", "20 inch", "20\"", "Leichtmetallräder 20", "Alufelgen 20"
+  LET OP: "7x17" of "8x18" of "8x19" is GEEN 20 inch!
 
 PREMIUM AUDIO (audio_premium):
   "Bang & Olufsen", "B&O", "Sonos", "Bose", "Premium Sound", "Bang und Olufsen"
-  LET OP: gewoon "Soundsystem" of "Audi Soundsystem" zonder merknaam (B&O/Sonos/Bose) is GEEN audio_premium!
+  LET OP: gewoon "Sound-System DSP", "Audi Sound-System" of "Soundsystem" zonder merknaam (B&O/Sonos/Bose) is GEEN audio_premium!
 
 ELEKTRISCHE STOELEN (elektrische_stoelen):
-  "elektrische Sitzverstellung", "el. Sitzverstellung", "elektrisch verstellbare Sitze", "power seats", "Memory Sitze"
+  "Sitze vorn elektr. verstellbar", "Sitze elektrisch verstellbar", "elektrische Sitzverstellung", "el. Sitzverstellung", "elektr. verstellbare Sitze", "elektrisch verstellbare Sitze", "power seats", "Memory Sitze", "Sitz elektr."
+  Voorbeeld: "Sitze vorn elektr. verstellbar" → TRUE
 
 STOELVERWARMING (stoelverwarming):
-  "Sitzheizung", "Sitzheizung vorne", "beheizbare Sitze", "verwarmde stoelen", "heated seats"
+  "Sitzheizung", "Sitzheizung vorn", "Sitzheizung vorne", "beheizbare Sitze", "verwarmde stoelen", "heated seats"
+  Voorbeeld: "Sitzheizung vorn" → TRUE
 
 STUURVERWARMING (stuurverwarming):
-  "Lenkradheizung", "beheizbares Lenkrad", "beheizbar Lenkrad", "heated steering wheel", "stuurverwarming"
+  "Lenkradheizung", "Lenkrad heizbar", "beheizbares Lenkrad", "beheizbar Lenkrad", "Lenkrad beheizt", "heated steering wheel", "stuurverwarming", "Lenkrad (heizbar)"
+  Voorbeeld: "Lenkrad heizbar (Leder - 3-Speichen)" → TRUE
 
 ACC / ADAPTIEVE CRUISE CONTROL (acc):
-  "Abstandstempomat", "ACC", "adaptive cruise control", "adaptieve cruise", "Distronic", "Abstandsregeltempomat", "adaptive Geschwindigkeitsregelung"
-  LET OP: gewone "Geschwindigkeitsregelanlage" / "Tempomat" / "cruise control" ZONDER "Abstand"/"adaptive" is GEEN acc!
+  "Abstandstempomat", "ACC", "Adaptive Cruise Control", "adaptieve cruise", "Distronic", "Abstandsregeltempomat", "adaptive Geschwindigkeitsregelung", "Adaptive Geschwindigkeitsregelanlage", "Autom. Distanzregelung"
+  Voorbeeld: "Adaptive Geschwindigkeitsregelanlage (Adaptive Cruise Control) mit Autom. Distanzregelung" → TRUE
+  LET OP: gewone "Geschwindigkeitsregelanlage" / "Tempomat" / "cruise control" ZONDER "Abstand"/"adaptive"/"Distanzregelung" is GEEN acc!
 
 LANE ASSIST + DODEHOEK (lane_assist):
   Vereist BEIDE: rijstrookassistent EN dodehoek-assistent.
@@ -567,25 +580,30 @@ LANE ASSIST + DODEHOEK (lane_assist):
   Alleen als BEIDE aanwezig zijn → lane_assist = true
 
 DRIVE SELECT (drive_select):
-  "Drive Select", "Audi Drive Select", "Fahrmodus", "rijmodus"
+  "Drive Select", "Audi Drive Select", "Fahrmodus", "rijmodus", "drive select"
+  Voorbeeld: "Audi Drive Select" in Serienausstattung → TRUE (standaard uitrusting telt ook!)
 
 ADAPTIEF ONDERSTEL (adaptief_onderstel):
-  "adaptives Fahrwerk", "Sportfahrwerk", "DCC", "adaptive Dämpfer", "Magnetic Ride", "sport onderstel"
+  "adaptives Fahrwerk", "Sportfahrwerk", "DCC", "adaptive Dämpfer", "Magnetic Ride", "sport onderstel", "Adaptives Fahrwerk"
+  LET OP: "Komfort-Fahrwerk" (comfort onderstel) is GEEN adaptief onderstel!
 
 NOODREM-ASSISTENT (emergency_assist):
-  "Notbremsassistent", "Notbremassistent", "pre sense front", "Audi pre sense front", "Front Assist", "Emergency Assist", "Assistenzpaket", "Audi pre sense basic"
+  "Notbremsassistent", "Notbremassistent", "pre sense front", "Audi pre sense front", "Front Assist", "Emergency Assist", "Assistenzpaket", "Bremsassistent", "pre sense basic", "Audi pre sense basic"
+  Voorbeeld: "Bremsassistent (Audi pre sense front)" → TRUE
+  Voorbeeld: "Insassen-Schutzsystem (Audi pre sense basic)" → TRUE
 
 DODEHOEK-ASSISTENT (side_assist):
   "Side Assist", "Audi Side Assist", "Spurwechselassistent", "Totwinkelassistent", "blind spot", "dodehoek"
 
 SFEERVERLICHTING (ambient_lighting):
-  "Ambientebeleuchtung", "Ambiente Beleuchtung", "Kontur/Ambiente Lichtpaket", "Kontur-Ambientelichtpaket", "ambient lighting", "Ambiente-Lichtpaket", "sfeerverlichting", "contourverlichting"
+  "Ambientebeleuchtung", "Ambiente Beleuchtung", "Ambiente-Beleuchtung", "Kontur/Ambiente Lichtpaket", "Kontur-Ambientelichtpaket", "ambient lighting", "Ambiente-Lichtpaket", "sfeerverlichting", "contourverlichting"
+  Voorbeeld: "Ambiente-Beleuchtung" → TRUE
 
-BELANGRIJK:
-- Lees de HELE beschrijving, inclusief de secties onderaan
-- "Einparkhilfe" / "ParkDistanceControl" (parkeersensoren) is GEEN camera
-- Stoelverwarming en stuurverwarming zijn APART
-- Als camera_360 = true, dan moet camera_achteruit OOK true zijn
+STAPPENPLAN - Volg dit exact:
+1. Lees EERST de hele beschrijving van begin tot eind
+2. Markeer ELKE term die je tegenkomt uit bovenstaande lijsten
+3. Controleer NOGMAALS of je niets gemist hebt, ook in Serienausstattung
+4. Vul dan pas het JSON object in
 
 Geef je antwoord ALLEEN als een JSON object met exact deze keys, elk true of false:
 {
@@ -625,7 +643,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model="claude-sonnet-4-5-20241022",
+            model="claude-sonnet-4-5-20241022",  # Sonnet 4.5
             max_tokens=300,
             messages=[
                 {
