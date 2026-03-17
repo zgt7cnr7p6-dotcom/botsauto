@@ -91,7 +91,7 @@ FULL_OPTION_FEATURES = [
     "s_line",
     "s_line_exterieur",
     "matrix_led",
-    "velgen_20",
+    "velgen_19_20",
     "audio_premium",
     "elektrische_stoelen",
     "stoelverwarming",
@@ -115,7 +115,7 @@ FEATURE_DISPLAY_NAMES = {
     "s_line": "S-Line interieur",
     "s_line_exterieur": "S-Line exterieur",
     "matrix_led": "Matrix LED",
-    "velgen_20": "20 inch velgen",
+    "velgen_19_20": "19/20 inch velgen",
     "audio_premium": "Premium Audio (SONOS/B&O)",
     "elektrische_stoelen": "Elektrische stoelen",
     "stoelverwarming": "Stoelverwarming",
@@ -307,6 +307,8 @@ FEATURE_PATTERNS = {
         r"4\s*kamera",
         r"area\s*view",
         r"audi\s*area\s*view",
+        r"assist[ae]nz.?paket\s*park",
+        r"top\s*view",
     ],
     "s_line": [
         r"s[\s-]?line",
@@ -328,15 +330,15 @@ FEATURE_PATTERNS = {
         r"matrixbeam",
         r"digital.*matrix",
     ],
-    "velgen_20": [
-        r"20[\s-]*zoll",
-        r"20[\s-]*inch",
-        r"20\s*\"",
-        r"alufelgen\s*20",
-        r"felgen\s*20",
-        r"20['″\"]?\s*alu",
-        r"leichtmetallfelgen\s*20",
-        r"20.*leichtmetall",
+    "velgen_19_20": [
+        r"(?:19|20)[\s-]*zoll",
+        r"(?:19|20)[\s-]*inch",
+        r"(?:19|20)\s*\"",
+        r"alufelgen\s*(?:19|20)",
+        r"felgen\s*(?:19|20)",
+        r"(?:19|20)['″\"]?\s*alu",
+        r"leichtmetallfelgen\s*(?:19|20)",
+        r"(?:19|20).*leichtmetall",
     ],
     "audio_premium": [
         r"bang[\s&+]*olufsen",
@@ -369,11 +371,13 @@ FEATURE_PATTERNS = {
         r"stoel\s*verwarming",
         r"sitz\s*heizung",
         r"sitzheizung",
+        r"sitzheizung\s*vorn",
         r"verwarmde?\s*stoel",
         r"beheizbare?\s*sitz",
         r"beheizt.*sitz",
         r"sitz.*beheizt",
         r"heated\s*seat",
+        r"business.?paket",
     ],
     "stuurverwarming": [
         r"lenkrad\s*beheizt",
@@ -397,6 +401,9 @@ FEATURE_PATTERNS = {
         r"abstands\s*regel\s*tempomat",
         r"adaptive?\s*geschwindigkeits\s*regel",
         r"adaptiv.*fahr\s*assist",
+        r"adaptiver\s*fahr\s*assistent",
+        r"geschwindigkeits\s*regel\s*anlage",
+        r"assist[ae]nz.?paket\s*tour",
     ],
     "lane_assist": [
         r"spur\s*halte\s*assist",
@@ -404,34 +411,45 @@ FEATURE_PATTERNS = {
         r"lane\s*assist",
         r"spur\s*assistent",
         r"spurassistent",
+        r"spur\s*f[üu]hrungs?\s*assist",
+        r"spurf[üu]hrungsassist",
+        r"adaptiv.*fahr\s*assist",
+        r"adaptiver\s*fahr\s*assistent",
+        r"fahrassistent",
+        r"assist[ae]nz.?paket\s*tour",
     ],
     "drive_select": [
         r"drive\s*select",
         r"audi\s*drive\s*select",
         r"fahrmodus",
         r"rijmodus",
+        r"fahrprofil",
+        r"fahrdynamik\s*regelung",
+        r"modi.*individuell",
+        r"dynamic\s*mode",
     ],
     "adaptief_onderstel": [
         r"adaptie[fv].*onderstel",
-        r"sport\s*onderstel",
         r"adaptiv.*fahrwerk",
-        r"sport[\s-]*fahrwerk",
+        r"adaptive[s]?\s*fahrwerk",
         r"damper\s*control",
         r"magnetic\s*ride",
         r"dynamic\s*chassis",
-        r"fahrwerk\s*sport",
         r"d[äa]mpfer\s*regelung",
         r"d[äa]mpferregelung",
+        r"adaptive\s*d[äa]mpfer",
+        r"DCC",
     ],
     "emergency_assist": [
         r"notbrems?\s*assist",
         r"notbremsassist",
         r"emergency\s*assist",
-        r"pre\s*sense\s*front",
-        r"audi\s*pre\s*sense\s*front",
+        r"pre\s*sense",
+        r"audi\s*pre\s*sense",
         r"front\s*assist",
         r"nood\s*rem\s*assist",
-        r"assist[ae]nz\s*paket",
+        r"assist[ae]nz.?paket(?!\s*park)",
+        r"assist[ae]nz.?paket\s*tour",
     ],
     "side_assist": [
         r"side\s*assist",
@@ -456,6 +474,9 @@ FEATURE_PATTERNS = {
         r"kontur.*ambiente.*licht",
         r"ambiente.*licht.*paket",
         r"licht\s*paket.*ambiente",
+        r"ambiente\s*licht\s*paket\s*plus",
+        r"mehrfarbig.*ambiente",
+        r"ambiente.*mehrfarbig",
     ],
     "elektrische_achterklep": [
         r"elektr.*heckklappe",
@@ -563,34 +584,67 @@ def score_listing_regex(listing: Listing) -> Listing:
 # ── Claude AI scoring ─────────────────────────────────────────────────────
 
 AI_SCORING_PROMPT = """\
-Je bent een auto-expert. Lees de volledige advertentietekst hieronder (titel + beschrijving) en bepaal welke van de volgende opties aanwezig zijn.
+Je bent een auto-expert gespecialiseerd in Audi Q3 (45 TFSI e, ~2020-2024). Lees de volledige advertentietekst hieronder (titel + beschrijving) en bepaal welke van de volgende opties aanwezig zijn.
 
 De tekst is vaak in het Duits (Sonderausstattung, Serienausstattung, etc.) — je begrijpt Duits, dus lees gewoon alles en begrijp wat er staat. ELKE sectie telt mee, ook Serienausstattung.
+
+BELANGRIJK — PAKKET-HERKENNING:
+Audi verkoopt veel opties als pakket. Je MOET pakketten herkennen en de individuele features daaruit afleiden:
+
+• "Assistenzpaket Tour" / "Assistenz-Paket Tour" → bevat: ACC (adaptieve cruise) + Lane Assist + Traffic Sign Recognition + Emergency Assist. Dus als dit pakket staat: acc=true, lane_assist=true, emergency_assist=true
+• "Assistenzpaket" / "Assistenz-Paket" (basis) → bevat: Lane Assist + Front Assist (pre sense). Dus: lane_assist=true, emergency_assist=true
+• "Assistenzpaket Parken" / "Assistenz-Paket Parken" → bevat: Park assist + 360° camera + parkeer sensoren. Dus: camera_360=true, camera_achteruit=true
+• "Adaptiver Fahrassistent" → bevat: ACC + Lane Assist. Dus: acc=true, lane_assist=true
+• "Business-Paket" / "Business Paket" → bevat: MMI Navigation plus + Audi phone box + Stoelverwarming (Sitzheizung) + spiegel functies. Dus: stoelverwarming=true
+• "S line Paket" / "S line" / "S-Line" → bevat: Sportstoelen + S-line interieur + S-line exterieur. Dus: s_line=true, s_line_exterieur=true
+• "Optikpaket Schwarz" / "Black Style" / "Black Edition" → optik_pakket_zwart=true
+• "Ambiente Lichtpaket plus" / "Ambiente-Beleuchtung" / "Ambiente Lichtpaket" → ambient_lighting=true
+• "Matrix LED" / "Matrix LED-Scheinwerfer" → matrix_led=true (gewone LED NIET)
+• "Komfortschlüssel" → keyless=true
+• "Komfort-Paket" → kan keyless entry bevatten, check context
+
+BELANGRIJKE GERMAN-DUTCH MAPPINGS:
+• "Sitzheizung" / "Sitzheizung vorn" = stoelverwarming
+• "Lenkradheizung" / "beheizbares Lenkrad" = stuurverwarming
+• "Spurhalteassistent" / "Spurführungsassistent" = lane_assist
+• "Spurwechselassistent" / "Spurwechselwarnung" / "Side Assist" = side_assist (dodehoek)
+• "Audi drive select" / "Fahrmodus" = drive_select
+• "Adaptives Fahrwerk" / "Dämpferregelung" = adaptief_onderstel (ALLEEN deze termen! "Sportfahrwerk" of "Sport-Fahrwerk" is NIET adaptief)
+• "Abstandstempomat" / "Adaptive Geschwindigkeitsregelung" / "ACC" = acc
+• "Elektrische Heckklappe" = elektrische_achterklep
+• "Rückfahrkamera" = camera_achteruit
+• "Panorama-Glasdach" / "Panoramadach" = panoramadak
 
 Bepaal voor elk van deze opties true of false:
 
 1. panoramadak — Panoramadak of schuifdak (heel glasdak)
-2. keyless — Keyless entry / comfort access (sleutelloos openen)
-3. camera_achteruit — Achteruitrijcamera (ook true als er een 360° camera is)
-4. camera_360 — 360°-rondomzichtcamera
+2. keyless — Keyless entry / comfort access / Komfortschlüssel (sleutelloos openen)
+3. camera_achteruit — Achteruitrijcamera (ook true als er een 360° camera is, of Assistenzpaket Parken)
+4. camera_360 — 360°-rondomzichtcamera / Audi Area View (ook via Assistenzpaket Parken)
 5. s_line — S-Line interieur of exterieurpakket (als er S-Line staat zonder specificatie, zet beide op true)
 6. s_line_exterieur — Specifiek S-Line exterieurpakket (als er S-Line staat zonder specificatie, zet beide op true)
 7. matrix_led — Matrix LED-koplampen (gewone LED zonder "Matrix" telt NIET)
-8. velgen_20 — 20 inch velgen (kleinere maten tellen niet)
+8. velgen_19_20 — 19 of 20 inch velgen (18 inch of kleiner telt NIET)
 9. audio_premium — Premium audiosysteem van een merk: Bang & Olufsen, Sonos of Bose (een standaard "Sound-System" of "Audi Sound-System" zonder merknaam telt NIET)
 10. elektrische_stoelen — Elektrisch verstelbare voorstoelen (zonder memory)
 11. stoelen_memory — Memory-functie voor stoelen (specifiek "Memory" bij de stoelen)
-12. stoelverwarming — Stoelverwarming (voor)
-13. stuurverwarming — Verwarmbaar stuur
-14. acc — Adaptive cruise control (met automatische afstandsregeling; gewone cruise control/tempomat ZONDER "adaptive"/"Abstand" telt NIET)
-15. lane_assist — Rijstrookassistent (Lane Assist / Spurhalteassistent / Spurführungsassistent). Alleen de rijstrook-functie, NIET de dodehoek (die staat apart bij side_assist)
-16. drive_select — Rijmodi / Drive Select
-17. adaptief_onderstel — Adaptief/sport onderstel (gewoon "Komfort-Fahrwerk" telt NIET)
-18. emergency_assist — Noodremassistent / pre sense front / Front Assist
-19. side_assist — Dodehoekassistent (Side Assist / Spurwechselassistent)
-20. ambient_lighting — Sfeer-/ambienteverlichting
+12. stoelverwarming — Stoelverwarming (voor) / Sitzheizung / ook via Business-Paket
+13. stuurverwarming — Verwarmbaar stuur / Lenkradheizung
+14. acc — Adaptive cruise control (Abstandstempomat / adaptieve afstandsregeling). Ook via "Adaptiver Fahrassistent" of "Assistenzpaket Tour". Gewone cruise/tempomat ZONDER "adaptive"/"Abstand" telt NIET
+15. lane_assist — Rijstrookassistent. Ook via "Adaptiver Fahrassistent" of "Assistenzpaket Tour" of "Assistenzpaket". Spurhalteassistent / Spurführungsassistent. NIET de dodehoek (die staat apart bij side_assist)
+16. drive_select — Rijmodi / Audi drive select / Fahrmodus
+17. adaptief_onderstel — ALLEEN "Adaptives Fahrwerk" of "Dämpferregelung" of "DCC". "Sportfahrwerk" / "Sport-Fahrwerk" is NIET adaptief en telt NIET
+18. emergency_assist — Noodremassistent / pre sense / Front Assist. Ook via Assistenzpaket of Assistenzpaket Tour
+19. side_assist — Dodehoekassistent / Side Assist / Spurwechselassistent / Spurwechselwarnung
+20. ambient_lighting — Sfeer-/ambienteverlichting / Ambiente Lichtpaket (plus)
 21. elektrische_achterklep — Elektrische achterklep / elektrische Heckklappe
 22. optik_pakket_zwart — Zwart optiekpakket (Optikpaket Schwarz / Black Style / Black Edition)
+
+WERKWIJZE:
+1. Lees ALLE tekst inclusief pakket-namen
+2. Herken pakketten en leid features af (zie mapping hierboven)
+3. Zoek ook naar losse vermeldingen van features
+4. Wees NIET te streng — als een pakket een feature bevat, is die feature aanwezig
 
 Antwoord ALLEEN met een JSON object, geen uitleg:
 {
@@ -601,7 +655,7 @@ Antwoord ALLEEN met een JSON object, geen uitleg:
   "s_line": false,
   "s_line_exterieur": false,
   "matrix_led": false,
-  "velgen_20": false,
+  "velgen_19_20": false,
   "audio_premium": false,
   "elektrische_stoelen": false,
   "stoelen_memory": false,
