@@ -531,7 +531,7 @@ Bepaal voor elk van deze opties true of false:
 10. stoelverwarming — Stoelverwarming (voor)
 11. stuurverwarming — Verwarmbaar stuur
 12. acc — Adaptive cruise control (met automatische afstandsregeling; gewone cruise control/tempomat ZONDER "adaptive"/"Abstand" telt NIET)
-13. lane_assist — Alleen true als ZOWEL rijstrookassistent (Lane Assist/Spurhalteassistent) ALS dodehoekassistent (Side Assist/Spurwechselassistent) aanwezig zijn
+13. lane_assist — Rijstrookassistent (Lane Assist / Spurhalteassistent / Spurführungsassistent). Alleen de rijstrook-functie, NIET de dodehoek (die staat apart bij side_assist)
 14. drive_select — Rijmodi / Drive Select
 15. adaptief_onderstel — Adaptief/sport onderstel (gewoon "Komfort-Fahrwerk" telt NIET)
 16. emergency_assist — Noodremassistent / pre sense front / Front Assist
