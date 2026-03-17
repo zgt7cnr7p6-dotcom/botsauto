@@ -567,6 +567,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         return None
 
     text = f"{listing.title}\n\n{listing.description}"
+    log.info("[AI] Beschrijving lengte: %d chars voor %s", len(listing.description), listing.id[:30])
     # Beperk tekst tot ~8000 chars om kosten laag te houden
     if len(text) > 8000:
         text = text[:8000]
@@ -574,7 +575,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model="claude-sonnet-4-5-20241022",  # Sonnet 4.5
+            model="claude-sonnet-4-5-20250514",
             max_tokens=300,
             messages=[
                 {
@@ -1127,7 +1128,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
         def _fetch_detail(idx_url):
             idx, url = idx_url
             # render=True zodat "Show more" / features volledig geladen worden
-            html = scrape_do_fetch(url, render=True, super_mode=True, retries=0, timeout=60)
+            html = scrape_do_fetch(url, render=True, super_mode=True, retries=1, timeout=60)
             return idx, html
 
         with ThreadPoolExecutor(max_workers=5) as pool:
@@ -1148,6 +1149,11 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                         log.warning("Detail te klein: %s (%d bytes)", lst.title[:40], len(detail_html))
                 except Exception as e:
                     log.warning("Detail fetch fout: %s", e)
+
+        # Log welke listings GEEN detail page kregen
+        for lst in listings:
+            if len(lst.description) <= 500:
+                log.warning("GEEN detail page voor: %s (desc=%d chars) — scoring onbetrouwbaar!", lst.title[:50], len(lst.description))
     return listings
 
 
