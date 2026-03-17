@@ -89,6 +89,7 @@ FULL_OPTION_FEATURES = [
     "camera_achteruit",
     "camera_360",
     "s_line",
+    "s_line_exterieur",
     "matrix_led",
     "velgen_20",
     "audio_premium",
@@ -102,6 +103,8 @@ FULL_OPTION_FEATURES = [
     "emergency_assist",
     "side_assist",
     "ambient_lighting",
+    "elektrische_achterklep",
+    "optik_pakket_zwart",
 ]
 
 FEATURE_DISPLAY_NAMES = {
@@ -110,10 +113,11 @@ FEATURE_DISPLAY_NAMES = {
     "camera_achteruit": "Achteruitrijcamera",
     "camera_360": "360° Camera",
     "s_line": "S-Line interieur",
+    "s_line_exterieur": "S-Line exterieur",
     "matrix_led": "Matrix LED",
     "velgen_20": "20 inch velgen",
     "audio_premium": "Premium Audio (SONOS/B&O)",
-    "elektrische_stoelen": "Elektrische stoelen + memory",
+    "elektrische_stoelen": "Elektrische stoelen",
     "stoelverwarming": "Stoelverwarming",
     "stuurverwarming": "Stuurverwarming",
     "acc": "ACC (Abstandstempomat)",
@@ -123,6 +127,8 @@ FEATURE_DISPLAY_NAMES = {
     "emergency_assist": "Noodrem-assistent",
     "side_assist": "Dodehoek-assistent",
     "ambient_lighting": "Sfeerverlichting",
+    "elektrische_achterklep": "Elektrische achterklep",
+    "optik_pakket_zwart": "Optik pakket zwart",
 }
 
 DB_PATH = "listings.db"
@@ -307,6 +313,13 @@ FEATURE_PATTERNS = {
         r"s-line",
         r"sline",
     ],
+    "s_line_exterieur": [
+        r"s[\s-]?line\s*ext",
+        r"s-line\s*ext",
+        r"s[\s-]?line.*au[ßs]en",
+        r"s[\s-]?line.*paket\s*ext",
+        r"ext.*s[\s-]?line",
+    ],
     "matrix_led": [
         r"matrix[\s-]*led",
         r"matrix[\s-]*licht",
@@ -341,11 +354,16 @@ FEATURE_PATTERNS = {
         r"power\s*seat",
         r"electric\s*seat",
         r"elektrisch\s*verstelba",
-        r"memory\s*(?:sitze?|paket|funktion|seat)?",
         r"sitze?\s*elektr",
         r"komfort\s*sitze?",
         r"elektr\.\s*sitz\s*einstellung",
         r"elektrische?\s*sitz\s*einstellung",
+    ],
+    "stoelen_memory": [
+        r"memory\s*(?:sitze?|paket|funktion|seat)?",
+        r"memory\s*stoel",
+        r"sitz.*memory",
+        r"stoel.*memory",
     ],
     "stoelverwarming": [
         r"stoel\s*verwarming",
@@ -439,6 +457,29 @@ FEATURE_PATTERNS = {
         r"ambiente.*licht.*paket",
         r"licht\s*paket.*ambiente",
     ],
+    "elektrische_achterklep": [
+        r"elektr.*heckklappe",
+        r"heckklappe.*elektr",
+        r"elektrische?\s*achterklep",
+        r"power\s*tailgate",
+        r"elektr.*kofferraum.*klappe",
+        r"automatische?\s*heckklappe",
+        r"sensorgesteuerte?\s*heckklappe",
+        r"komfort\s*heckklappe",
+        r"heck.*klappe.*komfort",
+    ],
+    "optik_pakket_zwart": [
+        r"optik\s*paket\s*schwarz",
+        r"schwarz.*optik\s*paket",
+        r"black\s*(?:optic|style)\s*(?:paket|pack)",
+        r"optik\s*pakket\s*zwart",
+        r"zwart\s*optik",
+        r"s[\s-]?line\s*black",
+        r"black\s*edition",
+        r"black\s*paket",
+        r"schwarzpaket",
+        r"schwarz.*anbauteile",
+    ],
 }
 
 
@@ -494,8 +535,17 @@ def score_listing_regex(listing: Listing) -> Listing:
     if "camera_360" in found and "camera_achteruit" not in found:
         found.append("camera_achteruit")
 
+    # Detecteer stoelen_memory apart (niet in score, maar wel in display)
+    has_memory = False
+    for pat in FEATURE_PATTERNS.get("stoelen_memory", []):
+        if re.search(pat, text, re.IGNORECASE):
+            has_memory = True
+            break
+    if has_memory:
+        found.append("stoelen_memory")
+
     listing.features = found
-    listing.score = len(found)
+    listing.score = len([f for f in found if f in FULL_OPTION_FEATURES])
 
     if not listing.color:
         listing.color = parse_color(listing.description)
@@ -513,7 +563,7 @@ def score_listing_regex(listing: Listing) -> Listing:
 # ── Claude AI scoring ─────────────────────────────────────────────────────
 
 AI_SCORING_PROMPT = """\
-Je bent een auto-expert. Lees de volledige advertentietekst hieronder (titel + beschrijving) en bepaal welke van de volgende 18 opties aanwezig zijn.
+Je bent een auto-expert. Lees de volledige advertentietekst hieronder (titel + beschrijving) en bepaal welke van de volgende opties aanwezig zijn.
 
 De tekst is vaak in het Duits (Sonderausstattung, Serienausstattung, etc.) — je begrijpt Duits, dus lees gewoon alles en begrijp wat er staat. ELKE sectie telt mee, ook Serienausstattung.
 
@@ -523,20 +573,24 @@ Bepaal voor elk van deze opties true of false:
 2. keyless — Keyless entry / comfort access (sleutelloos openen)
 3. camera_achteruit — Achteruitrijcamera (ook true als er een 360° camera is)
 4. camera_360 — 360°-rondomzichtcamera
-5. s_line — S-Line interieur of exterieurpakket
-6. matrix_led — Matrix LED-koplampen (gewone LED zonder "Matrix" telt NIET)
-7. velgen_20 — 20 inch velgen (kleinere maten tellen niet)
-8. audio_premium — Premium audiosysteem van een merk: Bang & Olufsen, Sonos of Bose (een standaard "Sound-System" of "Audi Sound-System" zonder merknaam telt NIET)
-9. elektrische_stoelen — Elektrisch verstelbare voorstoelen
-10. stoelverwarming — Stoelverwarming (voor)
-11. stuurverwarming — Verwarmbaar stuur
-12. acc — Adaptive cruise control (met automatische afstandsregeling; gewone cruise control/tempomat ZONDER "adaptive"/"Abstand" telt NIET)
-13. lane_assist — Rijstrookassistent (Lane Assist / Spurhalteassistent / Spurführungsassistent). Alleen de rijstrook-functie, NIET de dodehoek (die staat apart bij side_assist)
-14. drive_select — Rijmodi / Drive Select
-15. adaptief_onderstel — Adaptief/sport onderstel (gewoon "Komfort-Fahrwerk" telt NIET)
-16. emergency_assist — Noodremassistent / pre sense front / Front Assist
-17. side_assist — Dodehoekassistent (Side Assist / Spurwechselassistent)
-18. ambient_lighting — Sfeer-/ambienteverlichting
+5. s_line — S-Line interieur of exterieurpakket (als er S-Line staat zonder specificatie, zet beide op true)
+6. s_line_exterieur — Specifiek S-Line exterieurpakket (als er S-Line staat zonder specificatie, zet beide op true)
+7. matrix_led — Matrix LED-koplampen (gewone LED zonder "Matrix" telt NIET)
+8. velgen_20 — 20 inch velgen (kleinere maten tellen niet)
+9. audio_premium — Premium audiosysteem van een merk: Bang & Olufsen, Sonos of Bose (een standaard "Sound-System" of "Audi Sound-System" zonder merknaam telt NIET)
+10. elektrische_stoelen — Elektrisch verstelbare voorstoelen (zonder memory)
+11. stoelen_memory — Memory-functie voor stoelen (specifiek "Memory" bij de stoelen)
+12. stoelverwarming — Stoelverwarming (voor)
+13. stuurverwarming — Verwarmbaar stuur
+14. acc — Adaptive cruise control (met automatische afstandsregeling; gewone cruise control/tempomat ZONDER "adaptive"/"Abstand" telt NIET)
+15. lane_assist — Rijstrookassistent (Lane Assist / Spurhalteassistent / Spurführungsassistent). Alleen de rijstrook-functie, NIET de dodehoek (die staat apart bij side_assist)
+16. drive_select — Rijmodi / Drive Select
+17. adaptief_onderstel — Adaptief/sport onderstel (gewoon "Komfort-Fahrwerk" telt NIET)
+18. emergency_assist — Noodremassistent / pre sense front / Front Assist
+19. side_assist — Dodehoekassistent (Side Assist / Spurwechselassistent)
+20. ambient_lighting — Sfeer-/ambienteverlichting
+21. elektrische_achterklep — Elektrische achterklep / elektrische Heckklappe
+22. optik_pakket_zwart — Zwart optiekpakket (Optikpaket Schwarz / Black Style / Black Edition)
 
 Antwoord ALLEEN met een JSON object, geen uitleg:
 {
@@ -545,10 +599,12 @@ Antwoord ALLEEN met een JSON object, geen uitleg:
   "camera_achteruit": false,
   "camera_360": false,
   "s_line": false,
+  "s_line_exterieur": false,
   "matrix_led": false,
   "velgen_20": false,
   "audio_premium": false,
   "elektrische_stoelen": false,
+  "stoelen_memory": false,
   "stoelverwarming": false,
   "stuurverwarming": false,
   "acc": false,
@@ -557,7 +613,9 @@ Antwoord ALLEEN met een JSON object, geen uitleg:
   "adaptief_onderstel": false,
   "emergency_assist": false,
   "side_assist": false,
-  "ambient_lighting": false
+  "ambient_lighting": false,
+  "elektrische_achterklep": false,
+  "optik_pakket_zwart": false
 }"""
 
 
@@ -576,7 +634,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=300,
+            max_tokens=400,
             messages=[
                 {
                     "role": "user",
@@ -598,8 +656,11 @@ def score_listing_ai(listing: Listing) -> Listing | None:
             features_dict["camera_achteruit"] = True
 
         found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
+        # stoelen_memory is niet in FULL_OPTION_FEATURES maar wel relevant voor display
+        if features_dict.get("stoelen_memory", False):
+            found.append("stoelen_memory")
         listing.features = found
-        listing.score = len(found)
+        listing.score = len([f for f in found if f in FULL_OPTION_FEATURES])
 
         if not listing.color:
             listing.color = parse_color(listing.description)
@@ -656,6 +717,7 @@ MUST_HAVE_FEATURES = [
     "panoramadak",
     "audio_premium",
     "s_line",
+    "s_line_exterieur",
     "lane_assist",
     "acc",
     "ambient_lighting",
@@ -769,15 +831,29 @@ def send_telegram(listing: Listing):
 
     # Feature check — groepeer in aanwezig / afwezig
     # Must-haves krijgen een ⭐ markering
-    found_lines = []
-    missing_lines = []
+    # ⭐ items worden bovenaan gesorteerd
+    found_star = []
+    found_normal = []
+    missing_star = []
+    missing_normal = []
     for f in FULL_OPTION_FEATURES:
         name = FEATURE_DISPLAY_NAMES.get(f, f)
+        # Dynamische naam voor elektrische stoelen: + memory als dat gedetecteerd is
+        if f == "elektrische_stoelen" and "stoelen_memory" in listing.features:
+            name = "Elektrische stoelen + memory"
         star = " ⭐" if f in MUST_HAVE_FEATURES else ""
         if f in listing.features:
-            found_lines.append(f"  ✅ {name}{star}")
+            if f in MUST_HAVE_FEATURES:
+                found_star.append(f"  ✅ {name}{star}")
+            else:
+                found_normal.append(f"  ✅ {name}{star}")
         else:
-            missing_lines.append(f"  ❌ {name}{star}")
+            if f in MUST_HAVE_FEATURES:
+                missing_star.append(f"  ❌ {name}{star}")
+            else:
+                missing_normal.append(f"  ❌ {name}{star}")
+    found_lines = found_star + found_normal
+    missing_lines = missing_star + missing_normal
 
     # Tijdstip van plaatsing
     date_line = ""
