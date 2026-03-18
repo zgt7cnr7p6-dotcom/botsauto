@@ -588,6 +588,25 @@ Je bent een auto-expert gespecialiseerd in Audi Q3 (45 TFSI e, ~2020-2024). Lees
 
 De tekst is vaak in het Duits (Sonderausstattung, Serienausstattung, etc.) — je begrijpt Duits, dus lees gewoon alles en begrijp wat er staat. ELKE sectie telt mee, ook Serienausstattung.
 
+KRITISCH — SERIENAUSSTATTUNG (standaarduitrusting):
+Features die onder "Serienausstattung" staan ZIJN AANWEZIG op de auto. Dit is standaarduitrusting die erbij zit.
+Voorbeeld: "Audi drive select" staat vaak onder Serienausstattung → drive_select=true.
+Negeer deze sectie NOOIT. Alles wat daar staat, is aanwezig.
+
+KRITISCH — SAMENGESTELDE DUITSE TERMEN SPLITSEN:
+Audi combineert vaak meerdere features in één zin met "u." (und) of komma's. Je MOET deze splitsen en ELKE feature apart herkennen.
+
+Voorbeeld: "Spurwechsel- u. Spurhalteassistent (Side Assist und Lane Assist)"
+→ Dit zijn TWEE features:
+  1. Spurwechselassistent = side_assist (dodehoek) = true
+  2. Spurhalteassistent = lane_assist = true
+→ NIET als één feature behandelen!
+
+Meer voorbeelden van splitsen:
+• "Sitz- u. Spiegelheizung" → stoelverwarming=true + spiegelverwarming
+• "Komfort- u. S line-Paket" → beide pakketten herkennen
+• "Front- u. Rückfahrkamera" → camera_achteruit=true
+
 BELANGRIJK — PAKKET-HERKENNING:
 Audi verkoopt veel opties als pakket. Je MOET pakketten herkennen en de individuele features daaruit afleiden:
 
@@ -641,10 +660,12 @@ Bepaal voor elk van deze opties true of false:
 22. optik_pakket_zwart — Zwart optiekpakket (Optikpaket Schwarz / Black Style / Black Edition)
 
 WERKWIJZE:
-1. Lees ALLE tekst inclusief pakket-namen
+1. Lees ALLE tekst inclusief ELKE sectie: Sonderausstattung, Serienausstattung, Pakete, Komfort, Technik, etc.
 2. Herken pakketten en leid features af (zie mapping hierboven)
-3. Zoek ook naar losse vermeldingen van features
-4. Wees NIET te streng — als een pakket een feature bevat, is die feature aanwezig
+3. SPLITS samengestelde Duitse termen (met "u.", "und", komma's) en herken elke feature apart
+4. Zoek ook naar losse vermeldingen van features
+5. Wees NIET te streng — als een pakket of serienausstattung een feature bevat, is die feature aanwezig
+6. Doe SEMANTISCHE analyse — begrijp de BETEKENIS, niet alleen exacte woorden
 
 Antwoord ALLEEN met een JSON object, geen uitleg:
 {
