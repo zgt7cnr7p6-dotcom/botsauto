@@ -98,6 +98,7 @@ FULL_OPTION_FEATURES = [
     "stuurverwarming",
     "acc",
     "lane_assist",
+    "travel_assist",
     "drive_select",
     "adaptief_onderstel",
     "emergency_assist",
@@ -122,6 +123,7 @@ FEATURE_DISPLAY_NAMES = {
     "stuurverwarming": "Stuurverwarming",
     "acc": "ACC (Abstandstempomat)",
     "lane_assist": "Lane assist",
+    "travel_assist": "Travel Assist",
     "drive_select": "Drive select",
     "adaptief_onderstel": "Adaptief onderstel",
     "emergency_assist": "Noodrem-assistent",
@@ -418,6 +420,12 @@ FEATURE_PATTERNS = {
         r"fahrassistent",
         r"assist[ae]nz.?paket\s*tour",
     ],
+    "travel_assist": [
+        r"adaptiver\s*fahr\s*assistent",
+        r"adaptiv.*fahr\s*assist",
+        r"adaptive\s*cruise\s*assist",
+        r"adaptiver\s*fahr\s*assistent\s*inkl",
+    ],
     "drive_select": [
         r"drive\s*select",
         r"audi\s*drive\s*select",
@@ -613,7 +621,7 @@ Audi verkoopt veel opties als pakket. Je MOET pakketten herkennen en de individu
 • "Assistenzpaket Tour" / "Assistenz-Paket Tour" → bevat: ACC (adaptieve cruise) + Lane Assist + Traffic Sign Recognition + Emergency Assist. Dus als dit pakket staat: acc=true, lane_assist=true, emergency_assist=true
 • "Assistenzpaket" / "Assistenz-Paket" (basis) → bevat: Lane Assist + Front Assist (pre sense). Dus: lane_assist=true, emergency_assist=true
 • "Assistenzpaket Parken" / "Assistenz-Paket Parken" → bevat: Park assist + 360° camera + parkeer sensoren. Dus: camera_360=true, camera_achteruit=true
-• "Adaptiver Fahrassistent" → bevat: ACC + Lane Assist. Dus: acc=true, lane_assist=true
+• "Adaptiver Fahrassistent" → bevat: ACC + Lane Assist + Travel Assist (gecombineerd systeem). Dus: acc=true, lane_assist=true, travel_assist=true
 • "Business-Paket" / "Business Paket" → bevat: MMI Navigation plus + Audi phone box + Stoelverwarming (Sitzheizung) + spiegel functies. Dus: stoelverwarming=true
 • "S line Paket" / "S line" / "S-Line" → bevat: Sportstoelen + S-line interieur + S-line exterieur. Dus: s_line=true, s_line_exterieur=true
 • "Optikpaket Schwarz" / "Black Style" / "Black Edition" → optik_pakket_zwart=true
@@ -651,13 +659,14 @@ Bepaal voor elk van deze opties true of false:
 13. stuurverwarming — Verwarmbaar stuur / Lenkradheizung
 14. acc — Adaptive cruise control (Abstandstempomat / adaptieve afstandsregeling). Ook via "Adaptiver Fahrassistent" of "Assistenzpaket Tour". Gewone cruise/tempomat ZONDER "adaptive"/"Abstand" telt NIET
 15. lane_assist — Rijstrookassistent. Ook via "Adaptiver Fahrassistent" of "Assistenzpaket Tour" of "Assistenzpaket". Spurhalteassistent / Spurführungsassistent. NIET de dodehoek (die staat apart bij side_assist)
-16. drive_select — Rijmodi / Audi drive select / Fahrmodus
-17. adaptief_onderstel — ALLEEN "Adaptives Fahrwerk" of "Dämpferregelung" of "DCC". "Sportfahrwerk" / "Sport-Fahrwerk" is NIET adaptief en telt NIET
-18. emergency_assist — Noodremassistent / pre sense / Front Assist. Ook via Assistenzpaket of Assistenzpaket Tour
-19. side_assist — Dodehoekassistent / Side Assist / Spurwechselassistent / Spurwechselwarnung
-20. ambient_lighting — Sfeer-/ambienteverlichting / Ambiente Lichtpaket (plus)
-21. elektrische_achterklep — Elektrische achterklep / elektrische Heckklappe
-22. optik_pakket_zwart — Zwart optiekpakket (Optikpaket Schwarz / Black Style / Black Edition)
+16. travel_assist — Travel Assist / Adaptiver Fahrassistent: dit is een GECOMBINEERD SYSTEEM (ACC + actieve lane assist + lane centering + semi-autonoom rijden). ALLEEN true als er "Adaptiver Fahrassistent" of "Adaptive cruise assist" of "Adaptiver Fahrassistent inkl. Notfallassistent" staat. NIET verwarren met: "Adaptive Geschwindigkeitsassistent" (alleen ACC), "Spurverlassenswarnung" (basis lane assist), "Spurhalteassistent" (geen volledig systeem). Als travel_assist=true, dan ook acc=true en lane_assist=true
+17. drive_select — Rijmodi / Audi drive select / Fahrmodus
+18. adaptief_onderstel — ALLEEN "Adaptives Fahrwerk" of "Dämpferregelung" of "DCC". "Sportfahrwerk" / "Sport-Fahrwerk" is NIET adaptief en telt NIET
+19. emergency_assist — Noodremassistent / pre sense / Front Assist. Ook via Assistenzpaket of Assistenzpaket Tour
+20. side_assist — Dodehoekassistent / Side Assist / Spurwechselassistent / Spurwechselwarnung
+21. ambient_lighting — Sfeer-/ambienteverlichting / Ambiente Lichtpaket (plus)
+22. elektrische_achterklep — Elektrische achterklep / elektrische Heckklappe
+23. optik_pakket_zwart — Zwart optiekpakket (Optikpaket Schwarz / Black Style / Black Edition)
 
 WERKWIJZE:
 1. Lees ALLE tekst inclusief ELKE sectie: Sonderausstattung, Serienausstattung, Pakete, Komfort, Technik, etc.
@@ -684,6 +693,7 @@ Antwoord ALLEEN met een JSON object, geen uitleg:
   "stuurverwarming": false,
   "acc": false,
   "lane_assist": false,
+  "travel_assist": false,
   "drive_select": false,
   "adaptief_onderstel": false,
   "emergency_assist": false,
