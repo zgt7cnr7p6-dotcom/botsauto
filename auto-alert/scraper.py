@@ -871,17 +871,15 @@ def compute_price_score(price: int) -> str:
 # Opties die er echt toe doen — als deze er allemaal op zitten is het een must buy
 MUST_HAVE_FEATURES = [
     "panoramadak",
-    "keyless",
-    "camera_achteruit",
-    "camera_360",
+    "audio_premium",
     "s_line",
     "s_line_exterieur",
-    "acc",
     "lane_assist",
+    "acc",
     "ambient_lighting",
-    "drive_select",
-    "elektrische_achterklep",
     "stoelverwarming",
+    "camera_achteruit",
+    "keyless",
 ]
 
 
