@@ -324,6 +324,190 @@ KOBLENZ_EXPECTED_FALSE = [
 ]
 
 
+# ── Test 4: Zelfde auto als test 1, maar volledige gestructureerde beschrijving ──
+
+TEST_4_DESC = """\t•\tFahrzeug-Nummer: 1046287
+\t•\tDieses Fahrzeug erfüllt das Hersteller Qualitäts Siegel: Audi GW :plus
+•\tEhem. empfohlener Verkaufspreis (UPE) 63.195 EUR
+•\tHybrid Benzin
+Pakete
+•\tSportpaket
+•\tAssistenz-Paket
+•\tBusiness-Paket
+•\tOptikpaket schwarz
+•\tAmbiente-Lichtpaket plus
+•\tS line Paket
+Komfort
+•\tKlimaautomatik 2 Zonen
+•\tElektrische Fensterheber
+•\tSitzheizung
+•\tEinpark-Assistent
+•\tTempo-Begrenzer
+•\tKomfortschlüssel/KeylessStart
+•\tLeder-Lenkrad
+•\tLichtsensor
+•\tWärmedämmendes Glas
+•\tSpiegel (el.) klappbar & heizbar
+•\tRückfahrkamera
+•\tElektronische Parkbremse
+•\tAnfahrassistent
+•\tFernlicht-Assistent
+•\tKeyless Entry
+•\tInnenspiegel autom.abblendend
+•\tAußenspiegel mit Bordsteinautomatik, rechts
+•\tStandklimatisierung
+Sicherheit
+•\tWindow/Kopfairbags
+•\tESP (el. Stabilitäts Programm)
+•\tElektronische Wegfahrsperre
+•\tReifendruckkontrolle
+•\tWaschdüsen beheizt
+•\tSpurhalteassistent
+•\tAuffahr-Warnsystem
+•\tLED-Tagfahrlicht
+•\tNotrufsystem
+•\tNotbremsassistent
+•\tAirbags vorn, Beifahrerairbag deaktivierbar
+•\tKindersicherung elektrisch betätigt
+•\tAudi pre sense basic
+•\tAkustischer Fußgängerschutz, Außensound (e-sound)
+•\takustisches Fahrzeug-Warnsystem
+Exterieur
+•\tAlufelgen 19 Zoll
+•\tEinpark-Assistent
+•\tAnhängerkupplung
+•\tSpoiler hi.
+•\tPanorama-Integral-Dach
+•\tHeckklappe elektrisch
+•\tVoll LED-Scheinwerfer
+•\tEinstiegsleisten mit Aluminiumeinlegern vorn, beleuchtet, S-Schriftzug
+•\tLadekantenschutz aus Edelstahl
+•\tAußenspiegelgehäuse in Wagenfarbe
+•\tBlinkleuchten LED in Außenspiegel integriert
+Interieur
+•\tLeder - Stoff
+•\tInterieurfarbe Schwarz
+•\tBecherhalter
+•\tIsofix-System
+•\tMittelarmlehne
+•\tSitzhöhenverstellung
+•\t5 Sitzplätze
+•\tArmlehne(n)
+•\tLendenwirbelstütze(n) verstellbar
+•\tAmbiente-Beleuchtung
+•\tAudi virtual cockpit plus
+•\tInterieur S line
+•\tPedalerie und Fußstütze aus Edelstahl
+•\tDachhimmel in Stoff schwarz
+•\tAluminiumoptik im Interieur
+•\tAkzentflächen schwarz glänzend
+•\tFußmatten vorn und hinten
+Media
+•\tAudi connect Navigation & Infotainment plus
+•\tRadio
+•\tBluetooth Anbindung
+•\tDigitales Cockpit
+•\tAbwahl Audi phone box
+•\t6 Lautsprecher
+•\tSmartphone-Interface
+Schaltung
+•\tS Tronic-Automatik
+Technik
+•\tABS
+•\tTraktionskontrolle
+•\tTempo-Begrenzer
+•\tServo-Lenkung
+•\tBordcomputer
+•\tSprachbedienung
+•\tSchadstoffklasse Euro 6d
+•\tMultifunktionslenkrad
+•\tPartikelfilter
+•\tUmweltplakette grün
+•\tEnergierückgewinnung (Rekuperation)
+•\tMotor-Start-Stopp-Funktion
+•\tVerkehrsschilder-Assistent
+•\tStart-Stop-Knopf
+•\tHalteassistent
+•\tAdaptiver Fahrassistent
+•\tKomfort-Fahrwerk
+•\tAudi drive select ECO-Funktion
+•\tProgressivlenkung
+•\tIndustriestecker CEE 16A, 400V, für das e-tron Ladesystem
+•\te-tron Aufladesystem
+•\tPlug-in Hybrid
+Sportive
+•\tSport-Fahrwerk
+•\tSport-Sitz(e)
+•\tSportausführung
+•\tSport-Ausstattung
+Allgemein
+•\tScheckheftgepflegt
+•\tGarantie
+•\tNichtraucherfahrzeug
+Sonstiges
+•\tHU/AU neu
+•\tTYP 2
+•\tUnfallfrei
+•\tLeasing-Fzg
+Weitere Informationen
+•\tDekoreinlagen Aluminium matt gebürstet, dunkel
+•\tDekoreinlagen Akzentteile Feinlack
+•\tDynamisches Blinklicht Heck
+•\tNotfall-Assistent
+•\tAudi connect Remote & Control für MMI Navigation plus
+•\tBremsassistent Audi pre sense front
+•\tElektromotor 85 kW Hybridantrieb
+•\tACHTUNG!!! Bei erwähnten Kamerasystemen handelt es sich nicht automatisch um Parkkameras, oftmals dienen diese den Fahrzeugassistenzsystemen. Gerne können Sie individuell Parkkameras anfragen.
+•\tKein weiteres Zubehör vorhanden, wie z.B. 2. Satz Alu-Felgen, Dachträger etc. sofern nicht in der Ausstattung ausdrücklich beschrieben!
+•\tFragen Sie nach unseren Sonderfinanzierungs und Versicherungsangeboten!
+•\tAbgas- und Verbrauchsangaben nach Angaben des Herstellers
+•\tAlle Angaben ohne Gewähr
+Hier finden Sie alle Bilder in XL-Größe: 10031-1046287
+•\tFür Bilder im XL-Format geben Sie diesen Code auf www.aosXL.de ein
+Änderungen, Zwischenverkauf und Irrtümer sind ausdrücklich vorbehalten. Die Beschreibung dient der allgemeinen Identifizierung des Fahrzeuges und stellt keine Gewährleistung im kaufrechtlichen Sinne dar. Fahrzeugabbildung zeigt Sonderausstattungen. Bildliche Darstellungen können vom Auslieferungsstand abweichen. Ausschlaggebend ist die Beschreibung gemäß Kaufvertrag"""
+
+lst4 = Listing(
+    id="test-volledig-gestructureerd",
+    source="test",
+    title="Audi Q3 Sportback 45 TFSI e",
+    price=32995,
+    year=2022,
+    km=73006,
+    url="https://example.com/test4",
+    description=TEST_4_DESC,
+)
+
+# Deze listing heeft: Assistenz-Paket (basis), Business-Paket, S line Paket,
+# Optikpaket schwarz, Ambiente-Lichtpaket plus, Adaptiver Fahrassistent,
+# Panorama-Integral-Dach, Heckklappe elektrisch, Alufelgen 19 Zoll,
+# Dynamisches Blinklicht Heck, etc.
+TEST_4_EXPECTED_TRUE = [
+    "panoramadak",           # Panorama-Integral-Dach
+    "keyless",               # Komfortschlüssel/KeylessStart + Keyless Entry
+    "camera_achteruit",      # Rückfahrkamera
+    "s_line",                # S line Paket + Interieur S line
+    "s_line_exterieur",      # S line Paket
+    "velgen_19_20",          # Alufelgen 19 Zoll
+    "stoelverwarming",       # Sitzheizung + Business-Paket
+    "acc",                   # Adaptiver Fahrassistent → acc
+    "lane_assist",           # Spurhalteassistent + Assistenz-Paket + Adaptiver Fahrassistent
+    "travel_assist",         # Adaptiver Fahrassistent (volledig systeem)
+    "drive_select",          # Audi drive select
+    "emergency_assist",      # Notbremsassistent + pre sense + Assistenz-Paket
+    "ambient_lighting",      # Ambiente-Beleuchtung + Ambiente-Lichtpaket plus
+    "elektrische_achterklep", # Heckklappe elektrisch
+    "optik_pakket_zwart",    # Optikpaket schwarz
+    "dynamisch_knipperlicht", # Dynamisches Blinklicht Heck
+]
+
+TEST_4_EXPECTED_FALSE = [
+    "matrix_led",            # Voll LED-Scheinwerfer, geen Matrix
+    "audio_premium",         # Geen B&O/Sonos
+    "side_assist",           # Geen Spurwechselassistent/Side Assist
+    "adaptief_onderstel",    # Komfort-Fahrwerk, niet adaptief
+]
+
+
 # ── Run tests ──
 
 ok = True
@@ -334,6 +518,12 @@ ok = run_test(
     lst3,
     expected_true=KOBLENZ_EXPECTED_TRUE,
     expected_false=KOBLENZ_EXPECTED_FALSE,
+) and ok
+ok = run_test(
+    "Volledig gestructureerde listing (detail page)",
+    lst4,
+    expected_true=TEST_4_EXPECTED_TRUE,
+    expected_false=TEST_4_EXPECTED_FALSE,
 ) and ok
 
 print(f"\n{'='*60}")
