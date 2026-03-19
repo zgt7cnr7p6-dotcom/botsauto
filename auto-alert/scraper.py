@@ -808,46 +808,15 @@ def score_listing_ai(listing: Listing) -> Listing | None:
 
 
 def score_listing(listing: Listing) -> Listing:
-    """Score listing via Claude AI + regex hybrid (union van beide)."""
-    # Stap 1: Probeer AI scoring (primair)
-    ai_result = score_listing_ai(listing)
+    """Score listing via Claude AI, met regex als fallback."""
+    result = score_listing_ai(listing)
+    if result is not None:
+        return result
 
-    # Stap 2: Regex als aanvulling
-    regex_result = score_listing_regex(listing)
-    regex_features = set(regex_result.features)
-
-    if ai_result is not None:
-        ai_features = set(ai_result.features)
-
-        # Hybrid: neem de UNION van AI + regex resultaten
-        # Als AI iets mist maar regex vindt het (of vice versa), nemen we het mee
-        combined = ai_features | regex_features
-        listing.features = list(combined)
-        listing.score = len([f for f in combined if f in FULL_OPTION_FEATURES])
-
-        if not listing.color:
-            listing.color = parse_color(listing.description)
-
-        # Log verschil tussen AI en regex
-        only_ai = ai_features - regex_features
-        only_regex = regex_features - ai_features
-        if only_ai or only_regex:
-            log.info(
-                "[HYBRID] %s: AI-only=%s, Regex-only=%s, Combined=%d/%d",
-                listing.id[:30], list(only_ai), list(only_regex),
-                listing.score, len(FULL_OPTION_FEATURES),
-            )
-        else:
-            log.info(
-                "[HYBRID] %s: AI en regex zijn gelijk, score=%d/%d",
-                listing.id[:30], listing.score, len(FULL_OPTION_FEATURES),
-            )
-        return listing
-
-    # Fallback: alleen regex (als AI faalt)
+    # Fallback naar regex als AI faalt
     if ANTHROPIC_API_KEY:
-        log.warning("AI scoring mislukt, alleen regex voor %s", listing.id[:30])
-    return regex_result
+        log.warning("AI scoring mislukt, fallback naar regex voor %s", listing.id[:30])
+    return score_listing_regex(listing)
 
 
 def compute_price_score(price: int) -> str:
