@@ -217,6 +217,7 @@ class Listing:
     color: str = ""
     score: int = 0
     features: list = field(default_factory=list)
+    detail_incomplete: bool = False
 
 
 # ── Hybrid detectie ───────────────────────────────────────────────────────
@@ -997,6 +998,12 @@ def send_telegram(listing: Listing):
     if advice:
         text += f"\n<b>{advice}</b>\n"
 
+    if listing.detail_incomplete:
+        text += (
+            f"\n⚠️ <b>Detail page niet geladen — score onbetrouwbaar!</b>\n"
+            f"Score is waarschijnlijk hoger dan hieronder getoond.\n"
+        )
+
     text += (
         f"\n"
         f"{verdict_line}\n"
@@ -1330,10 +1337,14 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             idx, url = idx_url
             # render=True zodat "Show more" / features volledig geladen worden
             html = scrape_do_fetch(url, render=True, super_mode=True, retries=1, timeout=60)
-            # Als response te klein is (mobile.de block), één retry na 3 seconden
-            if html and len(html) < 5000:
-                log.info("Detail te klein (%d bytes), retry na 3s ... %s", len(html), url[:60])
-                time.sleep(3)
+            # Als response te klein is (mobile.de block), max 3 retries met oplopende wachttijden
+            retry_waits = [3, 6, 10]
+            for attempt, wait in enumerate(retry_waits, 1):
+                if not html or len(html) >= 5000:
+                    break
+                log.info("Detail te klein (%d bytes), retry %d/%d na %ds ... %s",
+                         len(html), attempt, len(retry_waits), wait, url[:60])
+                time.sleep(wait)
                 html = scrape_do_fetch(url, render=True, super_mode=True, retries=0, timeout=60)
             return idx, html
 
@@ -1350,15 +1361,18 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                             lst.description = body_text[:20000]
                             log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
                         else:
+                            lst.detail_incomplete = True
                             log.warning("Detail geblokkeerd: %s (body %d chars)", lst.title[:40], len(body_text))
                     elif detail_html:
                         log.warning("Detail te klein: %s (%d bytes)", lst.title[:40], len(detail_html))
+                        lst.detail_incomplete = True
                 except Exception as e:
                     log.warning("Detail fetch fout: %s", e)
 
         # Log welke listings GEEN detail page kregen
         for lst in listings:
             if len(lst.description) <= 500:
+                lst.detail_incomplete = True
                 log.warning("GEEN detail page voor: %s (desc=%d chars) — scoring onbetrouwbaar!", lst.title[:50], len(lst.description))
     return listings
 
@@ -1441,9 +1455,10 @@ def main():
     if all_listings:
         with ThreadPoolExecutor(max_workers=5) as pool:
             scored = list(pool.map(score_listing, all_listings))
-        # Restore _require_pano flags
+        # Restore _require_pano en detail_incomplete flags
         for orig, sc in zip(all_listings, scored):
             sc._require_pano = getattr(orig, '_require_pano', False)
+            sc.detail_incomplete = getattr(orig, 'detail_incomplete', False)
         all_listings = scored
 
     for listing in all_listings:
