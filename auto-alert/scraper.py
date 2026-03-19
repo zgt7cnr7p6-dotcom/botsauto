@@ -106,6 +106,7 @@ FULL_OPTION_FEATURES = [
     "ambient_lighting",
     "elektrische_achterklep",
     "optik_pakket_zwart",
+    "dynamisch_knipperlicht",
 ]
 
 FEATURE_DISPLAY_NAMES = {
@@ -131,6 +132,7 @@ FEATURE_DISPLAY_NAMES = {
     "ambient_lighting": "Sfeerverlichting",
     "elektrische_achterklep": "Elektrische achterklep",
     "optik_pakket_zwart": "Optik pakket zwart",
+    "dynamisch_knipperlicht": "Dynamisch knipperlicht",
 }
 
 DB_PATH = "listings.db"
@@ -280,6 +282,7 @@ FEATURE_PATTERNS = {
         r"keyless",
         r"komfort\s*schl[üu]ssel",
         r"komfortschl[üu]ssel",
+        r"komfortschl\.",
         r"schl[üu]ssel\s*los",
         r"convenience\s*key",
         r"sleutel\s*loos",
@@ -287,6 +290,7 @@ FEATURE_PATTERNS = {
         r"schl[üu]ssellose",
         r"komfort\s*zugang",
         r"komfortzugang",
+        r"advanced\s*key",
     ],
     "camera_achteruit": [
         r"r[üu]ckfahr\s*kamera",
@@ -306,11 +310,14 @@ FEATURE_PATTERNS = {
         r"surround\s*view",
         r"umgebungs\s*kamera",
         r"umgebungskamera",
+        r"umgebungskameras",
         r"4\s*kamera",
         r"area\s*view",
         r"audi\s*area\s*view",
         r"assist[ae]nz.?paket\s*park",
         r"top\s*view",
+        r"360.*kamera",
+        r"kamera.*360",
     ],
     "s_line": [
         r"s[\s-]?line",
@@ -380,6 +387,8 @@ FEATURE_PATTERNS = {
         r"sitz.*beheizt",
         r"heated\s*seat",
         r"business.?paket",
+        r"sitz.*u\.?\s*spiegel\s*heizung",
+        r"sitz[\s-]*u[\.\s]*spiegelheizung",
     ],
     "stuurverwarming": [
         r"lenkrad\s*beheizt",
@@ -415,6 +424,8 @@ FEATURE_PATTERNS = {
         r"spurassistent",
         r"spur\s*f[üu]hrungs?\s*assist",
         r"spurf[üu]hrungsassist",
+        r"spur\s*verlassens?\s*warn",
+        r"spurverlassenswarnung",
         r"adaptiv.*fahr\s*assist",
         r"adaptiver\s*fahr\s*assistent",
         r"fahrassistent",
@@ -435,6 +446,9 @@ FEATURE_PATTERNS = {
         r"fahrdynamik\s*regelung",
         r"modi.*individuell",
         r"dynamic\s*mode",
+        r"fahrprogramm",
+        r"comfort.*dynamic.*auto.*individual",
+        r"fahr\s*modi",
     ],
     "adaptief_onderstel": [
         r"adaptie[fv].*onderstel",
@@ -453,11 +467,15 @@ FEATURE_PATTERNS = {
         r"notbremsassist",
         r"emergency\s*assist",
         r"pre\s*sense",
+        r"pre-sense",
+        r"presense",
         r"audi\s*pre\s*sense",
         r"front\s*assist",
+        r"frontassist",
         r"nood\s*rem\s*assist",
         r"assist[ae]nz.?paket(?!\s*park)",
         r"assist[ae]nz.?paket\s*tour",
+        r"notfall\s*assistent",
     ],
     "side_assist": [
         r"side\s*assist",
@@ -485,6 +503,8 @@ FEATURE_PATTERNS = {
         r"ambiente\s*licht\s*paket\s*plus",
         r"mehrfarbig.*ambiente",
         r"ambiente.*mehrfarbig",
+        r"konturfarbenes?\s*ambiente",
+        r"ambiente.*innenraumbeleuchtung",
     ],
     "elektrische_achterklep": [
         r"elektr.*heckklappe",
@@ -496,6 +516,8 @@ FEATURE_PATTERNS = {
         r"sensorgesteuerte?\s*heckklappe",
         r"komfort\s*heckklappe",
         r"heck.*klappe.*komfort",
+        r"elektr\.\s*heckkl",
+        r"heckklappe\s*elektr",
     ],
     "optik_pakket_zwart": [
         r"optik\s*paket\s*schwarz",
@@ -508,6 +530,20 @@ FEATURE_PATTERNS = {
         r"black\s*paket",
         r"schwarzpaket",
         r"schwarz.*anbauteile",
+    ],
+    "dynamisch_knipperlicht": [
+        r"dynamisch.*blink",
+        r"dynamische[sr]?\s*blinker",
+        r"dynamisches?\s*blinklicht",
+        r"dynamic\s*(?:turn\s*)?(?:signal|indicator|blinker)",
+        r"dynamisch.*knipper",
+        r"lauflicht",
+        r"lauf.*blinker",
+        r"scrollblinker",
+        r"scroll.*blinker",
+        r"wisch.*blinker",
+        r"flowing\s*(?:turn\s*)?(?:indicator|signal)",
+        r"sequen(?:z|t).*blinker",
     ],
 }
 
@@ -592,91 +628,88 @@ def score_listing_regex(listing: Listing) -> Listing:
 # ── Claude AI scoring ─────────────────────────────────────────────────────
 
 AI_SCORING_PROMPT = """\
-Je bent een auto-expert gespecialiseerd in Audi Q3 (45 TFSI e, ~2020-2024). Lees de volledige advertentietekst hieronder (titel + beschrijving) en bepaal welke van de volgende opties aanwezig zijn.
+Je bent een auto-expert gespecialiseerd in Audi Q3 (45 TFSI e, ~2020-2024). Lees de volledige advertentietekst hieronder en bepaal welke opties aanwezig zijn.
 
-De tekst is vaak in het Duits (Sonderausstattung, Serienausstattung, etc.) — je begrijpt Duits, dus lees gewoon alles en begrijp wat er staat. ELKE sectie telt mee, ook Serienausstattung.
+BELANGRIJK: Detecteer zo VEEL mogelijk. Als er enige aanwijzing is dat een feature aanwezig is, zet op true. Liever een false positive dan een gemiste feature.
 
-KRITISCH — SERIENAUSSTATTUNG (standaarduitrusting):
-Features die onder "Serienausstattung" staan ZIJN AANWEZIG op de auto. Dit is standaarduitrusting die erbij zit.
-Voorbeeld: "Audi drive select" staat vaak onder Serienausstattung → drive_select=true.
-Negeer deze sectie NOOIT. Alles wat daar staat, is aanwezig.
+De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serienausstattung, Pakete, losse vermeldingen, bullet lists, etc.
 
-KRITISCH — SAMENGESTELDE DUITSE TERMEN SPLITSEN:
-Audi combineert vaak meerdere features in één zin met "u." (und) of komma's. Je MOET deze splitsen en ELKE feature apart herkennen.
+## REGELS
 
-Voorbeeld: "Spurwechsel- u. Spurhalteassistent (Side Assist und Lane Assist)"
-→ Dit zijn TWEE features:
-  1. Spurwechselassistent = side_assist (dodehoek) = true
-  2. Spurhalteassistent = lane_assist = true
-→ NIET als één feature behandelen!
+1. SERIENAUSSTATTUNG = AANWEZIG. Features onder "Serienausstattung" zijn standaard en AANWEZIG op de auto.
 
-Meer voorbeelden van splitsen:
-• "Sitz- u. Spiegelheizung" → stoelverwarming=true + spiegelverwarming
-• "Komfort- u. S line-Paket" → beide pakketten herkennen
-• "Front- u. Rückfahrkamera" → camera_achteruit=true
+2. SAMENGESTELDE TERMEN SPLITSEN:
+   "Spurwechsel- u. Spurhalteassistent" → side_assist=true EN lane_assist=true
+   "Sitz- u. Spiegelheizung" → stoelverwarming=true
+   "Front- u. Rückfahrkamera" → camera_achteruit=true
 
-BELANGRIJK — PAKKET-HERKENNING:
-Audi verkoopt veel opties als pakket. Je MOET pakketten herkennen en de individuele features daaruit afleiden:
+3. PAKKET-HERKENNING — als een pakket vermeld wordt, zijn ALLE features uit dat pakket aanwezig:
+   • "Assistenzpaket Tour" / "Assistenz-Paket Tour" → acc=true, lane_assist=true, emergency_assist=true
+   • "Assistenzpaket" / "Assistenz-Paket" (zonder Tour) → lane_assist=true, emergency_assist=true
+   • "Assistenzpaket Parken" / "Park-Paket" → camera_360=true, camera_achteruit=true
+   • "Adaptiver Fahrassistent" → acc=true, lane_assist=true, travel_assist=true
+   • "Business-Paket" / "Business Paket" → stoelverwarming=true
+   • "S line" / "S-Line" (zonder verdere specificatie) → s_line=true, s_line_exterieur=true
+   • "Komfort-Paket" / "Komfortpaket" → kan keyless bevatten
+   • "Ambiente Lichtpaket" → ambient_lighting=true
 
-• "Assistenzpaket Tour" / "Assistenz-Paket Tour" → bevat: ACC (adaptieve cruise) + Lane Assist + Traffic Sign Recognition + Emergency Assist. Dus als dit pakket staat: acc=true, lane_assist=true, emergency_assist=true
-• "Assistenzpaket" / "Assistenz-Paket" (basis) → bevat: Lane Assist + Front Assist (pre sense). Dus: lane_assist=true, emergency_assist=true
-• "Assistenzpaket Parken" / "Assistenz-Paket Parken" → bevat: Park assist + 360° camera + parkeer sensoren. Dus: camera_360=true, camera_achteruit=true
-• "Adaptiver Fahrassistent" → bevat: ACC + Lane Assist + Travel Assist (gecombineerd systeem). Dus: acc=true, lane_assist=true, travel_assist=true
-• "Business-Paket" / "Business Paket" → bevat: MMI Navigation plus + Audi phone box + Stoelverwarming (Sitzheizung) + spiegel functies. Dus: stoelverwarming=true
-• "S line Paket" / "S line" / "S-Line" → bevat: Sportstoelen + S-line interieur + S-line exterieur. Dus: s_line=true, s_line_exterieur=true
-• "Optikpaket Schwarz" / "Black Style" / "Black Edition" → optik_pakket_zwart=true
-• "Ambiente Lichtpaket plus" / "Ambiente-Beleuchtung" / "Ambiente Lichtpaket" → ambient_lighting=true
-• "Matrix LED" / "Matrix LED-Scheinwerfer" → matrix_led=true (gewone LED NIET)
-• "Komfortschlüssel" → keyless=true
-• "Komfort-Paket" → kan keyless entry bevatten, check context
+4. GERMAN-DUTCH MAPPINGS (herken alle varianten!):
+   • Sitzheizung / beheizbare Sitze / Sitz-u.Spiegelheizung → stoelverwarming
+   • Lenkradheizung / beheizbares Lenkrad → stuurverwarming
+   • Spurhalteassistent / Spurführungsassistent / Spurverlassenswarnung → lane_assist
+   • Spurwechselassistent / Side Assist → side_assist (dodehoek)
+   • Abstandstempomat / adaptive Geschwindigkeitsregelung / ACC → acc
+   • Audi drive select / Fahrmodus → drive_select
+   • Komfortschlüssel / Keyless → keyless
+   • Rückfahrkamera / Heckkamera → camera_achteruit
+   • Umgebungskameras / 360-Grad / Top View / Area View → camera_360
+   • Panorama-Glasdach / Panoramadach / Schiebedach → panoramadak
+   • Elektrische Heckklappe / elektr. Heckklappe → elektrische_achterklep
+   • Ambientebeleuchtung / Ambiente-Licht / Konturfarbenes Ambiente-Licht → ambient_lighting
+   • Dynamischer Blinker / dynamisches Blinklicht / Lauflicht → dynamisch_knipperlicht
+   • Einparkhilfe / Park Assist → (niet in score, maar helpt bij camera detectie)
 
-BELANGRIJKE GERMAN-DUTCH MAPPINGS:
-• "Sitzheizung" / "Sitzheizung vorn" = stoelverwarming
-• "Lenkradheizung" / "beheizbares Lenkrad" = stuurverwarming
-• "Spurhalteassistent" / "Spurführungsassistent" = lane_assist
-• "Spurwechselassistent" / "Spurwechselwarnung" / "Side Assist" = side_assist (dodehoek)
-• "Audi drive select" / "Fahrmodus" = drive_select
-• "Adaptives Fahrwerk" / "Dämpferregelung" = adaptief_onderstel (ALLEEN deze termen! "Sportfahrwerk" of "Sport-Fahrwerk" is NIET adaptief)
-• "Abstandstempomat" / "Adaptive Geschwindigkeitsregelung" / "ACC" = acc
-• "Elektrische Heckklappe" = elektrische_achterklep
-• "Rückfahrkamera" = camera_achteruit
-• "Panorama-Glasdach" / "Panoramadach" = panoramadak
+5. IMPLICIETE FEATURES:
+   • camera_360=true → camera_achteruit=true automatisch
+   • travel_assist=true → acc=true EN lane_assist=true automatisch
+   • "S line" zonder specificatie → s_line=true EN s_line_exterieur=true
 
-Bepaal voor elk van deze opties true of false:
+6. ZOEK BREED — features kunnen overal staan:
+   • In de titel ("S line", "Panorama")
+   • In bullet lists ("• Sitzheizung")
+   • In lopende tekst ("mit Panoramadach und Sitzheizung")
+   • In code/afkortingen ("ACC", "LED", "PDC")
+   • In afgekorte vorm ("elektr. Heckkl.", "Komfortschl.", "Rückfahrk.")
+   • Als onderdeel van langere woorden ("Abstandstempomat", "Panoramaglasdach")
 
-1. panoramadak — Panoramadak of schuifdak (heel glasdak)
-2. keyless — Keyless entry / comfort access / Komfortschlüssel (sleutelloos openen)
-3. camera_achteruit — Achteruitrijcamera (ook true als er een 360° camera is, of Assistenzpaket Parken)
-4. camera_360 — 360°-rondomzichtcamera / Audi Area View (ook via Assistenzpaket Parken)
-5. s_line — S-Line interieur of exterieurpakket (als er S-Line staat zonder specificatie, zet beide op true)
-6. s_line_exterieur — Specifiek S-Line exterieurpakket (als er S-Line staat zonder specificatie, zet beide op true)
-7. matrix_led — Matrix LED-koplampen (gewone LED zonder "Matrix" telt NIET)
-8. velgen_19_20 — 19 of 20 inch velgen (18 inch of kleiner telt NIET)
-9. audio_premium — Premium audiosysteem van een merk: Bang & Olufsen, Sonos of Bose (een standaard "Sound-System" of "Audi Sound-System" zonder merknaam telt NIET)
-10. elektrische_stoelen — Elektrisch verstelbare voorstoelen (zonder memory)
-11. stoelen_memory — Memory-functie voor stoelen (specifiek "Memory" bij de stoelen)
-12. stoelverwarming — Stoelverwarming (voor) / Sitzheizung / ook via Business-Paket
-13. stuurverwarming — Verwarmbaar stuur / Lenkradheizung
-14. acc — Adaptive cruise control (Abstandstempomat / adaptieve afstandsregeling). Ook via "Adaptiver Fahrassistent" of "Assistenzpaket Tour". Gewone cruise/tempomat ZONDER "adaptive"/"Abstand" telt NIET
-15. lane_assist — Rijstrookassistent. Ook via "Adaptiver Fahrassistent" of "Assistenzpaket Tour" of "Assistenzpaket". Spurhalteassistent / Spurführungsassistent. NIET de dodehoek (die staat apart bij side_assist)
-16. travel_assist — Travel Assist / Adaptiver Fahrassistent: dit is een GECOMBINEERD SYSTEEM (ACC + actieve lane assist + lane centering + semi-autonoom rijden). ALLEEN true als er "Adaptiver Fahrassistent" of "Adaptive cruise assist" of "Adaptiver Fahrassistent inkl. Notfallassistent" staat. NIET verwarren met: "Adaptive Geschwindigkeitsassistent" (alleen ACC), "Spurverlassenswarnung" (basis lane assist), "Spurhalteassistent" (geen volledig systeem). Als travel_assist=true, dan ook acc=true en lane_assist=true
-17. drive_select — Rijmodi / Audi drive select / Fahrmodus
-18. adaptief_onderstel — ALLEEN "Adaptives Fahrwerk" of "Dämpferregelung" of "DCC". "Sportfahrwerk" / "Sport-Fahrwerk" is NIET adaptief en telt NIET
-19. emergency_assist — Noodremassistent / pre sense / Front Assist. Ook via Assistenzpaket of Assistenzpaket Tour
-20. side_assist — Dodehoekassistent / Side Assist / Spurwechselassistent / Spurwechselwarnung
-21. ambient_lighting — Sfeer-/ambienteverlichting / Ambiente Lichtpaket (plus)
-22. elektrische_achterklep — Elektrische achterklep / elektrische Heckklappe
-23. optik_pakket_zwart — Zwart optiekpakket (Optikpaket Schwarz / Black Style / Black Edition)
+Bepaal voor elk true of false:
 
-WERKWIJZE:
-1. Lees ALLE tekst inclusief ELKE sectie: Sonderausstattung, Serienausstattung, Pakete, Komfort, Technik, etc.
-2. Herken pakketten en leid features af (zie mapping hierboven)
-3. SPLITS samengestelde Duitse termen (met "u.", "und", komma's) en herken elke feature apart
-4. Zoek ook naar losse vermeldingen van features
-5. Wees NIET te streng — als een pakket of serienausstattung een feature bevat, is die feature aanwezig
-6. Doe SEMANTISCHE analyse — begrijp de BETEKENIS, niet alleen exacte woorden
+1. panoramadak — Panoramadak/schuifdak/glasdak
+2. keyless — Keyless/Komfortschlüssel/sleutelloos
+3. camera_achteruit — Rückfahrkamera (ook als 360° camera aanwezig is)
+4. camera_360 — 360°/Umgebungskameras/Top View/Area View
+5. s_line — S-Line interieur (ook als alleen "S line" staat)
+6. s_line_exterieur — S-Line exterieur (ook als alleen "S line" staat)
+7. matrix_led — Matrix LED koplampen (gewone LED NIET)
+8. velgen_19_20 — 19/20 inch velgen
+9. audio_premium — B&O/Sonos/Bose (standaard Audi sound NIET)
+10. elektrische_stoelen — Elektrisch verstelbare stoelen
+11. stoelen_memory — Memory stoelen
+12. stoelverwarming — Sitzheizung/stoelverwarming/Business-Paket
+13. stuurverwarming — Lenkradheizung/stuurverwarming
+14. acc — Abstandstempomat/adaptive cruise (gewone tempomat NIET)
+15. lane_assist — Spurhalteassistent/Spurverlassenswarnung/lane assist (dodehoek=side_assist, NIET hier)
+16. travel_assist — ALLEEN "Adaptiver Fahrassistent" (volledig systeem, niet alleen ACC of lane assist apart)
+17. drive_select — Audi drive select/Fahrmodus/rijmodi
+18. adaptief_onderstel — Adaptives Fahrwerk/Dämpferregelung (Sportfahrwerk NIET)
+19. emergency_assist — Pre sense/Front Assist/Notbremsassistent
+20. side_assist — Spurwechselassistent/Side Assist/dodehoek
+21. ambient_lighting — Ambientebeleuchtung/sfeerverlichting/Ambiente Lichtpaket
+22. elektrische_achterklep — Elektrische Heckklappe
+23. optik_pakket_zwart — Optikpaket Schwarz/Black Style/Black Edition
+24. dynamisch_knipperlicht — Dynamischer Blinker/dynamisches Blinklicht/Lauflicht
 
-Antwoord ALLEEN met een JSON object, geen uitleg:
+Antwoord ALLEEN met JSON, geen uitleg:
 {
   "panoramadak": false,
   "keyless": false,
@@ -700,7 +733,8 @@ Antwoord ALLEEN met een JSON object, geen uitleg:
   "side_assist": false,
   "ambient_lighting": false,
   "elektrische_achterklep": false,
-  "optik_pakket_zwart": false
+  "optik_pakket_zwart": false,
+  "dynamisch_knipperlicht": false
 }"""
 
 
@@ -710,16 +744,23 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         return None
 
     text = f"{listing.title}\n\n{listing.description}"
-    log.info("[AI] Beschrijving lengte: %d chars voor %s", len(listing.description), listing.id[:30])
-    # Beperk tekst tot ~8000 chars om kosten laag te houden
-    if len(text) > 8000:
-        text = text[:8000]
+    desc_len = len(listing.description)
+    log.info("[AI] Beschrijving lengte: %d chars voor %s", desc_len, listing.id[:30])
+
+    if desc_len <= 500:
+        log.warning("[AI] KORTE beschrijving (%d chars) — detail page waarschijnlijk niet opgehaald! %s",
+                     desc_len, listing.id[:30])
+
+    # Beperk tekst tot ~12000 chars (meer context = betere detectie)
+    if len(text) > 12000:
+        text = text[:12000]
 
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=400,
+            max_tokens=500,
+            temperature=0,
             messages=[
                 {
                     "role": "user",
@@ -767,16 +808,46 @@ def score_listing_ai(listing: Listing) -> Listing | None:
 
 
 def score_listing(listing: Listing) -> Listing:
-    """Score listing via Claude AI, met regex als fallback."""
-    # Probeer eerst AI scoring
-    result = score_listing_ai(listing)
-    if result is not None:
-        return result
+    """Score listing via Claude AI + regex hybrid (union van beide)."""
+    # Stap 1: Altijd regex draaien als basis
+    regex_result = score_listing_regex(listing)
+    regex_features = set(regex_result.features)
 
-    # Fallback naar regex
+    # Stap 2: Probeer AI scoring
+    ai_result = score_listing_ai(listing)
+
+    if ai_result is not None:
+        ai_features = set(ai_result.features)
+
+        # Hybrid: neem de UNION van AI + regex resultaten
+        # Als AI iets mist maar regex vindt het (of vice versa), nemen we het mee
+        combined = ai_features | regex_features
+        listing.features = list(combined)
+        listing.score = len([f for f in combined if f in FULL_OPTION_FEATURES])
+
+        if not listing.color:
+            listing.color = parse_color(listing.description)
+
+        # Log verschil tussen AI en regex
+        only_ai = ai_features - regex_features
+        only_regex = regex_features - ai_features
+        if only_ai or only_regex:
+            log.info(
+                "[HYBRID] %s: AI-only=%s, Regex-only=%s, Combined=%d/%d",
+                listing.id[:30], list(only_ai), list(only_regex),
+                listing.score, len(FULL_OPTION_FEATURES),
+            )
+        else:
+            log.info(
+                "[HYBRID] %s: AI en regex zijn gelijk, score=%d/%d",
+                listing.id[:30], listing.score, len(FULL_OPTION_FEATURES),
+            )
+        return listing
+
+    # Fallback: alleen regex
     if ANTHROPIC_API_KEY:
-        log.warning("AI scoring mislukt, fallback naar regex voor %s", listing.id[:30])
-    return score_listing_regex(listing)
+        log.warning("AI scoring mislukt, alleen regex voor %s", listing.id[:30])
+    return regex_result
 
 
 def compute_price_score(price: int) -> str:
@@ -800,15 +871,17 @@ def compute_price_score(price: int) -> str:
 # Opties die er echt toe doen — als deze er allemaal op zitten is het een must buy
 MUST_HAVE_FEATURES = [
     "panoramadak",
-    "audio_premium",
+    "keyless",
+    "camera_achteruit",
+    "camera_360",
     "s_line",
     "s_line_exterieur",
-    "lane_assist",
     "acc",
+    "lane_assist",
     "ambient_lighting",
+    "drive_select",
+    "elektrische_achterklep",
     "stoelverwarming",
-    "camera_achteruit",
-    "keyless",
 ]
 
 
