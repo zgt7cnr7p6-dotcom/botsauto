@@ -809,12 +809,12 @@ def score_listing_ai(listing: Listing) -> Listing | None:
 
 def score_listing(listing: Listing) -> Listing:
     """Score listing via Claude AI + regex hybrid (union van beide)."""
-    # Stap 1: Altijd regex draaien als basis
+    # Stap 1: Probeer AI scoring (primair)
+    ai_result = score_listing_ai(listing)
+
+    # Stap 2: Regex als aanvulling
     regex_result = score_listing_regex(listing)
     regex_features = set(regex_result.features)
-
-    # Stap 2: Probeer AI scoring
-    ai_result = score_listing_ai(listing)
 
     if ai_result is not None:
         ai_features = set(ai_result.features)
@@ -844,7 +844,7 @@ def score_listing(listing: Listing) -> Listing:
             )
         return listing
 
-    # Fallback: alleen regex
+    # Fallback: alleen regex (als AI faalt)
     if ANTHROPIC_API_KEY:
         log.warning("AI scoring mislukt, alleen regex voor %s", listing.id[:30])
     return regex_result
