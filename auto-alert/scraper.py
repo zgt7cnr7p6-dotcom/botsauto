@@ -1057,7 +1057,7 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "") -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None) -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
     super=true activeert geavanceerde anti-bot bypass (10 credits per request).
@@ -1065,6 +1065,7 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
     render=true activeert JS rendering (extra credits).
     geo_code=de routeert via een Duits IP (belangrijk voor mobile.de).
     wait_selector=".class" wacht tot een CSS element geladen is.
+    play_with_browser=[...] voert browser acties uit (bijv. consent klikken).
     """
     if not SCRAPE_DO_TOKEN:
         log.error("SCRAPE_DO_TOKEN niet geconfigureerd")
@@ -1083,8 +1084,11 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
             if render:
                 params["render"] = "true"
                 params["wait"] = str(render_wait)
+                params["blockResources"] = "false"
                 if wait_selector:
                     params["waitSelector"] = wait_selector
+                if play_with_browser:
+                    params["playWithBrowser"] = json.dumps(play_with_browser)
 
             resp = req_lib.get("https://api.scrape.do", params=params, timeout=timeout)
             log.info("Scrape.do: status=%d, size=%d bytes voor %s",
@@ -1347,6 +1351,15 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?id={params['id'][0]}"
             return url
 
+        # Cookie consent klik-acties voor mobile.de (GDPR wall)
+        # Probeert meerdere veelgebruikte consent button selectors
+        CONSENT_ACTIONS = [
+            {"Action": "Click", "Selector": "[aria-label='Alle akzeptieren']"},
+            {"Action": "Click", "Selector": "#mde-consent-modal-accept-btn"},
+            {"Action": "Click", "Selector": "button[data-testid='uc-accept-all-button']"},
+            {"Action": "Wait", "Timeout": 2000},
+        ]
+
         def _fetch_detail(idx_url):
             idx, url = idx_url
             clean_url = _clean_detail_url(url)
@@ -1354,8 +1367,12 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 log.info("Detail URL gecleaned: %s", clean_url[:80])
             # render=True zodat "Show more" / features volledig geladen worden
             # geoCode=de zodat mobile.de niet blokkeert op basis van IP-locatie
-            html = scrape_do_fetch(clean_url, render=True, super_mode=True, retries=1, timeout=60, geo_code="de")
-            # Als response te klein is (mobile.de block), max 3 retries met oplopende wachttijden en langere render wait
+            # playWithBrowser klikt GDPR consent wall weg
+            html = scrape_do_fetch(
+                clean_url, render=True, super_mode=True, retries=1, timeout=60,
+                geo_code="de", play_with_browser=CONSENT_ACTIONS,
+            )
+            # Als response te klein is (consent wall niet weg), max 3 retries
             retry_config = [(3, 8000), (6, 10000), (10, 12000)]  # (sleep_sec, render_wait_ms)
             for attempt, (wait, rw) in enumerate(retry_config, 1):
                 if not html or len(html) >= 5000:
@@ -1363,7 +1380,10 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 log.info("Detail te klein (%d bytes), retry %d/%d na %ds (render_wait=%dms) ... %s",
                          len(html), attempt, len(retry_config), wait, rw, clean_url[:80])
                 time.sleep(wait)
-                html = scrape_do_fetch(clean_url, render=True, super_mode=True, retries=0, timeout=90, render_wait=rw, geo_code="de")
+                html = scrape_do_fetch(
+                    clean_url, render=True, super_mode=True, retries=0, timeout=90,
+                    render_wait=rw, geo_code="de", play_with_browser=CONSENT_ACTIONS,
+                )
             return idx, html
 
         with ThreadPoolExecutor(max_workers=5) as pool:
