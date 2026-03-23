@@ -1351,12 +1351,12 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?id={params['id'][0]}"
             return url
 
-        # Cookie consent klik-acties voor mobile.de (GDPR wall)
-        # Probeert meerdere veelgebruikte consent button selectors
+        # Cookie consent klik-acties voor mobile.de (Usercentrics GDPR wall)
+        # Usercentrics gebruikt Shadow DOM — gewone CSS selectors werken niet.
+        # We moeten via JavaScript in de Shadow DOM de accept button klikken.
         CONSENT_ACTIONS = [
-            {"Action": "Click", "Selector": "[aria-label='Alle akzeptieren']"},
-            {"Action": "Click", "Selector": "#mde-consent-modal-accept-btn"},
-            {"Action": "Click", "Selector": "button[data-testid='uc-accept-all-button']"},
+            {"Action": "Wait", "Timeout": 3000},
+            {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
             {"Action": "Wait", "Timeout": 2000},
         ]
 
