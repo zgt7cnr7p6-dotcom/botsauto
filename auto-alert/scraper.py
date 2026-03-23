@@ -307,6 +307,8 @@ FEATURE_PATTERNS = {
     "camera_360": [
         r"360[\s°]*camera",
         r"360[\s°]?grad[\s-]*kamera",
+        r"top\s*view\s*kamera",
+        r"umgebungskamera",
         r"rundum[\s-]*kamera",
         r"surround\s*view",
         r"umgebungs\s*kamera",
@@ -331,6 +333,7 @@ FEATURE_PATTERNS = {
         r"s[\s-]?line.*au[ßs]en",
         r"s[\s-]?line.*paket\s*ext",
         r"ext.*s[\s-]?line",
+        r"s[\s-]?line\s*(?:sport)?paket",
     ],
     "matrix_led": [
         r"matrix[\s-]*led",
@@ -437,6 +440,7 @@ FEATURE_PATTERNS = {
         r"adaptiv.*fahr\s*assist",
         r"adaptive\s*cruise\s*assist",
         r"adaptiver\s*fahr\s*assistent\s*inkl",
+        r"lenk[\s-]+und\s*spurf[üu]hrungs?\s*assist",
     ],
     "drive_select": [
         r"drive\s*select",
@@ -601,6 +605,19 @@ def score_listing_regex(listing: Listing) -> Listing:
     if "camera_360" in found and "camera_achteruit" not in found:
         found.append("camera_achteruit")
 
+    # Travel Assist: ACC + lane_assist samen → travel_assist
+    if "acc" in found and "lane_assist" in found and "travel_assist" not in found:
+        found.append("travel_assist")
+        log.info("[REGEX] Travel Assist afgeleid: ACC + lane_assist beide aanwezig")
+
+    # S-line Paket/Sportpaket → altijd beide interieur + exterieur
+    if re.search(r"s[\s-]?line\s*(?:sport)?paket", text, re.IGNORECASE):
+        if "s_line" not in found:
+            found.append("s_line")
+        if "s_line_exterieur" not in found:
+            found.append("s_line_exterieur")
+            log.info("[REGEX] S-line Paket gedetecteerd → beide interieur + exterieur")
+
     # Detecteer stoelen_memory apart (niet in score, maar wel in display)
     has_memory = False
     for pat in FEATURE_PATTERNS.get("stoelen_memory", []):
@@ -651,6 +668,8 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • "Adaptiver Fahrassistent" → acc=true, lane_assist=true, travel_assist=true
    • "Business-Paket" / "Business Paket" → stoelverwarming=true
    • "S line" / "S-Line" (zonder verdere specificatie) → s_line=true, s_line_exterieur=true
+   • "S line Paket" / "S line Sportpaket" / "S-Line Paket" → s_line=true, s_line_exterieur=true (bevat altijd beide)
+   • "Top View Kamera" / "Umgebungskameras" → camera_360=true, camera_achteruit=true
    • "Komfort-Paket" / "Komfortpaket" → kan keyless bevatten
    • "Ambiente Lichtpaket" → ambient_lighting=true
 
@@ -674,6 +693,7 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • camera_360=true → camera_achteruit=true automatisch
    • travel_assist=true → acc=true EN lane_assist=true automatisch
    • "S line" zonder specificatie → s_line=true EN s_line_exterieur=true
+   • "S line Paket" of "S line Sportpaket" → s_line=true EN s_line_exterieur=true (tenzij expliciet alleen interieur of exterieur vermeld)
 
 6. ZOEK BREED — features kunnen overal staan:
    • In de titel ("S line", "Panorama")
@@ -688,7 +708,7 @@ Bepaal voor elk true of false:
 1. panoramadak — Panoramadak/schuifdak/glasdak
 2. keyless — Keyless/Komfortschlüssel/sleutelloos
 3. camera_achteruit — Rückfahrkamera (ook als 360° camera aanwezig is)
-4. camera_360 — 360°/Umgebungskameras/Top View/Area View
+4. camera_360 — 360°/Umgebungskameras/Top View Kamera/Area View (ook "Umgebungskameras" zonder 360° vermelding = TRUE)
 5. s_line — S-Line interieur (ook als alleen "S line" staat)
 6. s_line_exterieur — S-Line exterieur (ook als alleen "S line" staat)
 7. matrix_led — Matrix LED koplampen (gewone LED NIET)
@@ -700,7 +720,10 @@ Bepaal voor elk true of false:
 13. stuurverwarming — Lenkradheizung/stuurverwarming
 14. acc — Abstandstempomat/adaptive cruise (gewone tempomat NIET)
 15. lane_assist — Spurhalteassistent/Spurverlassenswarnung/lane assist (dodehoek=side_assist, NIET hier)
-16. travel_assist — ALLEEN "Adaptiver Fahrassistent" (volledig systeem, niet alleen ACC of lane assist apart)
+16. travel_assist — TRUE als één van deze geldt:
+    a) "Adaptiver Fahrassistent" wordt genoemd
+    b) OF de COMBINATIE van ACC (Abstandstempomat/adaptive cruise/Stop&Go) EN actieve stuursturing (Spurhalteassistent/Spurführungsassistent/Lenk- und Spurführungsassistent/Lane assist) is aanwezig
+    BELANGRIJK: Lane assist alleen ≠ Travel Assist. ACC alleen ≠ Travel Assist. Pas als BEIDE aanwezig zijn = Travel Assist
 17. drive_select — Audi drive select/Fahrmodus/rijmodi
 18. adaptief_onderstel — Adaptives Fahrwerk/Dämpferregelung (Sportfahrwerk NIET)
 19. emergency_assist — Pre sense/Front Assist/Notbremsassistent
@@ -781,6 +804,25 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         # 360° camera impliceert altijd achteruitrijcamera
         if features_dict.get("camera_360", False):
             features_dict["camera_achteruit"] = True
+
+        # Travel Assist: als ACC + lane_assist beide true → travel_assist ook true
+        if features_dict.get("acc", False) and features_dict.get("lane_assist", False):
+            if not features_dict.get("travel_assist", False):
+                log.info("[AI] Travel Assist afgeleid: ACC + lane_assist beide aanwezig")
+            features_dict["travel_assist"] = True
+
+        # Travel Assist impliceert acc + lane_assist
+        if features_dict.get("travel_assist", False):
+            features_dict["acc"] = True
+            features_dict["lane_assist"] = True
+
+        # S-line Paket/Sportpaket → altijd beide interieur + exterieur
+        text_lower = text.lower()
+        if re.search(r"s[\s-]?line\s*(?:sport)?paket", text_lower, re.IGNORECASE):
+            if not features_dict.get("s_line", False) or not features_dict.get("s_line_exterieur", False):
+                log.info("[AI] S-line Paket gedetecteerd → beide interieur + exterieur")
+            features_dict["s_line"] = True
+            features_dict["s_line_exterieur"] = True
 
         found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
         # stoelen_memory is niet in FULL_OPTION_FEATURES maar wel relevant voor display
