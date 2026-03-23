@@ -1057,7 +1057,7 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45) -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000) -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
     super=true activeert geavanceerde anti-bot bypass (10 credits per request).
@@ -1078,7 +1078,7 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 params["super"] = "true"
             if render:
                 params["render"] = "true"
-                params["wait"] = "5000"
+                params["wait"] = str(render_wait)
 
             resp = req_lib.get("https://api.scrape.do", params=params, timeout=timeout)
             log.info("Scrape.do: status=%d, size=%d bytes voor %s",
@@ -1333,19 +1333,30 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
         urls_to_fetch = {i: lst.url for i, lst in enumerate(listings) if lst.url}
         log.info("Detail pages ophalen voor %d listings (parallel) ...", len(urls_to_fetch))
 
+        def _clean_detail_url(url: str) -> str:
+            """Strip zoekparameters van detail URL — alleen id behouden."""
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            if "id" in params:
+                return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?id={params['id'][0]}"
+            return url
+
         def _fetch_detail(idx_url):
             idx, url = idx_url
+            clean_url = _clean_detail_url(url)
+            if clean_url != url:
+                log.info("Detail URL gecleaned: %s", clean_url[:80])
             # render=True zodat "Show more" / features volledig geladen worden
-            html = scrape_do_fetch(url, render=True, super_mode=True, retries=1, timeout=60)
-            # Als response te klein is (mobile.de block), max 3 retries met oplopende wachttijden
-            retry_waits = [3, 6, 10]
-            for attempt, wait in enumerate(retry_waits, 1):
+            html = scrape_do_fetch(clean_url, render=True, super_mode=True, retries=1, timeout=60)
+            # Als response te klein is (mobile.de block), max 3 retries met oplopende wachttijden en langere render wait
+            retry_config = [(3, 8000), (6, 10000), (10, 12000)]  # (sleep_sec, render_wait_ms)
+            for attempt, (wait, rw) in enumerate(retry_config, 1):
                 if not html or len(html) >= 5000:
                     break
-                log.info("Detail te klein (%d bytes), retry %d/%d na %ds ... %s",
-                         len(html), attempt, len(retry_waits), wait, url[:60])
+                log.info("Detail te klein (%d bytes), retry %d/%d na %ds (render_wait=%dms) ... %s",
+                         len(html), attempt, len(retry_config), wait, rw, clean_url[:80])
                 time.sleep(wait)
-                html = scrape_do_fetch(url, render=True, super_mode=True, retries=0, timeout=60)
+                html = scrape_do_fetch(clean_url, render=True, super_mode=True, retries=0, timeout=90, render_wait=rw)
             return idx, html
 
         with ThreadPoolExecutor(max_workers=5) as pool:
