@@ -1,0 +1,36 @@
+name: Test URL Detail + Scoring
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'mobile.de listing IDs of URLs (spatie-gescheiden)'
+        required: true
+        default: '451110550'
+
+defaults:
+  run:
+    working-directory: auto-alert
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 anthropic
+
+      - name: Test URL detail fetch + scoring
+        env:
+          SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python test_url.py ${{ github.event.inputs.urls }}
