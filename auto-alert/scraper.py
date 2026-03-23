@@ -1057,12 +1057,14 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000) -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "") -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
     super=true activeert geavanceerde anti-bot bypass (10 credits per request).
     super=false gebruikt standaard modus (1 credit per request).
     render=true activeert JS rendering (extra credits).
+    geo_code=de routeert via een Duits IP (belangrijk voor mobile.de).
+    wait_selector=".class" wacht tot een CSS element geladen is.
     """
     if not SCRAPE_DO_TOKEN:
         log.error("SCRAPE_DO_TOKEN niet geconfigureerd")
@@ -1076,9 +1078,13 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
             }
             if super_mode:
                 params["super"] = "true"
+            if geo_code:
+                params["geoCode"] = geo_code
             if render:
                 params["render"] = "true"
                 params["wait"] = str(render_wait)
+                if wait_selector:
+                    params["waitSelector"] = wait_selector
 
             resp = req_lib.get("https://api.scrape.do", params=params, timeout=timeout)
             log.info("Scrape.do: status=%d, size=%d bytes voor %s",
@@ -1193,7 +1199,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
 
     # Direct super mode — standaard modus geeft altijd 502 op mobile.de
     log.info("mobile.de: zoekpagina ophalen ...")
-    html = scrape_do_fetch(search_url, super_mode=True, retries=1)
+    html = scrape_do_fetch(search_url, super_mode=True, retries=1, geo_code="de")
 
     if not html:
         log.error("mobile.de: geen HTML ontvangen")
@@ -1347,7 +1353,8 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             if clean_url != url:
                 log.info("Detail URL gecleaned: %s", clean_url[:80])
             # render=True zodat "Show more" / features volledig geladen worden
-            html = scrape_do_fetch(clean_url, render=True, super_mode=True, retries=1, timeout=60)
+            # geoCode=de zodat mobile.de niet blokkeert op basis van IP-locatie
+            html = scrape_do_fetch(clean_url, render=True, super_mode=True, retries=1, timeout=60, geo_code="de")
             # Als response te klein is (mobile.de block), max 3 retries met oplopende wachttijden en langere render wait
             retry_config = [(3, 8000), (6, 10000), (10, 12000)]  # (sleep_sec, render_wait_ms)
             for attempt, (wait, rw) in enumerate(retry_config, 1):
@@ -1356,7 +1363,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 log.info("Detail te klein (%d bytes), retry %d/%d na %ds (render_wait=%dms) ... %s",
                          len(html), attempt, len(retry_config), wait, rw, clean_url[:80])
                 time.sleep(wait)
-                html = scrape_do_fetch(clean_url, render=True, super_mode=True, retries=0, timeout=90, render_wait=rw)
+                html = scrape_do_fetch(clean_url, render=True, super_mode=True, retries=0, timeout=90, render_wait=rw, geo_code="de")
             return idx, html
 
         with ThreadPoolExecutor(max_workers=5) as pool:
