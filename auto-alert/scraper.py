@@ -56,20 +56,19 @@ SEARCH_CRITERIA = {
 }
 
 # mobile.de zoek-URLs
-# URL 1: Q3 hybrid met "pano" in titel — alles doorsturen
+# URL 1: ALLE Q3 hybrids — pano check via detail page/AI
+#         Geen freetext "pano" filter: mobile.de indexeert nieuwe listings vertraagd voor freetext
 # URL 2: Q3 Sportback hybrid — alleen doorsturen als beschrijving panoramadak/glasdach/schuifdak bevat
-# URL 3: ALLE Q3 hybrids (catch-all) — pano check via detail page/AI
-#         Vangt nieuwe listings die mobile.de nog niet geïndexeerd heeft voor freetext "pano"
 MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
             "https://suchen.mobile.de/fahrzeuge/search.html?"
             "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
-            "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=down"
+            "&ml=%3A80000&ms=1900%3B37&od=down"
             "&p=%3A40000&s=Car&sb=doc&vc=Car"
         ),
-        "label": "Q3 pano",
-        "require_pano_in_desc": False,
+        "label": "Q3 alle (pano check)",
+        "require_pano_in_desc": True,
     },
     {
         "url": (
@@ -79,16 +78,6 @@ MOBILE_DE_SEARCH_URLS = [
             "&p=%3A40000&s=Car&sb=doc&vc=Car"
         ),
         "label": "Q3 Sportback (pano check)",
-        "require_pano_in_desc": True,
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
-            "&ml=%3A80000&ms=1900%3B37&od=down"
-            "&p=%3A40000&s=Car&sb=doc&vc=Car"
-        ),
-        "label": "Q3 alle (pano check)",
         "require_pano_in_desc": True,
     },
 ]
