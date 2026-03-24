@@ -57,9 +57,9 @@ SEARCH_CRITERIA = {
 
 # mobile.de zoek-URLs
 # URL 1: Q3 hybrid met "pano" in titel — alles doorsturen
-# URL 2: Q3 Sportback hybrid — alleen doorsturen als beschrijving panoramadak/glasdach/schuifdak bevat
-# URL 3: ALLE Q3 hybrids (catch-all) — pano check via detail page/AI
-#         Vangt nieuwe listings die mobile.de nog niet geïndexeerd heeft voor freetext "pano"
+# URL 2: Q3 Sportback hybrid (freetext) — alleen doorsturen als beschrijving panoramadak bevat
+# URL 3: ALLE Q3 hybrids (catch-all, geen freetext) — filter op "sportback" in titel/beschrijving + pano check
+#         Vangt Sportback listings die mobile.de nog niet geïndexeerd heeft voor freetext
 MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
@@ -88,8 +88,9 @@ MOBILE_DE_SEARCH_URLS = [
             "&ml=%3A80000&ms=1900%3B37&od=down"
             "&p=%3A40000&s=Car&sb=doc&vc=Car"
         ),
-        "label": "Q3 alle (pano check)",
+        "label": "Q3 Sportback catch-all (pano check)",
         "require_pano_in_desc": True,
+        "require_text": "sportback",
     },
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
@@ -1515,6 +1516,7 @@ def main():
         search_url = search_cfg["url"]
         url_label = search_cfg["label"]
         require_pano = search_cfg["require_pano_in_desc"]
+        require_text = search_cfg.get("require_text", "")
 
         log.info("━━━ %s ━━━", url_label)
 
@@ -1529,6 +1531,10 @@ def main():
         for lst in mobile_listings:
             if lst.id in seen_ids:
                 log.info("[%s] Overgeslagen (al in andere URL): %s", url_label, lst.title[:40])
+                continue
+            # Filter op vereiste tekst in titel of beschrijving
+            if require_text and require_text.lower() not in (lst.title + " " + lst.description).lower():
+                log.info("[%s] Overgeslagen (geen '%s' in titel/beschrijving): %s", url_label, require_text, lst.title[:40])
                 continue
             seen_ids.add(lst.id)
             # Tag listing met require_pano flag voor AI check later
