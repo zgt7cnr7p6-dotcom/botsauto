@@ -1234,9 +1234,10 @@ def main():
         all_listings = scored
 
     for listing in all_listings:
-        # Skip listings waar AI scoring mislukt is
+        # Als AI scoring mislukt is, opslaan in DB zodat we 'm niet elke run opnieuw proberen
         if listing.score < 0:
             log.warning("Listing overgeslagen (AI scoring mislukt): %s", listing.title[:40])
+            save_listing(conn, listing)
             continue
 
         is_new = not listing_exists(conn, listing.id)
