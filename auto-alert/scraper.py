@@ -265,6 +265,85 @@ def is_q3_hybrid(title: str, description: str = "", fuel_type: str = "") -> bool
     return any(re.search(p, desc_lower) for p in desc_hybrid_patterns)
 
 
+# ── HTML cleaning ─────────────────────────────────────────────────────────
+
+
+def clean_detail_html(soup: BeautifulSoup) -> str:
+    """Strip cookie consent, navigatie, footer en andere rommel uit detail page HTML.
+
+    Retourneert schone platte tekst met alleen de advertentie-inhoud.
+    """
+    # Verwijder bekende rommel-elementen
+    selectors_to_remove = [
+        # Cookie / consent banners
+        "[id*='usercentrics']",
+        "[id*='cookie']",
+        "[class*='cookie']",
+        "[id*='consent']",
+        "[class*='consent']",
+        "[id*='gdpr']",
+        "[class*='gdpr']",
+        "[id*='onetrust']",
+        "[class*='onetrust']",
+        "[id*='CybotCookiebot']",
+        # Navigatie
+        "nav",
+        "header",
+        "[role='navigation']",
+        "[class*='nav-bar']",
+        "[class*='navbar']",
+        "[class*='topbar']",
+        "[class*='top-bar']",
+        # Footer
+        "footer",
+        "[role='contentinfo']",
+        "[class*='footer']",
+        # Advertenties / banners
+        "[class*='ad-banner']",
+        "[class*='advert']",
+        "[id*='sponsored']",
+        # mobile.de specifiek
+        "[class*='seller-info']",
+        "[class*='financing']",
+        "[class*='leasing']",
+        "[class*='insurance']",
+        "[class*='similar-cars']",
+        "[class*='recommendation']",
+    ]
+    for selector in selectors_to_remove:
+        for el in soup.select(selector):
+            el.decompose()
+
+    # Verwijder script en style tags
+    for tag in soup.find_all(["script", "style", "noscript", "iframe"]):
+        tag.decompose()
+
+    body_text = soup.get_text(separator=" ", strip=True)
+
+    # Verwijder bekende GDPR/consent tekstblokken die soms in de tekst achterblijven
+    gdpr_patterns = [
+        # Duits consent blok
+        r"wir benötigen ihre einwilligung.*?(?:einverstanden|ablehnen|einstellungen verwalten)",
+        # Impressum / datenschutz navibar tekst
+        r"impressum\s+datenschutz\s+cookie-erklärung.*?(?:anmelden|parkplatz|meine suchen)",
+        # mobile.de navigatie tekst
+        r"suchen\s+leasing\s+auto\s+leasen.*?(?:anmelden|parkplatz)",
+        # Partner consent tekst
+        r"wir arbeiten mit \d+ partnern zusammen.*?(?:einverstanden|ablehnen)",
+        # Speichern von informationen blok
+        r"speichern von oder zugriff auf informationen.*?(?:verarbeitungszwecke|verbesserung von angeboten)",
+        # Personalisierte werbung blok
+        r"personalisierte werbung und inhalte.*?(?:verbesserung von angeboten|entwicklung und verbesserung)",
+    ]
+    for pat in gdpr_patterns:
+        body_text = re.sub(pat, " ", body_text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Meerdere spaties samenvoegen
+    body_text = re.sub(r"\s{2,}", " ", body_text).strip()
+
+    return body_text
+
+
 # ── Feature scoring ────────────────────────────────────────────────────────
 
 
@@ -332,8 +411,8 @@ FEATURE_PATTERNS = {
         r"audi\s*area\s*view",
         r"assist[ae]nz.?paket\s*park",
         r"top\s*view",
-        r"360.*kamera",
-        r"kamera.*360",
+        r"360.{0,15}kamera",
+        r"kamera.{0,15}360",
     ],
     "s_line": [
         r"s[\s-]?line",
@@ -343,9 +422,9 @@ FEATURE_PATTERNS = {
     "s_line_exterieur": [
         r"s[\s-]?line\s*ext",
         r"s-line\s*ext",
-        r"s[\s-]?line.*au[ßs]en",
-        r"s[\s-]?line.*paket\s*ext",
-        r"ext.*s[\s-]?line",
+        r"s[\s-]?line.{0,30}au[ßs]en",
+        r"s[\s-]?line.{0,20}paket\s*ext",
+        r"ext.{0,20}s[\s-]?line",
         r"s[\s-]?line\s*(?:sport)?paket",
     ],
     "matrix_led": [
@@ -354,7 +433,7 @@ FEATURE_PATTERNS = {
         r"matrix[\s-]*scheinwerfer",
         r"led[\s-]*matrix",
         r"matrixbeam",
-        r"digital.*matrix",
+        r"digital.{0,15}matrix",
     ],
     "velgen_19_20": [
         r"(?:19|20)[\s-]*zoll",
@@ -364,7 +443,9 @@ FEATURE_PATTERNS = {
         r"felgen\s*(?:19|20)",
         r"(?:19|20)['″\"]?\s*alu",
         r"leichtmetallfelgen\s*(?:19|20)",
-        r"(?:19|20).*leichtmetall",
+        r"leichtmetall.{0,20}(?:19|20)",
+        r"lm[\s-]*felgen\s*(?:19|20)",
+        r"(?:19|20)\s*(?:zoll|inch|\")\s*(?:leichtmetall|lm|alu)",
     ],
     "audio_premium": [
         r"bang[\s&+]*olufsen",
@@ -376,9 +457,9 @@ FEATURE_PATTERNS = {
     ],
     "elektrische_stoelen": [
         r"elektrische?\s*stoel",
-        r"elektr.*sitz.*verstellung",
+        r"elektr.{0,10}sitz.{0,10}verstellung",
         r"el\.\s*sitz\s*verstellung",
-        r"sitzverstellung.*elektr",
+        r"sitzverstellung.{0,10}elektr",
         r"power\s*seat",
         r"electric\s*seat",
         r"elektrisch\s*verstelba",
@@ -390,8 +471,8 @@ FEATURE_PATTERNS = {
     "stoelen_memory": [
         r"memory\s*(?:sitze?|paket|funktion|seat)?",
         r"memory\s*stoel",
-        r"sitz.*memory",
-        r"stoel.*memory",
+        r"sitz.{0,20}memory",
+        r"stoel.{0,20}memory",
     ],
     "stoelverwarming": [
         r"stoel\s*verwarming",
@@ -400,11 +481,11 @@ FEATURE_PATTERNS = {
         r"sitzheizung\s*vorn",
         r"verwarmde?\s*stoel",
         r"beheizbare?\s*sitz",
-        r"beheizt.*sitz",
-        r"sitz.*beheizt",
+        r"beheizt.{0,20}sitz",
+        r"sitz.{0,20}beheizt",
         r"heated\s*seat",
         r"business.?paket",
-        r"sitz.*u\.?\s*spiegel\s*heizung",
+        r"sitz.{0,10}u\.?\s*spiegel\s*heizung",
         r"sitz[\s-]*u[\.\s]*spiegelheizung",
     ],
     "stuurverwarming": [
@@ -412,12 +493,12 @@ FEATURE_PATTERNS = {
         r"lenkrad\s*heizung",
         r"lenkradheizung",
         r"stuur\s*verwarming",
-        r"verwarm.*stuur",
+        r"verwarm.{0,20}stuur",
         r"heated\s*steering",
         r"beheizbares?\s*lenkrad",
-        r"beheizbar.*lenkrad",
-        r"lenkrad.*beheiz",
-        r"multifunktionslenkrad.*heiz",
+        r"beheizbar.{0,20}lenkrad",
+        r"lenkrad.{0,30}beheiz",
+        r"lenkrad.{0,60}heiz(?:ung|bar|t)",
     ],
     "acc": [
         r"abstands?\s*tempo\s*mat",
@@ -428,7 +509,7 @@ FEATURE_PATTERNS = {
         r"distronic",
         r"abstands\s*regel\s*tempomat",
         r"adaptive?\s*geschwindigkeits\s*regel",
-        r"adaptiv.*fahr\s*assist",
+        r"adaptiv.{0,15}fahr\s*assist",
         r"adaptiver\s*fahr\s*assistent",
         r"geschwindigkeits\s*regel\s*anlage",
         r"assist[ae]nz.?paket\s*tour",
@@ -443,14 +524,14 @@ FEATURE_PATTERNS = {
         r"spurf[üu]hrungsassist",
         r"spur\s*verlassens?\s*warn",
         r"spurverlassenswarnung",
-        r"adaptiv.*fahr\s*assist",
+        r"adaptiv.{0,15}fahr\s*assist",
         r"adaptiver\s*fahr\s*assistent",
         r"fahrassistent",
         r"assist[ae]nz.?paket\s*tour",
     ],
     "travel_assist": [
         r"adaptiver\s*fahr\s*assistent",
-        r"adaptiv.*fahr\s*assist",
+        r"adaptiv.{0,15}fahr\s*assist",
         r"adaptive\s*cruise\s*assist",
         r"adaptiver\s*fahr\s*assistent\s*inkl",
         r"lenk[\s-]+und\s*spurf[üu]hrungs?\s*assist",
@@ -462,15 +543,15 @@ FEATURE_PATTERNS = {
         r"rijmodus",
         r"fahrprofil",
         r"fahrdynamik\s*regelung",
-        r"modi.*individuell",
+        r"modi.{0,20}individuell",
         r"dynamic\s*mode",
         r"fahrprogramm",
-        r"comfort.*dynamic.*auto.*individual",
+        r"comfort.{0,15}dynamic.{0,15}auto.{0,15}individual",
         r"fahr\s*modi",
     ],
     "adaptief_onderstel": [
-        r"adaptie[fv].*onderstel",
-        r"adaptiv.*fahrwerk",
+        r"adaptie[fv].{0,15}onderstel",
+        r"adaptiv.{0,15}fahrwerk",
         r"adaptive[s]?\s*fahrwerk",
         r"damper\s*control",
         r"magnetic\s*ride",
@@ -515,31 +596,31 @@ FEATURE_PATTERNS = {
         r"innenraum\s*beleuchtung\s*plus",
         r"ambiente\s*beleuchtung",
         r"ambient\s*lighting",
-        r"kontur.*ambiente.*licht",
-        r"ambiente.*licht.*paket",
-        r"licht\s*paket.*ambiente",
+        r"kontur.{0,20}ambiente.{0,15}licht",
+        r"ambiente.{0,15}licht.{0,15}paket",
+        r"licht\s*paket.{0,15}ambiente",
         r"ambiente\s*licht\s*paket\s*plus",
-        r"mehrfarbig.*ambiente",
-        r"ambiente.*mehrfarbig",
+        r"mehrfarbig.{0,15}ambiente",
+        r"ambiente.{0,15}mehrfarbig",
         r"konturfarbenes?\s*ambiente",
-        r"ambiente.*innenraumbeleuchtung",
+        r"ambiente.{0,20}innenraumbeleuchtung",
     ],
     "elektrische_achterklep": [
-        r"elektr.*heckklappe",
-        r"heckklappe.*elektr",
+        r"elektr.{0,15}heckklappe",
+        r"heckklappe.{0,10}elektr",
         r"elektrische?\s*achterklep",
         r"power\s*tailgate",
-        r"elektr.*kofferraum.*klappe",
+        r"elektr.{0,15}kofferraum.{0,10}klappe",
         r"automatische?\s*heckklappe",
         r"sensorgesteuerte?\s*heckklappe",
         r"komfort\s*heckklappe",
-        r"heck.*klappe.*komfort",
+        r"heck.{0,10}klappe.{0,15}komfort",
         r"elektr\.\s*heckkl",
         r"heckklappe\s*elektr",
     ],
     "optik_pakket_zwart": [
         r"optik\s*paket\s*schwarz",
-        r"schwarz.*optik\s*paket",
+        r"schwarz.{0,15}optik\s*paket",
         r"black\s*(?:optic|style)\s*(?:paket|pack)",
         r"optik\s*pakket\s*zwart",
         r"zwart\s*optik",
@@ -547,21 +628,21 @@ FEATURE_PATTERNS = {
         r"black\s*edition",
         r"black\s*paket",
         r"schwarzpaket",
-        r"schwarz.*anbauteile",
+        r"schwarz.{0,15}anbauteile",
     ],
     "dynamisch_knipperlicht": [
-        r"dynamisch.*blink",
+        r"dynamisch.{0,20}blink",
         r"dynamische[sr]?\s*blinker",
         r"dynamisches?\s*blinklicht",
         r"dynamic\s*(?:turn\s*)?(?:signal|indicator|blinker)",
-        r"dynamisch.*knipper",
+        r"dynamisch.{0,15}knipper",
         r"lauflicht",
-        r"lauf.*blinker",
+        r"lauf.{0,10}blinker",
         r"scrollblinker",
-        r"scroll.*blinker",
-        r"wisch.*blinker",
+        r"scroll.{0,10}blinker",
+        r"wisch.{0,10}blinker",
         r"flowing\s*(?:turn\s*)?(?:indicator|signal)",
-        r"sequen(?:z|t).*blinker",
+        r"sequen(?:z|t).{0,10}blinker",
     ],
 }
 
@@ -612,7 +693,8 @@ def score_listing_regex(listing: Listing) -> Listing:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
                 found.append(feature)
-                log.info("[REGEX] Feature '%s' gevonden via '%s' => '%s'", feature, pat, m.group())
+                match_text = m.group()[:60]  # Beperk log output
+                log.info("[REGEX] Feature '%s' gevonden via '%s' => '%s'", feature, pat, match_text)
                 break
     # 360° camera impliceert altijd achteruitrijcamera
     if "camera_360" in found and "camera_achteruit" not in found:
@@ -795,7 +877,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5",
             max_tokens=500,
             temperature=0,
             messages=[
@@ -1449,7 +1531,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                     lst = listings[idx]
                     if detail_html and len(detail_html) > 5000:
                         detail_soup = BeautifulSoup(detail_html, "html.parser")
-                        body_text = detail_soup.get_text(separator=" ", strip=True)
+                        body_text = clean_detail_html(detail_soup)
                         if len(body_text) > 100:
                             lst.description = body_text[:20000]
                             log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
