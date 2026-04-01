@@ -1149,31 +1149,32 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
 # ── Main ────────────────────────────────────────────────────────────────────
 
 
-def main():
-    # Quiet hours: niet scrapen tussen 20:00 en 08:00 CET, behalve om 00:30
-    force = "--force" in sys.argv or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-    if not force:
-        now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
-        hour = now_cet.hour
-        minute = now_cet.minute
-        is_night_scan = (hour == 0 and 25 <= minute <= 40)
-        if not is_night_scan and (hour >= 20 or hour < 8):
-            log.info("Quiet hours (%02d:%02d CET) — overslaan (actief 08:00-20:00 + 00:30)", hour, minute)
-            return
-        if is_night_scan:
-            log.info("Nachtscan (%02d:%02d CET)", hour, minute)
-    else:
-        log.info("--force: quiet hours overgeslagen")
-
-    log.info("=== Auto-Alert Scraper gestart ===")
-    log.info(
-        "Zoekcriteria: %s (%s), max €%s, land: %s",
-        SEARCH_CRITERIA["model"],
-        SEARCH_CRITERIA["fuel"],
-        f"{SEARCH_CRITERIA['price_max']:,}",
-        SEARCH_CRITERIA["country"],
+def send_failure_alert(error_msg: str, attempt: int, max_attempts: int):
+    """Stuur Telegram alert als de scraper faalt."""
+    if DRY_RUN or not TELEGRAM_BOT_TOKEN:
+        return
+    now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
+    text = (
+        "🚨 <b>SCRAPER GEFAALD</b>\n\n"
+        f"De auto-alert scraper is gecrasht na {attempt}/{max_attempts} pogingen.\n\n"
+        f"<b>Fout:</b> <code>{error_msg[:500]}</code>\n\n"
+        f"🕐 {now_cet.strftime('%d-%m-%Y %H:%M:%S')} CET\n\n"
+        "⚠️ Er worden GEEN nieuwe listings gemonitord tot de volgende scheduled run!"
     )
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    try:
+        req_lib.post(url, json={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }, timeout=15)
+    except Exception:
+        log.error("Kon ook geen failure alert sturen via Telegram")
 
+
+def _run_scrape():
+    """Core scrape logica — kan geretried worden bij fouten."""
     if not SCRAPE_DO_TOKEN:
         log.error("SCRAPE_DO_TOKEN niet geconfigureerd — kan niet scrapen")
         return
@@ -1279,6 +1280,54 @@ def main():
         new_count,
         alert_count,
     )
+
+
+MAX_RETRIES = 3
+RETRY_BACKOFF = [10, 30, 60]  # seconden wachten tussen retries
+
+
+def main():
+    # Quiet hours: niet scrapen tussen 20:00 en 08:00 CET, behalve om 00:30
+    force = "--force" in sys.argv or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    if not force:
+        now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
+        hour = now_cet.hour
+        minute = now_cet.minute
+        is_night_scan = (hour == 0 and 25 <= minute <= 40)
+        if not is_night_scan and (hour >= 20 or hour < 8):
+            log.info("Quiet hours (%02d:%02d CET) — overslaan (actief 08:00-20:00 + 00:30)", hour, minute)
+            return
+        if is_night_scan:
+            log.info("Nachtscan (%02d:%02d CET)", hour, minute)
+    else:
+        log.info("--force: quiet hours overgeslagen")
+
+    log.info("=== Auto-Alert Scraper gestart ===")
+    log.info(
+        "Zoekcriteria: %s (%s), max €%s, land: %s",
+        SEARCH_CRITERIA["model"],
+        SEARCH_CRITERIA["fuel"],
+        f"{SEARCH_CRITERIA['price_max']:,}",
+        SEARCH_CRITERIA["country"],
+    )
+
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            _run_scrape()
+            return  # succes — klaar
+        except Exception as exc:
+            last_error = exc
+            log.error("Poging %d/%d GEFAALD: %s", attempt, MAX_RETRIES, exc, exc_info=True)
+            if attempt < MAX_RETRIES:
+                wait = RETRY_BACKOFF[attempt - 1]
+                log.info("Retry over %d seconden...", wait)
+                time.sleep(wait)
+
+    # Alle pogingen gefaald
+    log.error("ALLE %d POGINGEN GEFAALD — scraper run mislukt!", MAX_RETRIES)
+    send_failure_alert(str(last_error), MAX_RETRIES, MAX_RETRIES)
+    sys.exit(1)
 
 
 if __name__ == "__main__":
