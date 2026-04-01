@@ -7,7 +7,7 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
     print("❌ ANTHROPIC_API_KEY niet gezet")
     sys.exit(1)
 
-from scraper import Listing, score_listing_ai, score_listing_regex, score_listing, FEATURE_DISPLAY_NAMES, FULL_OPTION_FEATURES, MUST_HAVE_FEATURES
+from scraper import Listing, score_listing, FEATURE_DISPLAY_NAMES, FULL_OPTION_FEATURES, MUST_HAVE_FEATURES
 
 
 def run_test(label, listing, require_pano=False, expected_true=None, expected_false=None):

@@ -273,67 +273,52 @@ def clean_detail_html(soup: BeautifulSoup) -> str:
 
     Retourneert schone platte tekst met alleen de advertentie-inhoud.
     """
+    # Verwijder script, style en onzichtbare elementen
+    for tag in soup.find_all(["script", "style", "noscript", "iframe", "svg"]):
+        tag.decompose()
+
     # Verwijder bekende rommel-elementen
     selectors_to_remove = [
         # Cookie / consent banners
-        "[id*='usercentrics']",
-        "[id*='cookie']",
-        "[class*='cookie']",
-        "[id*='consent']",
-        "[class*='consent']",
-        "[id*='gdpr']",
-        "[class*='gdpr']",
-        "[id*='onetrust']",
-        "[class*='onetrust']",
+        "[id*='usercentrics']", "[id*='cookie']", "[class*='cookie']",
+        "[id*='consent']", "[class*='consent']",
+        "[id*='gdpr']", "[class*='gdpr']",
+        "[id*='onetrust']", "[class*='onetrust']",
         "[id*='CybotCookiebot']",
-        # Navigatie
-        "nav",
-        "header",
-        "[role='navigation']",
-        "[class*='nav-bar']",
-        "[class*='navbar']",
-        "[class*='topbar']",
-        "[class*='top-bar']",
+        # Navigatie & header
+        "nav", "header",
+        "[role='navigation']", "[role='banner']",
+        "[class*='nav-bar']", "[class*='navbar']",
+        "[class*='topbar']", "[class*='top-bar']",
+        "[class*='breadcrumb']",
         # Footer
-        "footer",
-        "[role='contentinfo']",
-        "[class*='footer']",
+        "footer", "[role='contentinfo']", "[class*='footer']",
         # Advertenties / banners
-        "[class*='ad-banner']",
-        "[class*='advert']",
-        "[id*='sponsored']",
+        "[class*='ad-banner']", "[class*='advert']", "[id*='sponsored']",
+        "[class*='banner']",
         # mobile.de specifiek
-        "[class*='seller-info']",
-        "[class*='financing']",
-        "[class*='leasing']",
-        "[class*='insurance']",
-        "[class*='similar-cars']",
-        "[class*='recommendation']",
+        "[class*='seller-info']", "[class*='dealer-info']",
+        "[class*='financing']", "[class*='leasing']", "[class*='insurance']",
+        "[class*='similar-cars']", "[class*='recommendation']",
+        "[class*='cross-sell']", "[class*='upsell']",
+        "[data-testid='sharing']", "[data-testid='social']",
     ]
     for selector in selectors_to_remove:
         for el in soup.select(selector):
             el.decompose()
 
-    # Verwijder script en style tags
-    for tag in soup.find_all(["script", "style", "noscript", "iframe"]):
-        tag.decompose()
-
     body_text = soup.get_text(separator=" ", strip=True)
 
-    # Verwijder bekende GDPR/consent tekstblokken die soms in de tekst achterblijven
+    # Verwijder GDPR/consent tekstblokken die soms in de tekst achterblijven
     gdpr_patterns = [
-        # Duits consent blok
         r"wir benötigen ihre einwilligung.*?(?:einverstanden|ablehnen|einstellungen verwalten)",
-        # Impressum / datenschutz navibar tekst
         r"impressum\s+datenschutz\s+cookie-erklärung.*?(?:anmelden|parkplatz|meine suchen)",
-        # mobile.de navigatie tekst
         r"suchen\s+leasing\s+auto\s+leasen.*?(?:anmelden|parkplatz)",
-        # Partner consent tekst
         r"wir arbeiten mit \d+ partnern zusammen.*?(?:einverstanden|ablehnen)",
-        # Speichern von informationen blok
         r"speichern von oder zugriff auf informationen.*?(?:verarbeitungszwecke|verbesserung von angeboten)",
-        # Personalisierte werbung blok
         r"personalisierte werbung und inhalte.*?(?:verbesserung von angeboten|entwicklung und verbesserung)",
+        # Navigatie-tekst die soms overblijft
+        r"(?:auto|fahrzeug)bewertung\s+mehr erfahren.*?(?:anmelden|parkplatz)",
     ]
     for pat in gdpr_patterns:
         body_text = re.sub(pat, " ", body_text, flags=re.IGNORECASE | re.DOTALL)
@@ -346,40 +331,6 @@ def clean_detail_html(soup: BeautifulSoup) -> str:
 
 # ── Feature scoring ────────────────────────────────────────────────────────
 
-
-def parse_color(text: str) -> str:
-    """Extraheer de exterieur kleur uit een beschrijving."""
-    for pat in [
-        r"Au[ßs]en\s*farbe[:\s]+([A-ZÄÖÜa-zäöüß][\w\s-]{2,30})",
-        r"Farbe[:\s]+([A-ZÄÖÜa-zäöüß][\w\s-]{2,30})",
-        r"Exterieur\s*farbe[:\s]+([A-ZÄÖÜa-zäöüß][\w\s-]{2,30})",
-        r"Lack(?:ierung)?[:\s]+([A-ZÄÖÜa-zäöüß][\w\s-]{2,30})",
-        r"colour?[:\s]+([A-Za-z][\w\s-]{2,30})",
-        r"color[:\s]+([A-Za-z][\w\s-]{2,30})",
-    ]:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            color = m.group(1).strip().rstrip(".,;")
-            if len(color) > 2 and not any(w in color.lower() for w in ["fahrzeug", "ausstattung", "technisch"]):
-                return color
-
-    known_colors = [
-        "Mythos Schwarz", "Nano Grau", "Chronos Grau", "Glacier Wei",
-        "Turbo Blau", "Pulse Orange", "Atoll Blau", "Florett Silber",
-        "Manhattangrau", "Manhattan Grau", "Daytona Grau", "Perleffekt",
-        "Schwarz", "Weiss", "Weiß", "Grau", "Silber", "Blau", "Rot",
-        "Grün", "Braun", "Orange", "Metallic",
-    ]
-    text_lower = text.lower()
-    for color in known_colors:
-        if color.lower() in text_lower:
-            idx = text_lower.index(color.lower())
-            snippet = text[max(0, idx):idx + 40].strip()
-            words = snippet.split()[:4]
-            result = " ".join(words).rstrip(".,;")
-            if len(result) > 2:
-                return result
-    return ""
 
 
 # ── Claude AI scoring ─────────────────────────────────────────────────────
@@ -472,6 +423,8 @@ Bepaal voor elk true of false:
 23. optik_pakket_zwart — Optikpaket Schwarz/Black Style/Black Edition
 24. dynamisch_knipperlicht — Dynamischer Blinker/dynamisches Blinklicht/Lauflicht
 
+25. color — Exterieur kleur van de auto (bijv. "Navarrablau Metallic", "Mythos Schwarz", "Glacier Weiß"). Zoek naar: Farbe, Außenfarbe, Lackierung, Metallic-Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
+
 Antwoord ALLEEN met JSON, geen uitleg:
 {
   "panoramadak": false,
@@ -497,7 +450,8 @@ Antwoord ALLEEN met JSON, geen uitleg:
   "ambient_lighting": false,
   "elektrische_achterklep": false,
   "optik_pakket_zwart": false,
-  "dynamisch_knipperlicht": false
+  "dynamisch_knipperlicht": false,
+  "color": ""
 }"""
 
 
@@ -571,7 +525,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         listing.score = len([f for f in found if f in FULL_OPTION_FEATURES])
 
         if not listing.color:
-            listing.color = parse_color(listing.description)
+            listing.color = features_dict.get("color", "")
 
         missing = [f for f in FULL_OPTION_FEATURES if f not in found]
         log.info(

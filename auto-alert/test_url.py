@@ -18,7 +18,7 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
     sys.exit(1)
 
 from scraper import (
-    scrape_do_fetch, score_listing, Listing,
+    scrape_do_fetch, score_listing, clean_detail_html, Listing,
     FULL_OPTION_FEATURES, FEATURE_DISPLAY_NAMES, MUST_HAVE_FEATURES,
 )
 from bs4 import BeautifulSoup
@@ -70,8 +70,8 @@ def test_url(url: str):
         return
 
     soup = BeautifulSoup(html, "html.parser")
-    body_text = soup.get_text(separator=" ", strip=True)
-    print(f"📄 Body text: {len(body_text)} chars")
+    body_text = clean_detail_html(soup)
+    print(f"📄 Body text (cleaned): {len(body_text)} chars")
 
     if len(body_text) < 100:
         print("⚠️  Body text te kort — pagina niet goed geladen")
