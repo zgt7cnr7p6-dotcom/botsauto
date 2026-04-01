@@ -877,7 +877,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model="claude-haiku-4-5",
+            model="claude-haiku-4-5-20251001",
             max_tokens=500,
             temperature=0,
             messages=[
