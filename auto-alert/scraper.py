@@ -1089,9 +1089,9 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
         # Usercentrics gebruikt Shadow DOM — gewone CSS selectors werken niet.
         # We moeten via JavaScript in de Shadow DOM de accept button klikken.
         CONSENT_ACTIONS = [
-            {"Action": "Wait", "Timeout": 1500},
+            {"Action": "Wait", "Timeout": 3000},
             {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
-            {"Action": "Wait", "Timeout": 1000},
+            {"Action": "Wait", "Timeout": 2000},
         ]
 
         def _fetch_detail(idx_url):
@@ -1100,11 +1100,11 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             if clean_url != url:
                 log.info("Detail URL gecleaned: %s", clean_url[:80])
             html = scrape_do_fetch(
-                clean_url, render=True, super_mode=True, retries=1, timeout=45,
-                render_wait=3000, geo_code="de", play_with_browser=CONSENT_ACTIONS,
+                clean_url, render=True, super_mode=True, retries=1, timeout=60,
+                render_wait=5000, geo_code="de", play_with_browser=CONSENT_ACTIONS,
             )
-            # Als response te klein is (consent wall niet weg), max 2 retries
-            retry_config = [(2, 5000), (4, 8000)]
+            # Als response te klein is (consent wall niet weg), max 3 retries
+            retry_config = [(3, 8000), (6, 10000), (10, 12000)]
             for attempt, (wait, rw) in enumerate(retry_config, 1):
                 if not html or len(html) >= 5000:
                     break
@@ -1112,7 +1112,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                          len(html), attempt, len(retry_config), wait, rw, clean_url[:80])
                 time.sleep(wait)
                 html = scrape_do_fetch(
-                    clean_url, render=True, super_mode=True, retries=0, timeout=60,
+                    clean_url, render=True, super_mode=True, retries=0, timeout=90,
                     render_wait=rw, geo_code="de", play_with_browser=CONSENT_ACTIONS,
                 )
             return idx, html
