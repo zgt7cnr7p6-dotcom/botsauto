@@ -543,13 +543,23 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         return None
 
 
-def score_listing(listing: Listing) -> Listing:
-    """Score listing via Claude AI."""
-    result = score_listing_ai(listing)
-    if result is not None:
-        return result
+AI_SCORE_RETRIES = 3
+AI_SCORE_RETRY_WAIT = [3, 8]  # seconden wachten tussen retries
 
-    log.error("AI scoring mislukt voor %s — listing wordt overgeslagen", listing.id[:30])
+
+def score_listing(listing: Listing) -> Listing:
+    """Score listing via Claude AI met retry."""
+    for attempt in range(1, AI_SCORE_RETRIES + 1):
+        result = score_listing_ai(listing)
+        if result is not None:
+            return result
+        if attempt < AI_SCORE_RETRIES:
+            wait = AI_SCORE_RETRY_WAIT[attempt - 1]
+            log.warning("[AI] Poging %d/%d mislukt voor %s — retry over %ds",
+                        attempt, AI_SCORE_RETRIES, listing.id[:30], wait)
+            time.sleep(wait)
+
+    log.error("AI scoring mislukt na %d pogingen voor %s", AI_SCORE_RETRIES, listing.id[:30])
     listing.score = -1  # Markeer als niet-gescoord
     return listing
 
@@ -1235,10 +1245,9 @@ def _run_scrape():
         all_listings = scored
 
     for listing in all_listings:
-        # Als AI scoring mislukt is, opslaan in DB zodat we 'm niet elke run opnieuw proberen
+        # Als AI scoring mislukt is na alle retries: NIET opslaan zodat volgende run opnieuw probeert
         if listing.score < 0:
-            log.warning("Listing overgeslagen (AI scoring mislukt): %s", listing.title[:40])
-            save_listing(conn, listing)
+            log.warning("Listing overgeslagen (AI scoring mislukt na retries, wordt volgende run opnieuw geprobeerd): %s", listing.title[:40])
             continue
 
         is_new = not listing_exists(conn, listing.id)
