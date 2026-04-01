@@ -818,7 +818,7 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
             if render:
                 params["render"] = "true"
                 params["wait"] = str(render_wait)
-                params["blockResources"] = "false"
+                params["blockResources"] = "true"
                 if wait_selector:
                     params["waitSelector"] = wait_selector
                 if play_with_browser:
@@ -1089,9 +1089,9 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
         # Usercentrics gebruikt Shadow DOM — gewone CSS selectors werken niet.
         # We moeten via JavaScript in de Shadow DOM de accept button klikken.
         CONSENT_ACTIONS = [
-            {"Action": "Wait", "Timeout": 3000},
+            {"Action": "Wait", "Timeout": 1500},
             {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
-            {"Action": "Wait", "Timeout": 2000},
+            {"Action": "Wait", "Timeout": 1000},
         ]
 
         def _fetch_detail(idx_url):
@@ -1099,15 +1099,12 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             clean_url = _clean_detail_url(url)
             if clean_url != url:
                 log.info("Detail URL gecleaned: %s", clean_url[:80])
-            # render=True zodat "Show more" / features volledig geladen worden
-            # geoCode=de zodat mobile.de niet blokkeert op basis van IP-locatie
-            # playWithBrowser klikt GDPR consent wall weg
             html = scrape_do_fetch(
-                clean_url, render=True, super_mode=True, retries=1, timeout=60,
-                geo_code="de", play_with_browser=CONSENT_ACTIONS,
+                clean_url, render=True, super_mode=True, retries=1, timeout=45,
+                render_wait=3000, geo_code="de", play_with_browser=CONSENT_ACTIONS,
             )
-            # Als response te klein is (consent wall niet weg), max 3 retries
-            retry_config = [(3, 8000), (6, 10000), (10, 12000)]  # (sleep_sec, render_wait_ms)
+            # Als response te klein is (consent wall niet weg), max 2 retries
+            retry_config = [(2, 5000), (4, 8000)]
             for attempt, (wait, rw) in enumerate(retry_config, 1):
                 if not html or len(html) >= 5000:
                     break
@@ -1115,12 +1112,12 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                          len(html), attempt, len(retry_config), wait, rw, clean_url[:80])
                 time.sleep(wait)
                 html = scrape_do_fetch(
-                    clean_url, render=True, super_mode=True, retries=0, timeout=90,
+                    clean_url, render=True, super_mode=True, retries=0, timeout=60,
                     render_wait=rw, geo_code="de", play_with_browser=CONSENT_ACTIONS,
                 )
             return idx, html
 
-        with ThreadPoolExecutor(max_workers=5) as pool:
+        with ThreadPoolExecutor(max_workers=8) as pool:
             futures = {pool.submit(_fetch_detail, item): item for item in urls_to_fetch.items()}
             for future in as_completed(futures):
                 try:
@@ -1153,14 +1150,18 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
 
 
 def main():
-    # Quiet hours: niet scrapen tussen 20:00 en 08:00 CET
+    # Quiet hours: niet scrapen tussen 20:00 en 08:00 CET, behalve om 00:30
     force = "--force" in sys.argv or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     if not force:
         now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
         hour = now_cet.hour
-        if hour >= 20 or hour < 8:
-            log.info("Quiet hours (%02d:%02d CET) — overslaan (actief 08:00-20:00)", hour, now_cet.minute)
+        minute = now_cet.minute
+        is_night_scan = (hour == 0 and 25 <= minute <= 40)
+        if not is_night_scan and (hour >= 20 or hour < 8):
+            log.info("Quiet hours (%02d:%02d CET) — overslaan (actief 08:00-20:00 + 00:30)", hour, minute)
             return
+        if is_night_scan:
+            log.info("Nachtscan (%02d:%02d CET)", hour, minute)
     else:
         log.info("--force: quiet hours overgeslagen")
 
