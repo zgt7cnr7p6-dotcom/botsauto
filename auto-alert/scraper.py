@@ -347,306 +347,6 @@ def clean_detail_html(soup: BeautifulSoup) -> str:
 # ── Feature scoring ────────────────────────────────────────────────────────
 
 
-FEATURE_PATTERNS = {
-    "panoramadak": [
-        r"panorama\s*d[ao][ck]h?",
-        r"panoramadach",
-        r"pano\b",
-        r"panoramic\s*(?:roof|glass|sun\s*roof|glas\s*(?:dach|roof))?",
-        r"panorama\s*glas",
-        r"panorama\s*(?:glass\s*)?roof",
-        r"panorama\s*schie?be?\s*dach",
-        r"panorama\s*dak",
-        r"panoramaverglasung",
-        r"panorama[\-\s]schiebedach",
-        r"panorama[\-\s]glasdach",
-        r"glas\s*dach",
-        r"glasdach",
-        r"glass\s*roof",
-        r"schie?be?\s*dach",
-        r"schiebedach",
-        r"sun\s*roof",
-        r"sunroof",
-        r"schuif\s*dak",
-        r"schuifdak",
-        r"glas\s*dak",
-    ],
-    "keyless": [
-        r"keyless",
-        r"komfort\s*schl[üu]ssel",
-        r"komfortschl[üu]ssel",
-        r"komfortschl\.",
-        r"schl[üu]ssel\s*los",
-        r"convenience\s*key",
-        r"sleutel\s*loos",
-        r"kessy",
-        r"schl[üu]ssellose",
-        r"komfort\s*zugang",
-        r"komfortzugang",
-        r"advanced\s*key",
-    ],
-    "camera_achteruit": [
-        r"r[üu]ckfahr\s*kamera",
-        r"r[üu]ckfahrkamera",
-        r"rear\s*view\s*camera",
-        r"rear\s*camera",
-        r"achteruit\s*rij\s*camera",
-        r"parking\s*camera",
-        r"einpark\s*kamera",
-        r"r[üu]ck\s*kamera",
-        r"heck\s*kamera",
-    ],
-    "camera_360": [
-        r"360[\s°]*camera",
-        r"360[\s°]?grad[\s-]*kamera",
-        r"top\s*view\s*kamera",
-        r"umgebungskamera",
-        r"rundum[\s-]*kamera",
-        r"surround\s*view",
-        r"umgebungs\s*kamera",
-        r"umgebungskamera",
-        r"umgebungskameras",
-        r"4\s*kamera",
-        r"area\s*view",
-        r"audi\s*area\s*view",
-        r"assist[ae]nz.?paket\s*park",
-        r"top\s*view",
-        r"360.{0,15}kamera",
-        r"kamera.{0,15}360",
-    ],
-    "s_line": [
-        r"s[\s-]?line",
-        r"s-line",
-        r"sline",
-    ],
-    "s_line_exterieur": [
-        r"s[\s-]?line\s*ext",
-        r"s-line\s*ext",
-        r"s[\s-]?line.{0,30}au[ßs]en",
-        r"s[\s-]?line.{0,20}paket\s*ext",
-        r"ext.{0,20}s[\s-]?line",
-        r"s[\s-]?line\s*(?:sport)?paket",
-    ],
-    "matrix_led": [
-        r"matrix[\s-]*led",
-        r"matrix[\s-]*licht",
-        r"matrix[\s-]*scheinwerfer",
-        r"led[\s-]*matrix",
-        r"matrixbeam",
-        r"digital.{0,15}matrix",
-    ],
-    "velgen_19_20": [
-        r"(?:19|20)[\s-]*zoll",
-        r"(?:19|20)[\s-]*inch",
-        r"(?:19|20)\s*\"",
-        r"alufelgen\s*(?:19|20)",
-        r"felgen\s*(?:19|20)",
-        r"(?:19|20)['″\"]?\s*alu",
-        r"leichtmetallfelgen\s*(?:19|20)",
-        r"leichtmetall.{0,20}(?:19|20)",
-        r"lm[\s-]*felgen\s*(?:19|20)",
-        r"(?:19|20)\s*(?:zoll|inch|\")\s*(?:leichtmetall|lm|alu)",
-    ],
-    "audio_premium": [
-        r"bang[\s&+]*olufsen",
-        r"b[\s&+]*o\b",
-        r"b&o",
-        r"sonos",
-        r"premium\s*sound",
-        r"sonos\s*premium",
-    ],
-    "elektrische_stoelen": [
-        r"elektrische?\s*stoel",
-        r"elektr.{0,10}sitz.{0,10}verstellung",
-        r"el\.\s*sitz\s*verstellung",
-        r"sitzverstellung.{0,10}elektr",
-        r"power\s*seat",
-        r"electric\s*seat",
-        r"elektrisch\s*verstelba",
-        r"sitze?\s*elektr",
-        r"komfort\s*sitze?",
-        r"elektr\.\s*sitz\s*einstellung",
-        r"elektrische?\s*sitz\s*einstellung",
-    ],
-    "stoelen_memory": [
-        r"memory\s*(?:sitze?|paket|funktion|seat)?",
-        r"memory\s*stoel",
-        r"sitz.{0,20}memory",
-        r"stoel.{0,20}memory",
-    ],
-    "stoelverwarming": [
-        r"stoel\s*verwarming",
-        r"sitz\s*heizung",
-        r"sitzheizung",
-        r"sitzheizung\s*vorn",
-        r"verwarmde?\s*stoel",
-        r"beheizbare?\s*sitz",
-        r"beheizt.{0,20}sitz",
-        r"sitz.{0,20}beheizt",
-        r"heated\s*seat",
-        r"business.?paket",
-        r"sitz.{0,10}u\.?\s*spiegel\s*heizung",
-        r"sitz[\s-]*u[\.\s]*spiegelheizung",
-    ],
-    "stuurverwarming": [
-        r"lenkrad\s*beheizt",
-        r"lenkrad\s*heizung",
-        r"lenkradheizung",
-        r"stuur\s*verwarming",
-        r"verwarm.{0,20}stuur",
-        r"heated\s*steering",
-        r"beheizbares?\s*lenkrad",
-        r"beheizbar.{0,20}lenkrad",
-        r"lenkrad.{0,30}beheiz",
-        r"lenkrad.{0,60}heiz(?:ung|bar|t)",
-    ],
-    "acc": [
-        r"abstands?\s*tempo\s*mat",
-        r"abstandstempomat",
-        r"adaptive?\s*cruise",
-        r"acc\b",
-        r"adaptieve?\s*cruise",
-        r"distronic",
-        r"abstands\s*regel\s*tempomat",
-        r"adaptive?\s*geschwindigkeits\s*regel",
-        r"adaptiv.{0,15}fahr\s*assist",
-        r"adaptiver\s*fahr\s*assistent",
-        r"geschwindigkeits\s*regel\s*anlage",
-        r"assist[ae]nz.?paket\s*tour",
-    ],
-    "lane_assist": [
-        r"spur\s*halte\s*assist",
-        r"spurhalteassist",
-        r"lane\s*assist",
-        r"spur\s*assistent",
-        r"spurassistent",
-        r"spur\s*f[üu]hrungs?\s*assist",
-        r"spurf[üu]hrungsassist",
-        r"spur\s*verlassens?\s*warn",
-        r"spurverlassenswarnung",
-        r"adaptiv.{0,15}fahr\s*assist",
-        r"adaptiver\s*fahr\s*assistent",
-        r"fahrassistent",
-        r"assist[ae]nz.?paket\s*tour",
-    ],
-    "travel_assist": [
-        r"adaptiver\s*fahr\s*assistent",
-        r"adaptiv.{0,15}fahr\s*assist",
-        r"adaptive\s*cruise\s*assist",
-        r"adaptiver\s*fahr\s*assistent\s*inkl",
-        r"lenk[\s-]+und\s*spurf[üu]hrungs?\s*assist",
-    ],
-    "drive_select": [
-        r"drive\s*select",
-        r"audi\s*drive\s*select",
-        r"fahrmodus",
-        r"rijmodus",
-        r"fahrprofil",
-        r"fahrdynamik\s*regelung",
-        r"modi.{0,20}individuell",
-        r"dynamic\s*mode",
-        r"fahrprogramm",
-        r"comfort.{0,15}dynamic.{0,15}auto.{0,15}individual",
-        r"fahr\s*modi",
-    ],
-    "adaptief_onderstel": [
-        r"adaptie[fv].{0,15}onderstel",
-        r"adaptiv.{0,15}fahrwerk",
-        r"adaptive[s]?\s*fahrwerk",
-        r"damper\s*control",
-        r"magnetic\s*ride",
-        r"dynamic\s*chassis",
-        r"d[äa]mpfer\s*regelung",
-        r"d[äa]mpferregelung",
-        r"adaptive\s*d[äa]mpfer",
-        r"DCC",
-    ],
-    "emergency_assist": [
-        r"notbrems?\s*assist",
-        r"notbremsassist",
-        r"emergency\s*assist",
-        r"pre\s*sense",
-        r"pre-sense",
-        r"presense",
-        r"audi\s*pre\s*sense",
-        r"front\s*assist",
-        r"frontassist",
-        r"nood\s*rem\s*assist",
-        r"assist[ae]nz.?paket(?!\s*park)",
-        r"assist[ae]nz.?paket\s*tour",
-        r"notfall\s*assistent",
-    ],
-    "side_assist": [
-        r"side\s*assist",
-        r"audi\s*side\s*assist",
-        r"spur\s*wechsel\s*assist",
-        r"spurwechselassist",
-        r"totwinkel",
-        r"tot[\s-]*winkel",
-        r"dode\s*hoek",
-        r"blind\s*spot",
-    ],
-    "ambient_lighting": [
-        r"ambient[ae]?\s*beleuchtung",
-        r"ambientebeleuchtung",
-        r"ambient\s*light",
-        r"sfeer\s*verlichting",
-        r"sfeerverlichting",
-        r"contour\s*verlichting",
-        r"innenraum\s*beleuchtung\s*plus",
-        r"ambiente\s*beleuchtung",
-        r"ambient\s*lighting",
-        r"kontur.{0,20}ambiente.{0,15}licht",
-        r"ambiente.{0,15}licht.{0,15}paket",
-        r"licht\s*paket.{0,15}ambiente",
-        r"ambiente\s*licht\s*paket\s*plus",
-        r"mehrfarbig.{0,15}ambiente",
-        r"ambiente.{0,15}mehrfarbig",
-        r"konturfarbenes?\s*ambiente",
-        r"ambiente.{0,20}innenraumbeleuchtung",
-    ],
-    "elektrische_achterklep": [
-        r"elektr.{0,15}heckklappe",
-        r"heckklappe.{0,10}elektr",
-        r"elektrische?\s*achterklep",
-        r"power\s*tailgate",
-        r"elektr.{0,15}kofferraum.{0,10}klappe",
-        r"automatische?\s*heckklappe",
-        r"sensorgesteuerte?\s*heckklappe",
-        r"komfort\s*heckklappe",
-        r"heck.{0,10}klappe.{0,15}komfort",
-        r"elektr\.\s*heckkl",
-        r"heckklappe\s*elektr",
-    ],
-    "optik_pakket_zwart": [
-        r"optik\s*paket\s*schwarz",
-        r"schwarz.{0,15}optik\s*paket",
-        r"black\s*(?:optic|style)\s*(?:paket|pack)",
-        r"optik\s*pakket\s*zwart",
-        r"zwart\s*optik",
-        r"s[\s-]?line\s*black",
-        r"black\s*edition",
-        r"black\s*paket",
-        r"schwarzpaket",
-        r"schwarz.{0,15}anbauteile",
-    ],
-    "dynamisch_knipperlicht": [
-        r"dynamisch.{0,20}blink",
-        r"dynamische[sr]?\s*blinker",
-        r"dynamisches?\s*blinklicht",
-        r"dynamic\s*(?:turn\s*)?(?:signal|indicator|blinker)",
-        r"dynamisch.{0,15}knipper",
-        r"lauflicht",
-        r"lauf.{0,10}blinker",
-        r"scrollblinker",
-        r"scroll.{0,10}blinker",
-        r"wisch.{0,10}blinker",
-        r"flowing\s*(?:turn\s*)?(?:indicator|signal)",
-        r"sequen(?:z|t).{0,10}blinker",
-    ],
-}
-
-
 def parse_color(text: str) -> str:
     """Extraheer de exterieur kleur uit een beschrijving."""
     for pat in [
@@ -680,62 +380,6 @@ def parse_color(text: str) -> str:
             if len(result) > 2:
                 return result
     return ""
-
-
-def score_listing_regex(listing: Listing) -> Listing:
-    """Regex-based scoring (fallback als Claude API niet beschikbaar is)."""
-    text = f"{listing.title} {listing.description}".lower()
-    found = []
-    for feature, patterns in FEATURE_PATTERNS.items():
-        if feature not in FULL_OPTION_FEATURES:
-            continue
-        for pat in patterns:
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
-                found.append(feature)
-                match_text = m.group()[:60]  # Beperk log output
-                log.info("[REGEX] Feature '%s' gevonden via '%s' => '%s'", feature, pat, match_text)
-                break
-    # 360° camera impliceert altijd achteruitrijcamera
-    if "camera_360" in found and "camera_achteruit" not in found:
-        found.append("camera_achteruit")
-
-    # Travel Assist: ACC + lane_assist samen → travel_assist
-    if "acc" in found and "lane_assist" in found and "travel_assist" not in found:
-        found.append("travel_assist")
-        log.info("[REGEX] Travel Assist afgeleid: ACC + lane_assist beide aanwezig")
-
-    # S-line Paket/Sportpaket → altijd beide interieur + exterieur
-    if re.search(r"s[\s-]?line\s*(?:sport)?paket", text, re.IGNORECASE):
-        if "s_line" not in found:
-            found.append("s_line")
-        if "s_line_exterieur" not in found:
-            found.append("s_line_exterieur")
-            log.info("[REGEX] S-line Paket gedetecteerd → beide interieur + exterieur")
-
-    # Detecteer stoelen_memory apart (niet in score, maar wel in display)
-    has_memory = False
-    for pat in FEATURE_PATTERNS.get("stoelen_memory", []):
-        if re.search(pat, text, re.IGNORECASE):
-            has_memory = True
-            break
-    if has_memory:
-        found.append("stoelen_memory")
-
-    listing.features = found
-    listing.score = len([f for f in found if f in FULL_OPTION_FEATURES])
-
-    if not listing.color:
-        listing.color = parse_color(listing.description)
-
-    missing = [f for f in FULL_OPTION_FEATURES if f not in found]
-    if missing:
-        log.info(
-            "[REGEX] Score %d/%d %s: MISSING=%s",
-            listing.score, len(FULL_OPTION_FEATURES),
-            listing.id[:30], missing,
-        )
-    return listing
 
 
 # ── Claude AI scoring ─────────────────────────────────────────────────────
@@ -946,15 +590,14 @@ def score_listing_ai(listing: Listing) -> Listing | None:
 
 
 def score_listing(listing: Listing) -> Listing:
-    """Score listing via Claude AI, met regex als fallback."""
+    """Score listing via Claude AI."""
     result = score_listing_ai(listing)
     if result is not None:
         return result
 
-    # Fallback naar regex als AI faalt
-    if ANTHROPIC_API_KEY:
-        log.warning("AI scoring mislukt, fallback naar regex voor %s", listing.id[:30])
-    return score_listing_regex(listing)
+    log.error("AI scoring mislukt voor %s — listing wordt overgeslagen", listing.id[:30])
+    listing.score = -1  # Markeer als niet-gescoord
+    return listing
 
 
 def compute_price_score(price: int) -> str:
@@ -1587,12 +1230,6 @@ def main():
     all_listings: list[Listing] = []
     seen_ids: set[str] = set()
 
-    pano_patterns = FEATURE_PATTERNS["panoramadak"]
-
-    def has_pano_in_text(text: str) -> bool:
-        text_lower = text.lower()
-        return any(re.search(p, text_lower, re.IGNORECASE) for p in pano_patterns)
-
     # ── mobile.de ──
     for search_cfg in MOBILE_DE_SEARCH_URLS:
         search_url = search_cfg["url"]
@@ -1642,6 +1279,11 @@ def main():
         all_listings = scored
 
     for listing in all_listings:
+        # Skip listings waar AI scoring mislukt is
+        if listing.score < 0:
+            log.warning("Listing overgeslagen (AI scoring mislukt): %s", listing.title[:40])
+            continue
+
         is_new = not listing_exists(conn, listing.id)
 
         # URL 2 pano check: laat Claude AI bepalen of panoramadak aanwezig is
