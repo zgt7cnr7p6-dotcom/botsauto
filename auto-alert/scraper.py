@@ -1104,6 +1104,9 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             {"Action": "Wait", "Timeout": 2000},
         ]
 
+        # CSS selector die aanwezig is als de detail page echt geladen is
+        DETAIL_WAIT_SELECTOR = "h1"
+
         def _fetch_detail(idx_url):
             idx, url = idx_url
             clean_url = _clean_detail_url(url)
@@ -1112,9 +1115,11 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             html = scrape_do_fetch(
                 clean_url, render=True, super_mode=True, retries=1, timeout=60,
                 render_wait=5000, geo_code="de", play_with_browser=CONSENT_ACTIONS,
+                wait_selector=DETAIL_WAIT_SELECTOR,
             )
-            # Als response te klein is (consent wall niet weg), max 3 retries
-            retry_config = [(3, 8000), (6, 10000), (10, 12000)]
+            # Als response te klein is (consent wall niet weg), max 2 retries
+            # Korte sleeps: scrape.do handelt wachttijd al af via render_wait + waitSelector
+            retry_config = [(1, 8000), (2, 10000)]
             for attempt, (wait, rw) in enumerate(retry_config, 1):
                 if not html or len(html) >= 5000:
                     break
@@ -1124,6 +1129,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 html = scrape_do_fetch(
                     clean_url, render=True, super_mode=True, retries=0, timeout=90,
                     render_wait=rw, geo_code="de", play_with_browser=CONSENT_ACTIONS,
+                    wait_selector=DETAIL_WAIT_SELECTOR,
                 )
             return idx, html
 
