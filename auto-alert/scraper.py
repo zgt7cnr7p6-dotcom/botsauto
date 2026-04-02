@@ -801,7 +801,7 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None) -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None, session_id: str = "", set_cookies: str = "", custom_headers: dict | None = None, device: str = "", output_format: str = "") -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
     super=true activeert geavanceerde anti-bot bypass (10 credits per request).
@@ -810,6 +810,11 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
     geo_code=de routeert via een Duits IP (belangrijk voor mobile.de).
     wait_selector=".class" wacht tot een CSS element geladen is.
     play_with_browser=[...] voert browser acties uit (bijv. consent klikken).
+    session_id="abc" houdt hetzelfde IP aan (sticky session).
+    set_cookies="k=v; k2=v2" stuurt cookies mee naar target site.
+    custom_headers={"Accept-Language": "de-DE"} stuurt extra headers mee.
+    device="desktop"|"mobile" bepaalt viewport/user-agent.
+    output_format="markdown" retourneert markdown i.p.v. HTML.
     """
     if not SCRAPE_DO_TOKEN:
         log.error("SCRAPE_DO_TOKEN niet geconfigureerd")
@@ -825,6 +830,16 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 params["super"] = "true"
             if geo_code:
                 params["geoCode"] = geo_code
+            if session_id:
+                params["sessionId"] = session_id
+            if set_cookies:
+                params["setCookies"] = set_cookies
+            if device:
+                params["device"] = device
+            if custom_headers:
+                params["customHeaders"] = "true"
+            if output_format:
+                params["output"] = output_format
             if render:
                 params["render"] = "true"
                 params["wait"] = str(render_wait)
@@ -834,7 +849,12 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 if play_with_browser:
                     params["playWithBrowser"] = json.dumps(play_with_browser)
 
-            resp = req_lib.get("https://api.scrape.do", params=params, timeout=timeout)
+            # Custom headers meesturen naar target site (bijv. Accept-Language)
+            req_headers = {}
+            if custom_headers:
+                req_headers.update(custom_headers)
+
+            resp = req_lib.get("https://api.scrape.do", params=params, headers=req_headers, timeout=timeout)
             log.info("Scrape.do: status=%d, size=%d bytes voor %s",
                      resp.status_code, len(resp.content), url[:80])
 
@@ -946,8 +966,16 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
         search_url = MOBILE_DE_SEARCH_URL
 
     # Direct super mode — standaard modus geeft altijd 502 op mobile.de
-    log.info("mobile.de: zoekpagina ophalen ...")
-    html = scrape_do_fetch(search_url, super_mode=True, retries=1, geo_code="de")
+    # sessionId: zelfde IP voor search + details (minder verdacht)
+    # customHeaders: Accept-Language de-DE voor Duitse content
+    # device=desktop: forceer desktop layout (mobile toont minder data)
+    session = f"mobile_{abs(hash(search_url)) % 10000}"
+    log.info("mobile.de: zoekpagina ophalen (session=%s) ...", session)
+    html = scrape_do_fetch(
+        search_url, super_mode=True, retries=1, geo_code="de",
+        session_id=session, device="desktop",
+        custom_headers={"Accept-Language": "de-DE,de;q=0.9"},
+    )
 
     if not html:
         log.error("mobile.de: geen HTML ontvangen")
@@ -1095,13 +1123,17 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?id={params['id'][0]}"
             return url
 
-        # Cookie consent klik-acties voor mobile.de (Usercentrics GDPR wall)
+        # GDPR consent bypass via setCookies (Usercentrics)
+        # Door de consent cookie mee te sturen skipt mobile.de de GDPR wall.
+        # Dit is VEEL sneller dan playWithBrowser (geen 5s wachten + klikken).
+        UC_CONSENT_COOKIE = "usercentrics-cmp-consent=true"
+
+        # Fallback: cookie consent klik-acties als setCookies niet werkt
         # Usercentrics gebruikt Shadow DOM — gewone CSS selectors werken niet.
-        # We moeten via JavaScript in de Shadow DOM de accept button klikken.
-        CONSENT_ACTIONS = [
-            {"Action": "Wait", "Timeout": 3000},
-            {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
+        CONSENT_ACTIONS_FALLBACK = [
             {"Action": "Wait", "Timeout": 2000},
+            {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
+            {"Action": "Wait", "Timeout": 1500},
         ]
 
         # CSS selector die aanwezig is als de detail page echt geladen is
@@ -1112,24 +1144,30 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             clean_url = _clean_detail_url(url)
             if clean_url != url:
                 log.info("Detail URL gecleaned: %s", clean_url[:80])
+            # Eerste poging: setCookies voor GDPR bypass (snel, geen browser actie nodig)
             html = scrape_do_fetch(
                 clean_url, render=True, super_mode=True, retries=1, timeout=60,
-                render_wait=5000, geo_code="de", play_with_browser=CONSENT_ACTIONS,
+                render_wait=4000, geo_code="de",
+                set_cookies=UC_CONSENT_COOKIE,
                 wait_selector=DETAIL_WAIT_SELECTOR,
+                session_id=session, device="desktop",
+                custom_headers={"Accept-Language": "de-DE,de;q=0.9"},
             )
-            # Als response te klein is (consent wall niet weg), max 2 retries
-            # Korte sleeps: scrape.do handelt wachttijd al af via render_wait + waitSelector
-            retry_config = [(1, 8000), (2, 10000)]
+            # Als response te klein is (consent wall niet weg), fallback naar playWithBrowser
+            retry_config = [(1, 6000), (2, 10000)]
             for attempt, (wait, rw) in enumerate(retry_config, 1):
                 if not html or len(html) >= 5000:
                     break
-                log.info("Detail te klein (%d bytes), retry %d/%d na %ds (render_wait=%dms) ... %s",
-                         len(html), attempt, len(retry_config), wait, rw, clean_url[:80])
+                log.info("Detail te klein (%d bytes), retry %d/%d na %ds met playWithBrowser ... %s",
+                         len(html), attempt, len(retry_config), wait, clean_url[:80])
                 time.sleep(wait)
                 html = scrape_do_fetch(
                     clean_url, render=True, super_mode=True, retries=0, timeout=90,
-                    render_wait=rw, geo_code="de", play_with_browser=CONSENT_ACTIONS,
+                    render_wait=rw, geo_code="de",
+                    play_with_browser=CONSENT_ACTIONS_FALLBACK,
                     wait_selector=DETAIL_WAIT_SELECTOR,
+                    session_id=session, device="desktop",
+                    custom_headers={"Accept-Language": "de-DE,de;q=0.9"},
                 )
             return idx, html
 
@@ -1195,7 +1233,7 @@ def _run_scrape():
         log.error("SCRAPE_DO_TOKEN niet geconfigureerd — kan niet scrapen")
         return
 
-    log.info("Methode: Scrape.do API (super=true, DataDome bypass)")
+    log.info("Methode: Scrape.do API (super=true, DataDome bypass, sticky sessions, GDPR cookies)")
 
     conn = init_db()
 
