@@ -801,20 +801,17 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None, session_id: str = "", set_cookies: str = "", custom_headers: dict | None = None, device: str = "", output_format: str = "") -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None, set_cookies: str = "") -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
-    super=true activeert geavanceerde anti-bot bypass (10 credits per request).
-    super=false gebruikt standaard modus (1 credit per request).
-    render=true activeert JS rendering (extra credits).
-    geo_code=de routeert via een Duits IP (belangrijk voor mobile.de).
-    wait_selector=".class" wacht tot een CSS element geladen is.
-    play_with_browser=[...] voert browser acties uit (bijv. consent klikken).
-    session_id="abc" houdt hetzelfde IP aan (sticky session).
-    set_cookies="k=v; k2=v2" stuurt cookies mee naar target site.
-    custom_headers={"Accept-Language": "de-DE"} stuurt extra headers mee.
-    device="desktop"|"mobile" bepaalt viewport/user-agent.
-    output_format="markdown" retourneert markdown i.p.v. HTML.
+    Scrape.do docs: https://scrape.do/documentation/
+
+    super=true   — residential/mobile proxy, anti-bot bypass (10 credits).
+    render=true  — headless Chromium voor JS rendering.
+    geoCode=de   — Duits IP (belangrijk voor mobile.de).
+    waitSelector — wacht tot CSS element geladen is (max 10s).
+    playWithBrowser — browser acties: Click, Wait, Execute.
+    setCookies   — cookies meesturen naar target site (bijv. GDPR consent).
     """
     if not SCRAPE_DO_TOKEN:
         log.error("SCRAPE_DO_TOKEN niet geconfigureerd")
@@ -830,16 +827,8 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 params["super"] = "true"
             if geo_code:
                 params["geoCode"] = geo_code
-            if session_id:
-                params["sessionId"] = session_id
             if set_cookies:
                 params["setCookies"] = set_cookies
-            if device:
-                params["device"] = device
-            if custom_headers:
-                params["customHeaders"] = "true"
-            if output_format:
-                params["output"] = output_format
             if render:
                 params["render"] = "true"
                 params["wait"] = str(render_wait)
@@ -849,12 +838,7 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 if play_with_browser:
                     params["playWithBrowser"] = json.dumps(play_with_browser)
 
-            # Custom headers meesturen naar target site (bijv. Accept-Language)
-            req_headers = {}
-            if custom_headers:
-                req_headers.update(custom_headers)
-
-            resp = req_lib.get("https://api.scrape.do", params=params, headers=req_headers, timeout=timeout)
+            resp = req_lib.get("https://api.scrape.do", params=params, timeout=timeout)
             log.info("Scrape.do: status=%d, size=%d bytes voor %s",
                      resp.status_code, len(resp.content), url[:80])
 
@@ -966,16 +950,8 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
         search_url = MOBILE_DE_SEARCH_URL
 
     # Direct super mode — standaard modus geeft altijd 502 op mobile.de
-    # sessionId: zelfde IP voor search + details (minder verdacht)
-    # customHeaders: Accept-Language de-DE voor Duitse content
-    # device=desktop: forceer desktop layout (mobile toont minder data)
-    session = f"mobile_{abs(hash(search_url)) % 10000}"
-    log.info("mobile.de: zoekpagina ophalen (session=%s) ...", session)
-    html = scrape_do_fetch(
-        search_url, super_mode=True, retries=1, geo_code="de",
-        session_id=session, device="desktop",
-        custom_headers={"Accept-Language": "de-DE,de;q=0.9"},
-    )
+    log.info("mobile.de: zoekpagina ophalen ...")
+    html = scrape_do_fetch(search_url, super_mode=True, retries=1, geo_code="de")
 
     if not html:
         log.error("mobile.de: geen HTML ontvangen")
@@ -1109,94 +1085,109 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             continue
 
     log.info("mobile.de: %d nieuwe listings gevonden", len(listings))
+    return listings
 
-    # ── Detail pages parallel ophalen ──
-    if fetch_details and listings:
-        urls_to_fetch = {i: lst.url for i, lst in enumerate(listings) if lst.url}
-        log.info("Detail pages ophalen voor %d listings (parallel) ...", len(urls_to_fetch))
 
-        def _clean_detail_url(url: str) -> str:
-            """Strip zoekparameters van detail URL — alleen id behouden."""
-            parsed = urlparse(url)
-            params = parse_qs(parsed.query)
-            if "id" in params:
-                return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?id={params['id'][0]}"
-            return url
+# ── Detail page fetcher ──────────────────────────────────────────────────────
 
-        # GDPR consent bypass via setCookies (Usercentrics)
-        # Door de consent cookie mee te sturen skipt mobile.de de GDPR wall.
-        # Dit is VEEL sneller dan playWithBrowser (geen 5s wachten + klikken).
-        UC_CONSENT_COOKIE = "usercentrics-cmp-consent=true"
 
-        # Fallback: cookie consent klik-acties als setCookies niet werkt
-        # Usercentrics gebruikt Shadow DOM — gewone CSS selectors werken niet.
-        CONSENT_ACTIONS_FALLBACK = [
-            {"Action": "Wait", "Timeout": 2000},
-            {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
-            {"Action": "Wait", "Timeout": 1500},
-        ]
+def _clean_detail_url(url: str) -> str:
+    """Strip zoekparameters van detail URL — alleen id behouden."""
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    if "id" in params:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?id={params['id'][0]}"
+    return url
 
-        # CSS selector die aanwezig is als de detail page echt geladen is
-        DETAIL_WAIT_SELECTOR = "h1"
 
-        def _fetch_detail(idx_url):
-            idx, url = idx_url
-            clean_url = _clean_detail_url(url)
-            if clean_url != url:
-                log.info("Detail URL gecleaned: %s", clean_url[:80])
-            # Eerste poging: setCookies voor GDPR bypass (snel, geen browser actie nodig)
-            html = scrape_do_fetch(
-                clean_url, render=True, super_mode=True, retries=1, timeout=60,
-                render_wait=4000, geo_code="de",
-                set_cookies=UC_CONSENT_COOKIE,
-                wait_selector=DETAIL_WAIT_SELECTOR,
-                session_id=session, device="desktop",
-                custom_headers={"Accept-Language": "de-DE,de;q=0.9"},
-            )
-            # Als response te klein is (consent wall niet weg), fallback naar playWithBrowser
-            retry_config = [(1, 6000), (2, 10000)]
-            for attempt, (wait, rw) in enumerate(retry_config, 1):
-                if not html or len(html) >= 5000:
-                    break
-                log.info("Detail te klein (%d bytes), retry %d/%d na %ds met playWithBrowser ... %s",
-                         len(html), attempt, len(retry_config), wait, clean_url[:80])
-                time.sleep(wait)
-                html = scrape_do_fetch(
-                    clean_url, render=True, super_mode=True, retries=0, timeout=90,
-                    render_wait=rw, geo_code="de",
-                    play_with_browser=CONSENT_ACTIONS_FALLBACK,
-                    wait_selector=DETAIL_WAIT_SELECTOR,
-                    session_id=session, device="desktop",
-                    custom_headers={"Accept-Language": "de-DE,de;q=0.9"},
-                )
-            return idx, html
+# GDPR consent bypass via setCookies (Scrape.do docs: scrape.do/documentation/headers-cookies/set-cookies/)
+# Door de consent cookie mee te sturen skipt mobile.de de GDPR wall.
+# Sneller dan playWithBrowser (geen browser actie nodig).
+UC_CONSENT_COOKIE = "usercentrics-cmp-consent=true"
 
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            futures = {pool.submit(_fetch_detail, item): item for item in urls_to_fetch.items()}
-            for future in as_completed(futures):
-                try:
-                    idx, detail_html = future.result()
-                    lst = listings[idx]
-                    if detail_html and len(detail_html) > 5000:
-                        detail_soup = BeautifulSoup(detail_html, "html.parser")
-                        body_text = clean_detail_html(detail_soup)
-                        if len(body_text) > 100:
-                            lst.description = body_text[:20000]
-                            log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
-                        else:
-                            lst.detail_incomplete = True
-                            log.warning("Detail geblokkeerd: %s (body %d chars)", lst.title[:40], len(body_text))
-                    elif detail_html:
-                        log.warning("Detail te klein: %s (%d bytes)", lst.title[:40], len(detail_html))
+# Fallback: cookie consent klik-acties als setCookies niet werkt
+# Usercentrics gebruikt Shadow DOM — gewone CSS selectors werken niet.
+# Scrape.do docs: scrape.do/documentation/headless-browser/play-with-browser/
+CONSENT_ACTIONS_FALLBACK = [
+    {"Action": "Wait", "Timeout": 2000},
+    {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
+    {"Action": "Wait", "Timeout": 1500},
+]
+
+# CSS selector die aanwezig is als de detail page echt geladen is
+# Scrape.do docs: scrape.do/documentation/headless-browser/wait/
+DETAIL_WAIT_SELECTOR = "h1"
+
+
+def _fetch_single_detail(idx_url: tuple) -> tuple:
+    """Haal één detail page op: eerst met setCookies, fallback naar playWithBrowser."""
+    idx, url = idx_url
+    clean_url = _clean_detail_url(url)
+    if clean_url != url:
+        log.info("Detail URL gecleaned: %s", clean_url[:80])
+
+    # Poging 1: setCookies voor GDPR bypass (snel, geen browser actie)
+    html = scrape_do_fetch(
+        clean_url, render=True, super_mode=True, retries=1, timeout=60,
+        render_wait=4000, geo_code="de",
+        set_cookies=UC_CONSENT_COOKIE,
+        wait_selector=DETAIL_WAIT_SELECTOR,
+    )
+
+    # Fallback: playWithBrowser als setCookies de GDPR wall niet bypassed
+    retry_config = [(1, 6000), (2, 10000)]
+    for retry_attempt, (wait, rw) in enumerate(retry_config, 1):
+        if not html or len(html) >= 5000:
+            break
+        log.info("Detail te klein (%d bytes), retry %d/%d na %ds met playWithBrowser ... %s",
+                 len(html), retry_attempt, len(retry_config), wait, clean_url[:80])
+        time.sleep(wait)
+        html = scrape_do_fetch(
+            clean_url, render=True, super_mode=True, retries=0, timeout=90,
+            render_wait=rw, geo_code="de",
+            play_with_browser=CONSENT_ACTIONS_FALLBACK,
+            wait_selector=DETAIL_WAIT_SELECTOR,
+        )
+    return idx, html
+
+
+def _fetch_detail_pages(listings: list) -> list:
+    """Haal detail pages op voor listings (parallel, max 8 threads).
+
+    Muteert listings in-place: zet description + detail_incomplete.
+    """
+    urls_to_fetch = {i: lst.url for i, lst in enumerate(listings) if lst.url}
+    if not urls_to_fetch:
+        return listings
+
+    log.info("Detail pages ophalen voor %d listings (parallel) ...", len(urls_to_fetch))
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_fetch_single_detail, item): item for item in urls_to_fetch.items()}
+        for future in as_completed(futures):
+            try:
+                idx, detail_html = future.result()
+                lst = listings[idx]
+                if detail_html and len(detail_html) > 5000:
+                    detail_soup = BeautifulSoup(detail_html, "html.parser")
+                    body_text = clean_detail_html(detail_soup)
+                    if len(body_text) > 100:
+                        lst.description = body_text[:20000]
+                        log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
+                    else:
                         lst.detail_incomplete = True
-                except Exception as e:
-                    log.warning("Detail fetch fout: %s", e)
+                        log.warning("Detail geblokkeerd: %s (body %d chars)", lst.title[:40], len(body_text))
+                elif detail_html:
+                    log.warning("Detail te klein: %s (%d bytes)", lst.title[:40], len(detail_html))
+                    lst.detail_incomplete = True
+            except Exception as e:
+                log.warning("Detail fetch fout: %s", e)
 
-        # Log welke listings GEEN detail page kregen
-        for lst in listings:
-            if len(lst.description) <= 500:
-                lst.detail_incomplete = True
-                log.warning("GEEN detail page voor: %s (desc=%d chars) — scoring onbetrouwbaar!", lst.title[:50], len(lst.description))
+    # Log welke listings GEEN detail page kregen
+    for lst in listings:
+        if len(lst.description) <= 500:
+            lst.detail_incomplete = True
+            log.warning("GEEN detail page voor: %s (desc=%d chars) — scoring onbetrouwbaar!", lst.title[:50], len(lst.description))
     return listings
 
 
@@ -1233,7 +1224,7 @@ def _run_scrape():
         log.error("SCRAPE_DO_TOKEN niet geconfigureerd — kan niet scrapen")
         return
 
-    log.info("Methode: Scrape.do API (super=true, DataDome bypass, sticky sessions, GDPR cookies)")
+    log.info("Methode: Scrape.do API (super=true, DataDome bypass, setCookies GDPR)")
 
     conn = init_db()
 
@@ -1249,28 +1240,35 @@ def _run_scrape():
 
         log.info("━━━ %s ━━━", url_label)
 
-        # Altijd details ophalen voor AI scoring + pano check
-        mobile_listings = scrape_mobile_de(conn, search_url=search_url, fetch_details=True)
+        # Stap 1: Zoekpagina ophalen (snel, geen render) — geeft card-tekst
+        mobile_listings = scrape_mobile_de(conn, search_url=search_url, fetch_details=False)
 
         if mobile_listings:
             log.info("[%s] %d listings gevonden", url_label, len(mobile_listings))
         else:
             log.warning("[%s] 0 listings", url_label)
 
+        # Stap 2: Filter op require_text en seen_ids VOORDAT we dure detail pages ophalen
+        filtered = []
         for lst in mobile_listings:
             if lst.id in seen_ids:
                 log.info("[%s] Overgeslagen (al in andere URL): %s", url_label, lst.title[:40])
                 continue
-            # Filter op vereiste tekst in titel of beschrijving
+            # Filter op vereiste tekst in titel (card-tekst bevat description=card_text[:500])
             if require_text and require_text.lower() not in (lst.title + " " + lst.description).lower():
                 log.info("[%s] Overgeslagen (geen '%s' in titel/beschrijving): %s", url_label, require_text, lst.title[:40])
                 continue
             seen_ids.add(lst.id)
-            # Tag listing met require_pano flag voor AI check later
             lst._require_pano = require_pano
-            all_listings.append(lst)
+            filtered.append(lst)
 
-        log.info("[%s] %d listings toegevoegd", url_label, len(mobile_listings))
+        # Stap 3: Alleen voor gefilterde listings detail pages ophalen
+        if filtered:
+            log.info("[%s] %d listings na filter, detail pages ophalen ...", url_label, len(filtered))
+            filtered = _fetch_detail_pages(filtered)
+
+        all_listings.extend(filtered)
+        log.info("[%s] %d listings toegevoegd", url_label, len(filtered))
 
     # ── Score (parallel) en alert ──
     log.info("Totaal: %d listings, nu scoren (parallel) ...", len(all_listings))
