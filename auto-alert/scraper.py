@@ -801,7 +801,7 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None, set_cookies: str = "") -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None, set_cookies: str = "", wait_until: str = "", block_resources: bool | None = None) -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
     Scrape.do docs: https://scrape.do/documentation/
@@ -831,8 +831,15 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 params["setCookies"] = set_cookies
             if render:
                 params["render"] = "true"
-                params["wait"] = str(render_wait)
-                params["blockResources"] = "true"
+                # customWait is the documented param for post-load delay (scrape.do/documentation/headless-browser/wait/)
+                params["customWait"] = str(render_wait)
+                # blockResources default = true (CSS/images/fonts). Set to false when JS-heavy consent flows need everything.
+                if block_resources is False:
+                    params["blockResources"] = "false"
+                elif block_resources is True:
+                    params["blockResources"] = "true"
+                if wait_until:
+                    params["waitUntil"] = wait_until
                 if wait_selector:
                     params["waitSelector"] = wait_selector
                 if play_with_browser:
@@ -1100,54 +1107,69 @@ def _clean_detail_url(url: str) -> str:
     return url
 
 
-# GDPR consent bypass via setCookies (Scrape.do docs: scrape.do/documentation/headers-cookies/set-cookies/)
-# Door de consent cookie mee te sturen skipt mobile.de de GDPR wall.
-# Sneller dan playWithBrowser (geen browser actie nodig).
-UC_CONSENT_COOKIE = "usercentrics-cmp-consent=true"
+# GDPR consent bypass voor mobile.de detail pages.
+#
+# Achtergrond: mobile.de toont een Usercentrics CMP wall vóór de auto-details.
+# Eerdere aanpak (setCookies=usercentrics-cmp-consent=true) werkte NIET — verkeerde
+# cookie naam/format, mobile.de honoreert hem niet. Resultaat: 100% van detail
+# fetches kwam terug als pure consent-wall HTML.
+#
+# Nieuwe aanpak: actief de accept-knop klikken via playWithBrowser.
+# Usercentrics rendert in Shadow DOM, dus geen CSS selector op de top-level
+# document — we moeten via JS in shadowRoot graven.
+#
+# Volgorde:
+#  1. Wait 1500ms zodat usercentrics-root in DOM staat
+#  2. Execute: klik accept-button binnen shadow DOM (probeer meerdere selectors)
+#  3. WaitSelector: wacht tot <h1> verschijnt = detail page geladen
+#
+# Daarnaast:
+#  - waitUntil=networkidle0   → wachten tot alle JS settled (consent code draait)
+#  - blockResources=false     → Usercentrics CSS/fonts moeten kunnen laden
+#  - customWait=3000          → kleine extra buffer na network idle
+CONSENT_CLICK_JS = (
+    "const click = (root) => {"
+    "  if (!root) return false;"
+    "  const sels = ["
+    "    'button[data-testid=\"uc-accept-all-button\"]',"
+    "    'button[data-testid=\"uc-accept-button\"]',"
+    "    '[data-testid=\"uc-accept-all-button\"]',"
+    "    'button[mode=\"primary\"]',"
+    "  ];"
+    "  for (const s of sels) {"
+    "    const el = root.querySelector(s);"
+    "    if (el) { el.click(); return true; }"
+    "  }"
+    "  return false;"
+    "};"
+    "const host = document.getElementById('usercentrics-root') || document.querySelector('#usercentrics-cmp-ui');"
+    "if (host && host.shadowRoot) { click(host.shadowRoot); }"
+    "else { click(document); }"
+)
 
-# Fallback: cookie consent klik-acties als setCookies niet werkt
-# Usercentrics gebruikt Shadow DOM — gewone CSS selectors werken niet.
-# Scrape.do docs: scrape.do/documentation/headless-browser/play-with-browser/
-CONSENT_ACTIONS_FALLBACK = [
-    {"Action": "Wait", "Timeout": 2000},
-    {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
+CONSENT_ACTIONS = [
     {"Action": "Wait", "Timeout": 1500},
+    {"Action": "Execute", "Execute": CONSENT_CLICK_JS},
+    {"Action": "WaitSelector", "WaitSelector": "h1", "Timeout": 8000},
 ]
-
-# CSS selector die aanwezig is als de detail page echt geladen is
-# Scrape.do docs: scrape.do/documentation/headless-browser/wait/
-DETAIL_WAIT_SELECTOR = "h1"
 
 
 def _fetch_single_detail(idx_url: tuple) -> tuple:
-    """Haal één detail page op: eerst met setCookies, fallback naar playWithBrowser."""
+    """Haal één detail page op met actieve consent-click via playWithBrowser."""
     idx, url = idx_url
     clean_url = _clean_detail_url(url)
     if clean_url != url:
         log.info("Detail URL gecleaned: %s", clean_url[:80])
 
-    # Poging 1: setCookies voor GDPR bypass (snel, geen browser actie)
+    # Eén poging met de juiste params — playWithBrowser klikt consent weg en
+    # wacht tot de echte page (h1) gerenderd is.
     html = scrape_do_fetch(
-        clean_url, render=True, super_mode=True, retries=1, timeout=60,
-        render_wait=4000, geo_code="de",
-        set_cookies=UC_CONSENT_COOKIE,
-        wait_selector=DETAIL_WAIT_SELECTOR,
+        clean_url, render=True, super_mode=True, retries=1, timeout=90,
+        render_wait=3000, geo_code="de",
+        wait_until="networkidle0",
+        block_resources=False,
+        play_with_browser=CONSENT_ACTIONS,
     )
-
-    # Fallback: playWithBrowser als setCookies de GDPR wall niet bypassed
-    retry_config = [(1, 6000), (2, 10000)]
-    for retry_attempt, (wait, rw) in enumerate(retry_config, 1):
-        if not html or len(html) >= 5000:
-            break
-        log.info("Detail te klein (%d bytes), retry %d/%d na %ds met playWithBrowser ... %s",
-                 len(html), retry_attempt, len(retry_config), wait, clean_url[:80])
-        time.sleep(wait)
-        html = scrape_do_fetch(
-            clean_url, render=True, super_mode=True, retries=0, timeout=90,
-            render_wait=rw, geo_code="de",
-            play_with_browser=CONSENT_ACTIONS_FALLBACK,
-            wait_selector=DETAIL_WAIT_SELECTOR,
-        )
     return idx, html
 
 
