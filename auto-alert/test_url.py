@@ -20,6 +20,7 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
 from scraper import (
     scrape_do_fetch, score_listing, clean_detail_html, Listing,
     FULL_OPTION_FEATURES, FEATURE_DISPLAY_NAMES, MUST_HAVE_FEATURES,
+    _fetch_single_detail,
 )
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
@@ -41,19 +42,12 @@ def url_from_arg(arg: str) -> str:
     sys.exit(1)
 
 
-CONSENT_ACTIONS = [
-    {"Action": "Wait", "Timeout": 3000},
-    {"Action": "Execute", "Execute": "const host = document.getElementById('usercentrics-root'); if (host && host.shadowRoot) { const btn = host.shadowRoot.querySelector('button[data-testid=\"uc-accept-all-button\"]'); if (btn) btn.click(); }"},
-    {"Action": "Wait", "Timeout": 2000},
-]
-
-
 def test_url(url: str):
     print(f"\n{'='*60}")
     print(f"🔗 URL: {url}")
-    print(f"📡 Detail page ophalen via scrape.do (render=true, geoCode=de, consent click) ...")
+    print(f"📡 Detail page ophalen via _fetch_single_detail (canonical code path) ...")
 
-    html = scrape_do_fetch(url, render=True, super_mode=True, retries=2, timeout=90, geo_code="de", play_with_browser=CONSENT_ACTIONS)
+    _, html = _fetch_single_detail((0, url))
 
     if not html:
         print("❌ Geen response ontvangen")
