@@ -10,10 +10,13 @@ Dit is een Python-scraper die elke paar minuten **mobile.de** afzoekt naar
 gescored op opties via **Claude Haiku** en bij een match wordt een
 **Telegram-alert** gestuurd.
 
-Op dit moment draait de scraper op **GitHub Actions** (cron `*/5 7-18 * * *`).
-**Doel: verhuizen naar een eigen Hetzner-server**, met betere reliability
-en zonder de beperkingen van GitHub Actions cron. De server draait ook andere
-projecten — deze deploy moet daarom **volledig geïsoleerd** zijn.
+De scraper draait op **GitHub Actions** (cron `*/5 7-18 * * *`) en blijft
+daar draaien — Actions is betrouwbaar genoeg voor deze workload. **Geen
+Hetzner-verhuizing**.
+
+Wat we wél willen verbeteren: de **dev-loop in VS Code** zodat Claude
+snel logs kan lezen, bugs kan reproduceren en fixes kan pushen. Dat
+gebeurt via `gh` CLI (logs + artifacts) en lokale dry-runs.
 
 ## Repository layout
 
@@ -135,9 +138,9 @@ Zonder `TELEGRAM_BOT_TOKEN` zet de scraper zichzelf in `DRY_RUN` mode
 - `scraper.py:600` `_buy_advice` — koopadvies-tekst
 - `scraper.py:667` `send_telegram` — alert opmaak + verzenden
 
-## Huidige hosting (legacy)
+## Hosting (GitHub Actions)
 
-`.github/workflows/alert.yml`:
+`.github/workflows/alert.yml` is de actieve workflow:
 
 ```yaml
 on:
@@ -149,121 +152,93 @@ Stappen: checkout → Python 3.12 → `pip install` → `actions/cache/restore`
 voor `listings.db` → `python scraper.py` → `actions/cache/save` → upload
 `debug_*.html` als artifact.
 
-**Bekende problemen** met deze setup:
-- GitHub cron drift (5 min wordt soms 15+ min)
-- `actions/cache` is geen echte database — race conditions, kan stilletjes
-  leeg zijn na een failed run
-- ~30s cold start per run (checkout + pip install)
-- Debug HTML alleen via download
-- 8 minuten timeout
-- Geen state tussen runs behalve via cache hack
+Werkt prima en is betrouwbaar genoeg. **Niet verhuizen** tenzij er een
+concrete reden komt.
 
-## Doel: Hetzner deploy (geïsoleerd)
+## Dev-loop in VS Code
 
-De Hetzner server draait al andere services. Deze scraper moet **niets**
-anders raken. Eisen:
+Het belangrijkste doel: Claude Code in VS Code moet snel logs kunnen lezen,
+bugs reproduceren en fixes pushen.
 
-1. **Eigen unix user** (`autoalert`) — geen sudo, eigen home directory
-2. **Eigen Python venv** in `/home/autoalert/venv` — geen system-wide pip
-3. **Eigen werkdirectory** `/home/autoalert/auto-alert/` met checkout
-4. **Eigen systemd unit** + timer (geen cron op systeemniveau)
-5. **Eigen log directory** met `journalctl --user` of file rotation
-6. **Eigen `.env`** met secrets — `chmod 600`, niet in git
-7. **Geen poorten openen** — scraper is uitgaand only
-8. **Geen interferentie** met andere services (geen globale Playwright,
-   geen globale Chrome, geen system packages installeren behalve via
-   `apt` met expliciete confirmation)
+### Logs lezen via `gh` CLI
 
-### Voorgestelde directory layout op de server
+Vanuit Claude (Bash tool) of in een VS Code terminal:
 
-```
-/home/autoalert/
-├── .env                       # secrets, chmod 600
-├── auto-alert/                # git checkout (deze repo, sparse op auto-alert/)
-│   ├── scraper.py
-│   ├── requirements.txt
-│   ├── ...
-│   └── data/
-│       └── listings.db        # persistente DB (los van git)
-├── venv/                      # python venv
-└── logs/                      # rotated logs (optioneel naast journald)
+```bash
+# Laatste 10 runs van de scraper workflow
+gh run list --workflow=alert.yml --limit 10
+
+# Volledige log van een specifieke run
+gh run view <run-id> --log
+
+# Alleen failed steps
+gh run view <run-id> --log-failed
+
+# Logs van de meest recente run
+gh run view --log $(gh run list --workflow=alert.yml --limit 1 --json databaseId -q '.[0].databaseId')
+
+# Debug HTML artifact downloaden naar ./debug/
+gh run download <run-id> --name debug-html --dir debug/
 ```
 
-### Voorgestelde systemd setup
+> Tip voor Claude: gebruik `--json` flags zodat je structured output krijgt
+> in plaats van te moeten parsen. Bv. `gh run list --json status,conclusion,createdAt,databaseId`.
 
-Twee user-units onder `/home/autoalert/.config/systemd/user/`:
+### Lokaal reproduceren
 
-- `auto-alert.service` — oneshot, draait `python scraper.py`
-- `auto-alert.timer` — `OnCalendar=*:0/5` (elke 5 min), met `Persistent=true`
-  zodat een gemiste run wordt ingehaald
+```bash
+cd auto-alert
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 
-User-units i.p.v. system-units omdat:
-- Geen sudo nodig na initiële `loginctl enable-linger autoalert`
-- Volledig in `/home/autoalert/`, raakt geen system files
-- Logs via `journalctl --user -u auto-alert.service`
+# secrets uit .env (lokaal, NIET committen)
+export $(grep -v '^#' .env | xargs)
 
-Alternatief: één **persistente daemon** met een interne `time.sleep(300)`
-loop. Voordeel: nog snellere starts. Nadeel: één crash = alles dood (mitigatie:
-systemd `Restart=always`). Voor nu kies ik **timer-based** omdat het
-identiek gedrag geeft aan de huidige Actions setup en makkelijker te debuggen is.
+python scraper.py --dry-run --force   # geen Telegram, geen quiet hours
+python test_url.py                    # losse URL test
+python test_ai_scoring.py             # AI scoring tegen opgeslagen HTML
+```
 
-### Code-aanpassingen die nodig zijn
+`.env` lokaal moet bevatten:
+```
+SCRAPE_DO_TOKEN=...
+ANTHROPIC_API_KEY=...
+TELEGRAM_BOT_TOKEN=...   # optioneel — zonder = DRY_RUN
+TELEGRAM_CHAT_ID=...
+```
 
-1. **Configurabele paden** — `DB_PATH`, debug HTML pad, etc. via env vars
-   met fallback naar huidige defaults. Geen breaking change voor Actions.
-2. **`.env` loader** — `python-dotenv` of een mini-loader, alleen actief
-   als `.env` bestaat. Op Actions blijft het env-vars-only werken.
-3. **Quiet hours flag** — moet uit kunnen via env (`QUIET_HOURS=0`)
-   zonder `--force` argument, voor systemd timers.
-4. **Logging** — naast stdout ook naar bestand (`logs/scraper.log`) met
-   rotatie, maar alleen als `LOG_DIR` env var gezet is.
-5. **Lockfile** — voorkomen dat twee runs tegelijk draaien als een vorige
-   nog bezig is (timer kan overlappen). `flock` of een SQLite lock-tabel.
-6. **Health heartbeat** (optioneel) — na succesvolle run een ping naar
-   healthchecks.io of een Telegram heartbeat 1x per dag.
+### Bug-fix workflow
 
-### Deploy script
-
-Een idempotent shell script `auto-alert/deploy/install.sh` dat lokaal op
-de server draait:
-
-1. Maak user `autoalert` als die niet bestaat
-2. `loginctl enable-linger autoalert`
-3. Clone of pull deze repo in `/home/autoalert/auto-alert-repo/`
-4. Symlink/sparse-checkout naar `/home/autoalert/auto-alert/`
-5. Maak venv, `pip install -r requirements.txt`
-6. Render systemd units uit templates met juiste paden
-7. `systemctl --user daemon-reload && systemctl --user enable --now auto-alert.timer`
-8. Print status + volgende geplande run
-
-Plus een `auto-alert/deploy/update.sh` voor de happy path:
-`git pull && pip install -r requirements.txt && systemctl --user restart auto-alert.timer`.
+1. User stuurt error / log snippet of een `gh run view` output
+2. Claude leest `auto-alert/CLAUDE.md` (dit bestand) voor context
+3. Claude zoekt het probleem in `scraper.py` (zie file:line refs hieronder)
+4. Reproductie lokaal als mogelijk (`--dry-run --force`)
+5. Fix → commit → push naar `claude/deploy-auto-alert-scraper-ZsKua`
+6. Volgende scheduled run op Actions valideert de fix
 
 ## Wat er NIET moet gebeuren
 
-- **Geen wijzigingen aan andere services** op de Hetzner box
-- **Geen system-wide installs** — alles in user-space
 - **Geen secrets committen** — `.env`, `*.db`, `debug_*.html` blijven gitignored
-- **Geen breaking changes voor de huidige Actions workflow** — die mag blijven
-  draaien als fallback tot we zeker weten dat de Hetzner-versie stabiel is
 - **Geen refactor van de scoring logic** of de scraping URL's tenzij dat
   expliciet gevraagd wordt — die zijn empirisch afgesteld
-- **Geen Playwright of headless Chrome op de server** — Scrape.do doet dat
-  voor ons, dat is bewust zo gekozen
 - **Geen `git push --force`**, en **geen** push naar `master` — alles op
   branch `claude/deploy-auto-alert-scraper-ZsKua`
+- **Geen Playwright of headless Chrome lokaal** — alles loopt via Scrape.do
+- **Geen feature creep** bij bug-fixes — alleen het gerapporteerde fixen,
+  niets eromheen "verbeteren"
 
-## Verbeterpunten (lijst, in volgorde van prioriteit)
+## Verbeterpunten (lijst, los van bug-fixes)
 
-1. **Hetzner deploy** — geïsoleerd via systemd user units, eigen venv, eigen `.env`
-2. **Lockfile** zodat overlappende runs onmogelijk zijn
-3. **Persistente, betrouwbare DB** (gewoon SQLite op disk) i.p.v. cache hack
-4. **Heartbeat** naar Telegram of healthchecks.io zodat we crashes merken
-5. **Structured logging** + rotatie
-6. **Telegram bot commands** (`/status`, `/pause`, `/lastrun`) via long-polling
-   — los proces dat via dezelfde DB praat
-7. **Kosten-monitoring** voor Scrape.do en Anthropic — log credits per run
-8. **Eventueel** directe scraping als experiment, met fallback op Scrape.do
+Geen vaste prioriteit — pak op wanneer relevant:
+
+1. **Lockfile** in scraper voor het geval twee runs overlappen
+2. **Heartbeat** naar Telegram of healthchecks.io zodat crashes opvallen
+3. **Kosten-logging** voor Scrape.do en Anthropic credits per run
+4. **Telegram bot commands** (`/status`, `/lastrun`) via long-polling
+
+Als de Actions setup ooit wel pijn gaat doen (cron drift, cache loss, te
+trage cold starts) staat het Hetzner-plan in de git history van deze branch
+— commit `535afe5` had de volledige systemd-deploy uitgewerkt.
 
 ## Workflows / branch policy
 
