@@ -1176,10 +1176,20 @@ def _fetch_detail_pages(listings: list) -> list:
                         log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
                     else:
                         lst.detail_incomplete = True
-                        log.warning("Detail geblokkeerd: %s (body %d chars)", lst.title[:40], len(body_text))
+                        log.warning("Detail geblokkeerd: %s (body %d chars, raw %d) — dumping HTML", lst.title[:40], len(body_text), len(detail_html))
+                        try:
+                            with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
+                                fh.write(detail_html)
+                        except Exception as dump_err:
+                            log.warning("Kon detail HTML niet dumpen: %s", dump_err)
                 elif detail_html:
-                    log.warning("Detail te klein: %s (%d bytes)", lst.title[:40], len(detail_html))
+                    log.warning("Detail te klein: %s (%d bytes) — dumping HTML", lst.title[:40], len(detail_html))
                     lst.detail_incomplete = True
+                    try:
+                        with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
+                            fh.write(detail_html)
+                    except Exception as dump_err:
+                        log.warning("Kon detail HTML niet dumpen: %s", dump_err)
             except Exception as e:
                 log.warning("Detail fetch fout: %s", e)
 
