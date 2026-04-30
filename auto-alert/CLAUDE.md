@@ -56,22 +56,28 @@ SEARCH_CRITERIA = {
 }
 ```
 
-### Drie zoek-URL's op mobile.de
+### Vier zoek-URL's op mobile.de
 
-`MOBILE_DE_SEARCH_URLS` (in `scraper.py:63`) bevat drie varianten:
+`MOBILE_DE_SEARCH_URLS` (in `scraper.py:63`) bevat vier varianten:
 
 | # | Label | Doel | Pano-check? |
 |---|-------|------|-------------|
 | 1 | Q3 pano | freetext "pano" — alles doorsturen | nee |
 | 2 | Q3 Sportback (pano check) | freetext "sportback" | ja, via AI |
 | 3 | Q3 Sportback catch-all | alle Q3 hybrids, filter op "sportback" | ja, via AI |
+| 4 | Multi-brand pano (C/GLC/330/A3) | Mercedes C+GLC, BMW 330, Audi A3 met "pano" | nee |
 
 URL 2 en 3 hebben een extra check: alleen doorsturen als het AI-model
 "panoramadak" detecteert in de detail-pagina.
 
+URL 4 bevat meerdere merken. De AI scoring prompt is merkbewust:
+- **Audi**: S line, Optikpaket Schwarz, B&O/Sonos, Komfortschlüssel
+- **Mercedes**: AMG Line, Night-Paket, Burmester, KEYLESS-GO, DISTRONIC, DIGITAL LIGHT
+- **BMW**: M Sportpaket, Shadow Line, Harman Kardon, Comfort Access, Driving Assistant Professional
+
 ### Pipeline per run
 
-1. **Loop over de 3 zoek-URL's**
+1. **Loop over de 4 zoek-URL's**
    - Haal zoekpagina op via **Scrape.do** (`super=true`, `geoCode=de`).
      Zonder Scrape.do krijg je 502 / DataDome block.
    - Parse listings met BeautifulSoup (titel, prijs, km, jaar, listing date,

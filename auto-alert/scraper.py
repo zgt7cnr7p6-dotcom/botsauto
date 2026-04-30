@@ -92,6 +92,19 @@ MOBILE_DE_SEARCH_URLS = [
         "require_pano_in_desc": True,
         "require_text": "sportback",
     },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "isSearchRequest=true&s=Car&vc=Car"
+            "&c=Limousine&c=SmallCar&c=SportsCar"
+            "&dam=false&fr=2021&ft=HYBRID&ml=%3A90000"
+            "&ms=17200%3B%3B6%3Bpano&ms=17200%3B%3B59%3Bpano"
+            "&ms=3500%3B15%3B%3Bpano&ms=1900%3B8%3B%3Bpano"
+            "&p=28000%3A40000&od=down&sb=doc&ref=dsp"
+        ),
+        "label": "Multi-brand pano (C/GLC/330/A3)",
+        "require_pano_in_desc": False,
+    },
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
 
@@ -336,94 +349,139 @@ def clean_detail_html(soup: BeautifulSoup) -> str:
 # ── Claude AI scoring ─────────────────────────────────────────────────────
 
 AI_SCORING_PROMPT = """\
-Je bent een auto-expert gespecialiseerd in Audi Q3 (45 TFSI e, ~2020-2024). Lees de volledige advertentietekst hieronder en bepaal welke opties aanwezig zijn.
+Je bent een auto-expert. Lees de advertentietekst en bepaal welke opties aanwezig zijn.
 
-BELANGRIJK: Detecteer zo VEEL mogelijk. Als er enige aanwijzing is dat een feature aanwezig is, zet op true. Liever een false positive dan een gemiste feature.
+Dit kan een Audi (Q3/A3), Mercedes-Benz (C-Klasse/GLC), of BMW (3er/330e) zijn. Detecteer het merk uit de tekst en gebruik de juiste terminologie.
+
+BELANGRIJK: Detecteer zo VEEL mogelijk. Liever een false positive dan een gemiste feature.
 
 De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serienausstattung, Pakete, losse vermeldingen, bullet lists, etc.
 
 ## REGELS
 
-1. SERIENAUSSTATTUNG = AANWEZIG. Features onder "Serienausstattung" zijn standaard en AANWEZIG op de auto.
+1. SERIENAUSSTATTUNG = AANWEZIG.
 
 2. SAMENGESTELDE TERMEN SPLITSEN:
    "Spurwechsel- u. Spurhalteassistent" → side_assist=true EN lane_assist=true
    "Sitz- u. Spiegelheizung" → stoelverwarming=true
    "Front- u. Rückfahrkamera" → camera_achteruit=true
 
-3. PAKKET-HERKENNING — als een pakket vermeld wordt, zijn ALLE features uit dat pakket aanwezig:
-   • "Assistenzpaket Tour" / "Assistenz-Paket Tour" → acc=true, lane_assist=true, emergency_assist=true
-   • "Assistenzpaket" / "Assistenz-Paket" (zonder Tour) → lane_assist=true, emergency_assist=true
+3. PAKKET-HERKENNING PER MERK:
+
+   AUDI (Q3 / A3):
+   • "S line" / "S-Line" → s_line=true, s_line_exterieur=true
+   • "S line Paket" / "S line Sportpaket" → s_line=true, s_line_exterieur=true
+   • "Assistenzpaket Tour" → acc=true, lane_assist=true, emergency_assist=true
    • "Assistenzpaket Parken" / "Park-Paket" → camera_360=true, camera_achteruit=true
    • "Adaptiver Fahrassistent" → acc=true, lane_assist=true, travel_assist=true
-   • "Business-Paket" / "Business Paket" → stoelverwarming=true
-   • "S line" / "S-Line" (zonder verdere specificatie) → s_line=true, s_line_exterieur=true
-   • "S line Paket" / "S line Sportpaket" / "S-Line Paket" → s_line=true, s_line_exterieur=true (bevat altijd beide)
+   • "Business-Paket" → stoelverwarming=true
+   • "Komfortschlüssel" / "Keyless" / "KESSY" → keyless=true
    • "Top View Kamera" / "Umgebungskameras" → camera_360=true, camera_achteruit=true
-   • "Komfort-Paket" / "Komfortpaket" → kan keyless bevatten
    • "Ambiente Lichtpaket" → ambient_lighting=true
+   • "Optikpaket Schwarz" / "Optik Paket Schwarz" → optik_pakket_zwart=true
+   • A3: "Assistenzpaket Fahren und Parken plus" → acc=true, lane_assist=true, camera_achteruit=true
 
-4. GERMAN-DUTCH MAPPINGS (herken alle varianten!):
+   MERCEDES-BENZ (C-Klasse / GLC):
+   • "AMG Line" / "AMG-Line" / "AMG Paket" / "AMG Sportpaket" → s_line=true, s_line_exterieur=true
+   • "AMG Line Interieur" → s_line=true
+   • "AMG Line Exterieur" → s_line_exterieur=true
+   • "Night-Paket" / "Night Paket" / "Nightpaket" → optik_pakket_zwart=true
+   • "DISTRONIC" / "Aktiver Abstands-Assistent" → acc=true
+   • "Fahrassistenz-Paket" / "Fahrassistenzpaket" → acc=true, lane_assist=true, travel_assist=true
+   • "Fahrassistenz-Paket Plus" → acc=true, lane_assist=true, travel_assist=true, side_assist=true, emergency_assist=true
+   • "KEYLESS-GO Komfort-Paket" / "Keyless-Go" / "KEYLESS-GO" → keyless=true
+   • "Burmester" (Surround/3D) → audio_premium=true
+   • "DIGITAL LIGHT" → matrix_led=true
+   • "EASY-PACK Heckklappe" → elektrische_achterklep=true
+   • "Totwinkel-Assistent" / "Totwinkelassistent" → side_assist=true
+   • "Aktiver Brems-Assistent" / "PRE-SAFE" → emergency_assist=true
+   • "Aktiver Spurhalte-Assistent" → lane_assist=true
+   • "Aktiver Lenk-Assistent" → lane_assist=true, travel_assist=true (als ook DISTRONIC aanwezig)
+   • "Panorama-Schiebedach" → panoramadak=true
+   • "Park-Paket mit 360°-Kamera" / "360°-Kamera" / "Surroundview" → camera_360=true, camera_achteruit=true
+   • "DYNAMIC SELECT" → drive_select=true
+   • "AIRMATIC" / "Luftfederung" → adaptief_onderstel=true
+   • "Ambientebeleuchtung Plus" / "64 Farben" → ambient_lighting=true
+   • "Memory-Paket" → elektrische_stoelen=true, stoelen_memory=true
+
+   BMW (3er / 330e):
+   • "M Sportpaket" / "M Sport Paket" / "M-Sport" / "M Sport" / "M Paket" / "M-Paket" → s_line=true, s_line_exterieur=true
+   • "M Sportpaket Pro" / "M Sport Pro" → s_line=true, s_line_exterieur=true
+   • "Shadow Line" / "Shadowline" / "Shadow-Line" / "Hochglanz Shadow Line" → optik_pakket_zwart=true
+   • "Harman Kardon" / "Harman/Kardon" / "H/K" / "H+K" / "HK" → audio_premium=true
+   • "Adaptive LED" / "Adaptive LED-Scheinwerfer" → matrix_led=true
+   • "BMW Laserlicht" / "Laser" → matrix_led=true
+   • "Comfort Access" / "Komfortzugang" → keyless=true
+   • "Active Cruise Control" / "ACC" / "Aktive Geschwindigkeitsregelung" → acc=true
+   • "Driving Assistant Professional" / "DAP" / "DA Professional" → acc=true, lane_assist=true, travel_assist=true, emergency_assist=true
+   • "Driving Assistant Plus" / "DA+" → acc=true, lane_assist=true
+   • "Driving Assistant" (zonder Plus/Professional) → lane_assist=true, emergency_assist=true
+   • "Lenk- und Spurführungsassistent" → lane_assist=true
+   • "Surround View" / "360°" / "360-Grad-Kamera" → camera_360=true, camera_achteruit=true
+   • "Parking Assistant Plus" / "PA+" → camera_360=true, camera_achteruit=true
+   • "Panorama-Glasdach" / "GSD" / "Pano" → panoramadak=true
+   • "Adaptives Fahrwerk" / "Adaptives M Fahrwerk" → adaptief_onderstel=true
+   • "Head-Up Display" / "HUD" → (niet in score maar detecteer)
+   • "Driving Experience Control" → drive_select=true
+   • "Sportsitze" → (niet hetzelfde als elektrische stoelen)
+   • "Memory" / "Memory-Sitze" → elektrische_stoelen=true, stoelen_memory=true
+
+4. UNIVERSELE GERMAN-DUTCH MAPPINGS (alle merken):
    • Sitzheizung / beheizbare Sitze / Sitz-u.Spiegelheizung → stoelverwarming
    • Lenkradheizung / beheizbares Lenkrad → stuurverwarming
    • Spurhalteassistent / Spurführungsassistent / Spurverlassenswarnung → lane_assist
-   • Spurwechselassistent / Side Assist → side_assist (dodehoek)
-   • Abstandstempomat / adaptive Geschwindigkeitsregelung / ACC → acc
-   • Audi drive select / Fahrmodus → drive_select
-   • Komfortschlüssel / Keyless → keyless
+   • Spurwechselassistent / Side Assist / Totwinkelassistent → side_assist (dodehoek)
+   • Abstandstempomat / adaptive Geschwindigkeitsregelung / ACC / DISTRONIC → acc
    • Rückfahrkamera / Heckkamera → camera_achteruit
-   • Umgebungskameras / 360-Grad / Top View / Area View → camera_360
-   • Panorama-Glasdach / Panoramadach / Schiebedach → panoramadak
-   • Elektrische Heckklappe / elektr. Heckklappe → elektrische_achterklep
+   • Umgebungskameras / 360-Grad / Top View / Area View / Surround View → camera_360
+   • Panorama-Glasdach / Panoramadach / Panorama-Schiebedach / Schiebedach → panoramadak
+   • Elektrische Heckklappe / elektr. Heckklappe / EASY-PACK Heckklappe → elektrische_achterklep
    • Ambientebeleuchtung / Ambiente-Licht / Konturfarbenes Ambiente-Licht → ambient_lighting
    • Dynamischer Blinker / dynamisches Blinklicht / Lauflicht → dynamisch_knipperlicht
-   • Einparkhilfe / Park Assist → (niet in score, maar helpt bij camera detectie)
 
 5. IMPLICIETE FEATURES:
    • camera_360=true → camera_achteruit=true automatisch
    • travel_assist=true → acc=true EN lane_assist=true automatisch
-   • "S line" zonder specificatie → s_line=true EN s_line_exterieur=true
-   • "S line Paket" of "S line Sportpaket" → s_line=true EN s_line_exterieur=true (tenzij expliciet alleen interieur of exterieur vermeld)
+   • "S line" / "AMG Line" / "M Sportpaket" zonder specificatie → s_line=true EN s_line_exterieur=true
 
 6. ZOEK BREED — features kunnen overal staan:
-   • In de titel ("S line", "Panorama")
+   • In de titel ("S line", "AMG", "M-Sport", "Panorama")
    • In bullet lists ("• Sitzheizung")
    • In lopende tekst ("mit Panoramadach und Sitzheizung")
-   • In code/afkortingen ("ACC", "LED", "PDC")
+   • In code/afkortingen ("ACC", "LED", "PDC", "HUD", "DAP", "H/K")
    • In afgekorte vorm ("elektr. Heckkl.", "Komfortschl.", "Rückfahrk.")
-   • Als onderdeel van langere woorden ("Abstandstempomat", "Panoramaglasdach")
 
 Bepaal voor elk true of false:
 
 1. panoramadak — Panoramadak/schuifdak/glasdak
-2. keyless — Keyless/Komfortschlüssel/sleutelloos
+2. keyless — Audi: Komfortschlüssel/KESSY | Mercedes: KEYLESS-GO | BMW: Comfort Access
 3. camera_achteruit — Rückfahrkamera (ook als 360° camera aanwezig is)
-4. camera_360 — 360°/Umgebungskameras/Top View Kamera/Area View (ook "Umgebungskameras" zonder 360° vermelding = TRUE)
-5. s_line — S-Line interieur (ook als alleen "S line" staat)
-6. s_line_exterieur — S-Line exterieur (ook als alleen "S line" staat)
-7. matrix_led — Matrix LED koplampen (gewone LED NIET)
+4. camera_360 — 360°/Umgebungskameras/Surround View/Top View
+5. s_line — Sportpakket interieur: Audi S-Line | Mercedes AMG Line | BMW M Sportpaket
+6. s_line_exterieur — Sportpakket exterieur: Audi S-Line ext. | Mercedes AMG Line ext. | BMW M Sportpaket
+7. matrix_led — Audi: Matrix LED | Mercedes: DIGITAL LIGHT | BMW: Adaptive LED/Laser (gewone LED NIET)
 8. velgen_19_20 — 19/20 inch velgen
-9. audio_premium — B&O/Sonos/Bose (standaard Audi sound NIET)
+9. audio_premium — Audi: B&O/Sonos | Mercedes: Burmester | BMW: Harman Kardon (standaard audio NIET)
 10. elektrische_stoelen — Elektrisch verstelbare stoelen
 11. stoelen_memory — Memory stoelen
-12. stoelverwarming — Sitzheizung/stoelverwarming/Business-Paket
+12. stoelverwarming — Sitzheizung/stoelverwarming
 13. stuurverwarming — Lenkradheizung/stuurverwarming
-14. acc — Abstandstempomat/adaptive cruise (gewone tempomat NIET)
+14. acc — Audi: Abstandstempomat | Mercedes: DISTRONIC | BMW: Active Cruise Control (gewone tempomat NIET)
 15. lane_assist — Spurhalteassistent/Spurverlassenswarnung/lane assist (dodehoek=side_assist, NIET hier)
-16. travel_assist — TRUE als één van deze geldt:
-    a) "Adaptiver Fahrassistent" wordt genoemd
-    b) OF de COMBINATIE van ACC (Abstandstempomat/adaptive cruise/Stop&Go) EN actieve stuursturing (Spurhalteassistent/Spurführungsassistent/Lenk- und Spurführungsassistent/Lane assist) is aanwezig
+16. travel_assist — TRUE als:
+    a) Audi: "Adaptiver Fahrassistent" | Mercedes: "Fahrassistenz-Paket" + DISTRONIC | BMW: "Driving Assistant Professional"
+    b) OF de COMBINATIE van ACC EN actieve stuursturing (lane keeping + steering assist) is aanwezig
     BELANGRIJK: Lane assist alleen ≠ Travel Assist. ACC alleen ≠ Travel Assist. Pas als BEIDE aanwezig zijn = Travel Assist
-17. drive_select — Audi drive select/Fahrmodus/rijmodi
-18. adaptief_onderstel — Adaptives Fahrwerk/Dämpferregelung (Sportfahrwerk NIET)
-19. emergency_assist — Pre sense/Front Assist/Notbremsassistent
-20. side_assist — Spurwechselassistent/Side Assist/dodehoek
-21. ambient_lighting — Ambientebeleuchtung/sfeerverlichting/Ambiente Lichtpaket
-22. elektrische_achterklep — Elektrische Heckklappe
-23. optik_pakket_zwart — Optikpaket Schwarz/Black Style/Black Edition
+17. drive_select — Audi: drive select | Mercedes: DYNAMIC SELECT | BMW: Driving Experience Control
+18. adaptief_onderstel — Adaptives Fahrwerk/Dämpferregelung/AIRMATIC (Sportfahrwerk NIET)
+19. emergency_assist — Audi: pre sense | Mercedes: Aktiver Brems-Assistent/PRE-SAFE | BMW: Frontkollisionswarnung
+20. side_assist — Audi: Side Assist | Mercedes: Totwinkel-Assistent | BMW: Spurwechselwarnung (dodehoek)
+21. ambient_lighting — Ambientebeleuchtung/sfeerverlichting (alle merken)
+22. elektrische_achterklep — Elektrische Heckklappe / EASY-PACK Heckklappe
+23. optik_pakket_zwart — Audi: Optikpaket Schwarz | Mercedes: Night-Paket | BMW: Shadow Line
 24. dynamisch_knipperlicht — Dynamischer Blinker/dynamisches Blinklicht/Lauflicht
 
-25. color — Exterieur kleur van de auto (bijv. "Navarrablau Metallic", "Mythos Schwarz", "Glacier Weiß"). Zoek naar: Farbe, Außenfarbe, Lackierung, Metallic-Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
+25. color — Exterieur kleur van de auto (bijv. "Navarrablau", "Obsidianschwarz", "Alpinweiß"). Zoek naar: Farbe, Außenfarbe, Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
 
 Antwoord ALLEEN met JSON, geen uitleg:
 {
@@ -509,13 +567,21 @@ def score_listing_ai(listing: Listing) -> Listing | None:
             features_dict["acc"] = True
             features_dict["lane_assist"] = True
 
-        # S-line Paket/Sportpaket → altijd beide interieur + exterieur
+        # Sport pakket detectie → altijd beide interieur + exterieur
         text_lower = text.lower()
-        if re.search(r"s[\s-]?line\s*(?:sport)?paket", text_lower, re.IGNORECASE):
-            if not features_dict.get("s_line", False) or not features_dict.get("s_line_exterieur", False):
-                log.info("[AI] S-line Paket gedetecteerd → beide interieur + exterieur")
-            features_dict["s_line"] = True
-            features_dict["s_line_exterieur"] = True
+        sport_pkg_patterns = [
+            r"s[\s-]?line\s*(?:sport)?paket",
+            r"amg[\s-]?line(?!\s*(?:int|ext))",
+            r"m[\s-]?sport\s*paket",
+            r"m[\s-]?sport(?!\s*(?:pro|bremse|lenkrad|fahrwerk))",
+        ]
+        for pat in sport_pkg_patterns:
+            if re.search(pat, text_lower, re.IGNORECASE):
+                if not features_dict.get("s_line", False) or not features_dict.get("s_line_exterieur", False):
+                    log.info("[AI] Sportpakket gedetecteerd (%s) → beide interieur + exterieur", pat[:30])
+                features_dict["s_line"] = True
+                features_dict["s_line_exterieur"] = True
+                break
 
         found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
         # stoelen_memory is niet in FULL_OPTION_FEATURES maar wel relevant voor display
@@ -668,10 +734,22 @@ def send_telegram(listing: Listing):
     max_score = len(FULL_OPTION_FEATURES)
 
     title_lower = listing.title.lower()
-    if "sportback" in title_lower:
-        model_tag = "Q3 Sportback"
+    if "mercedes" in title_lower or "benz" in title_lower:
+        if "glc" in title_lower:
+            model_tag = "Mercedes GLC"
+        else:
+            model_tag = "Mercedes C-Klasse"
+    elif "bmw" in title_lower or "330e" in title_lower:
+        model_tag = "BMW 330e"
+    elif "a3" in title_lower or "a 3" in title_lower:
+        if "sportback" in title_lower:
+            model_tag = "Audi A3 Sportback"
+        else:
+            model_tag = "Audi A3"
+    elif "sportback" in title_lower:
+        model_tag = "Audi Q3 Sportback"
     else:
-        model_tag = "Q3"
+        model_tag = "Audi Q3"
 
     pct = listing.score / max_score if max_score else 0
     if pct >= 0.85:
@@ -735,7 +813,7 @@ def send_telegram(listing: Listing):
     found_time = now_cet.strftime("%d-%m-%Y %H:%M")
 
     text = (
-        f"<b>Audi {model_tag} 45 TFSI e</b>\n"
+        f"<b>{model_tag}</b>\n"
         f"{info_line}\n"
     )
 

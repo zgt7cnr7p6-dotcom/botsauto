@@ -5,8 +5,9 @@
 
 ## Wat is dit project?
 
-Een geautomatiseerde **Audi Q3 45 TFSI e** scraper die mobile.de monitort
-en Telegram alerts stuurt bij goede matches. Eigenaar: Djari.
+Een geautomatiseerde scraper die mobile.de monitort op **Audi Q3/A3,
+Mercedes C-Klasse/GLC, en BMW 330e** (hybrid, met panoramadak) en
+Telegram alerts stuurt bij goede matches. Eigenaar: Djari.
 
 ## Repo structuur
 
