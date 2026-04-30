@@ -1,9 +1,9 @@
 name: Auto Alert Scraper
 
 on:
-  schedule:
-    # Elke 5 minuten, alleen 07:00-18:00 UTC (= 08:00-19:00 CET)
-    - cron: '*/5 7-18 * * *'
+  # Scheduling via cron-job.org (elke 3 min, workflow_dispatch trigger)
+  # GitHub's eigen cron is uitgeschakeld — cron-job.org is betrouwbaarder
+  # en ondersteunt intervals < 5 min.
   workflow_dispatch:
     inputs:
       clear_db:
