@@ -400,8 +400,10 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
 3. PAKKET-HERKENNING PER MERK:
 
    AUDI (Q3 / A3):
-   • "S line" / "S-Line" → s_line=true, s_line_exterieur=true
-   • "S line Paket" / "S line Sportpaket" → s_line=true, s_line_exterieur=true
+   • "S line Interieur" / "S line innen" → s_line=true (NIET automatisch s_line_exterieur)
+   • "S line Exterieur" / "S line außen" → s_line_exterieur=true (NIET automatisch s_line)
+   • "S line" / "S-Line" (zonder int/ext specificatie) → bepaal uit context welke variant(en). Check of interieur EN/OF exterieur apart vermeld worden
+   • "S line Paket" / "S line Sportpaket" → s_line=true, s_line_exterieur=true (volledig pakket = beide)
    • "Assistenzpaket Tour" / "Assistenz-Paket Tour" → acc=true, lane_assist=true, emergency_assist=true, side_assist=true
    • "Assistenzpaket Parken" / "Park-Paket" / "Assistenzpaket Stadt" → camera_360=true, camera_achteruit=true
    • "Adaptiver Fahrassistent" → acc=true, lane_assist=true, travel_assist=true
@@ -416,9 +418,10 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • Q3: "Technikpaket" / "Technik-Paket" → acc=true, lane_assist=true, vaak ook camera_achteruit
 
    MERCEDES-BENZ (C-Klasse / GLC):
-   • "AMG Line" / "AMG-Line" / "AMG Paket" / "AMG Sportpaket" → s_line=true, s_line_exterieur=true, stoelverwarming=true (standaard bij AMG Line C-Klasse)
-   • "AMG Line Interieur" → s_line=true
-   • "AMG Line Exterieur" → s_line_exterieur=true
+   • "AMG Line Interieur" → s_line=true (NIET automatisch s_line_exterieur)
+   • "AMG Line Exterieur" → s_line_exterieur=true (NIET automatisch s_line)
+   • "AMG Line" / "AMG-Line" (zonder int/ext) → bepaal uit context. Als BEIDE vermeld of als compleet pakket → s_line=true, s_line_exterieur=true
+   • "AMG Paket" / "AMG Sportpaket" → s_line=true, s_line_exterieur=true (volledig pakket = beide)
    • "Night-Paket" / "Night Paket" / "Nightpaket" → optik_pakket_zwart=true (vereist AMG Line)
    • "DISTRONIC" / "Aktiver Abstands-Assistent" → acc=true
    • "Fahrassistenz-Paket" / "Fahrassistenzpaket" → acc=true, lane_assist=true, travel_assist=true, emergency_assist=true
@@ -444,8 +447,9 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • "Premium Plus" (pakket-tier) → keyless=true, camera_360=true, matrix_led=true, ambient_lighting=true
 
    BMW (3er / 330e):
-   • "M Sportpaket" / "M Sport Paket" / "M-Sport" / "M Sport" / "M Paket" / "M-Paket" → s_line=true, s_line_exterieur=true, optik_pakket_zwart=true (bevat Hochglanz Shadow Line)
+   • "M Sportpaket" / "M Sport Paket" / "M Paket" → s_line=true, s_line_exterieur=true, optik_pakket_zwart=true (volledig pakket = beide + Shadow Line)
    • "M Sportpaket Pro" / "M Sport Pro" → s_line=true, s_line_exterieur=true, optik_pakket_zwart=true
+   • "M Sport" / "M-Sport" (zonder "Paket") → bepaal uit context welke variant(en). Kan alleen exterieur of alleen interieur zijn
    • "Shadow Line" / "Shadowline" / "Shadow-Line" / "Hochglanz Shadow Line" → optik_pakket_zwart=true
    • "Harman Kardon" / "Harman/Kardon" / "H/K" / "H+K" / "HK" → audio_premium=true
    • "Adaptive LED" / "Adaptive LED-Scheinwerfer" → matrix_led=true
@@ -484,7 +488,7 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
 5. IMPLICIETE FEATURES:
    • camera_360=true → camera_achteruit=true automatisch
    • travel_assist=true → acc=true EN lane_assist=true automatisch
-   • "S line" / "AMG Line" / "M Sportpaket" zonder specificatie → s_line=true EN s_line_exterieur=true
+   • s_line en s_line_exterieur zijn ONAFHANKELIJK — een auto kan alleen interieur, alleen exterieur, of beide hebben. Bepaal elk apart op basis van wat er EXPLICIET vermeld staat
 
 6. ZOEK BREED — features kunnen overal staan:
    • In de titel ("S line", "AMG", "M-Sport", "Panorama")
@@ -608,13 +612,6 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         if features_dict.get("travel_assist", False):
             features_dict["acc"] = True
             features_dict["lane_assist"] = True
-
-        # Sport pakket: als AI s_line of s_line_exterieur detecteert, zet beide
-        if features_dict.get("s_line", False) or features_dict.get("s_line_exterieur", False):
-            if not features_dict.get("s_line", False) or not features_dict.get("s_line_exterieur", False):
-                log.info("[AI] Sportpakket: één van s_line/s_line_exterieur true → beide true")
-            features_dict["s_line"] = True
-            features_dict["s_line_exterieur"] = True
 
         found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
         # stoelen_memory is niet in FULL_OPTION_FEATURES maar wel relevant voor display
