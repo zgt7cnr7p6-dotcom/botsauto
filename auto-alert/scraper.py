@@ -383,7 +383,8 @@ Je bent een auto-expert. Lees de advertentietekst en bepaal welke opties aanwezi
 
 Dit kan een Audi (Q3/A3), Mercedes-Benz (C-Klasse/GLC), of BMW (3er/330e) zijn. Detecteer het merk uit de tekst en gebruik de juiste terminologie.
 
-BELANGRIJK: Detecteer zo VEEL mogelijk. Liever een false positive dan een gemiste feature.
+BELANGRIJK: Wees NAUWKEURIG. Markeer een feature ALLEEN als true als het DUIDELIJK en EXPLICIET vermeld staat in de tekst (als optie, Sonderausstattung, of pakket). Bij twijfel: false.
+LET OP: Een auto kan "sportief" of "sport" in de beschrijving hebben zonder dat het een sport-pakket (S line / AMG Line / M Sport) betreft. Markeer sport-pakketten alleen als ze LETTERLIJK als optie/uitrusting genoemd worden.
 
 De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serienausstattung, Pakete, losse vermeldingen, bullet lists, etc.
 
@@ -608,21 +609,12 @@ def score_listing_ai(listing: Listing) -> Listing | None:
             features_dict["acc"] = True
             features_dict["lane_assist"] = True
 
-        # Sport pakket detectie → altijd beide interieur + exterieur
-        text_lower = text.lower()
-        sport_pkg_patterns = [
-            r"s[\s-]?line\s*(?:sport)?paket",
-            r"amg[\s-]?line(?!\s*(?:int|ext))",
-            r"m[\s-]?sport\s*paket",
-            r"m[\s-]?sport(?!\s*(?:pro|bremse|lenkrad|fahrwerk))",
-        ]
-        for pat in sport_pkg_patterns:
-            if re.search(pat, text_lower, re.IGNORECASE):
-                if not features_dict.get("s_line", False) or not features_dict.get("s_line_exterieur", False):
-                    log.info("[AI] Sportpakket gedetecteerd (%s) → beide interieur + exterieur", pat[:30])
-                features_dict["s_line"] = True
-                features_dict["s_line_exterieur"] = True
-                break
+        # Sport pakket: als AI s_line of s_line_exterieur detecteert, zet beide
+        if features_dict.get("s_line", False) or features_dict.get("s_line_exterieur", False):
+            if not features_dict.get("s_line", False) or not features_dict.get("s_line_exterieur", False):
+                log.info("[AI] Sportpakket: één van s_line/s_line_exterieur true → beide true")
+            features_dict["s_line"] = True
+            features_dict["s_line_exterieur"] = True
 
         found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
         # stoelen_memory is niet in FULL_OPTION_FEATURES maar wel relevant voor display

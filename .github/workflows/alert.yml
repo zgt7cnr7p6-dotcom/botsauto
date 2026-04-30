@@ -52,7 +52,17 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python scraper.py
+        run: python scraper.py 2>&1 | tee scraper_output.log
+
+      - name: Show AI scoring summary
+        if: always()
+        run: |
+          if [ -f scraper_output.log ]; then
+            echo "## Scraper Summary" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E '\[AI\]|\[TELEGRAM\]|\[SCRAPE\]|ERROR|WARNING|NIEUWE|BESTAANDE|GEFAALD' scraper_output.log | tail -100 >> $GITHUB_STEP_SUMMARY || echo "Geen relevante logregels" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Save database to cache
         if: always()
