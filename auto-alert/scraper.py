@@ -161,6 +161,36 @@ FEATURE_DISPLAY_NAMES = {
     "dynamisch_knipperlicht": "Dynamisch knipperlicht",
 }
 
+FEATURE_DISPLAY_NAMES_MERCEDES = {
+    "s_line": "AMG Line interieur",
+    "s_line_exterieur": "AMG Line exterieur",
+    "optik_pakket_zwart": "Night-Paket",
+    "matrix_led": "DIGITAL LIGHT",
+    "audio_premium": "Burmester",
+    "keyless": "KEYLESS-GO",
+    "acc": "DISTRONIC",
+    "travel_assist": "Fahrassistenz-Paket",
+    "side_assist": "Totwinkel-Assistent",
+    "emergency_assist": "PRE-SAFE",
+    "drive_select": "DYNAMIC SELECT",
+    "adaptief_onderstel": "AIRMATIC",
+    "elektrische_achterklep": "EASY-PACK Heckklappe",
+}
+
+FEATURE_DISPLAY_NAMES_BMW = {
+    "s_line": "M Sportpaket",
+    "s_line_exterieur": "M Sportpaket exterieur",
+    "optik_pakket_zwart": "Shadow Line",
+    "matrix_led": "Adaptive LED",
+    "audio_premium": "Harman Kardon",
+    "keyless": "Comfort Access",
+    "acc": "Active Cruise Control",
+    "travel_assist": "Driving Assistant Professional",
+    "side_assist": "Spurwechselwarnung",
+    "emergency_assist": "Frontkollisionswarnung",
+    "drive_select": "Driving Experience Control",
+}
+
 DB_PATH = "listings.db"
 
 
@@ -739,17 +769,22 @@ def send_telegram(listing: Listing):
             model_tag = "Mercedes GLC"
         else:
             model_tag = "Mercedes C-Klasse"
+        display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_MERCEDES}
     elif "bmw" in title_lower or "330e" in title_lower:
         model_tag = "BMW 330e"
+        display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_BMW}
     elif "a3" in title_lower or "a 3" in title_lower:
         if "sportback" in title_lower:
             model_tag = "Audi A3 Sportback"
         else:
             model_tag = "Audi A3"
+        display_names = FEATURE_DISPLAY_NAMES
     elif "sportback" in title_lower:
         model_tag = "Audi Q3 Sportback"
+        display_names = FEATURE_DISPLAY_NAMES
     else:
         model_tag = "Audi Q3"
+        display_names = FEATURE_DISPLAY_NAMES
 
     pct = listing.score / max_score if max_score else 0
     if pct >= 0.85:
@@ -785,7 +820,7 @@ def send_telegram(listing: Listing):
     missing_star = []
     missing_normal = []
     for f in FULL_OPTION_FEATURES:
-        name = FEATURE_DISPLAY_NAMES.get(f, f)
+        name = display_names.get(f, f)
         # Dynamische naam voor elektrische stoelen: + memory als dat gedetecteerd is
         if f == "elektrische_stoelen" and "stoelen_memory" in listing.features:
             name = "Elektrische stoelen + memory"
