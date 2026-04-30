@@ -401,25 +401,28 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    AUDI (Q3 / A3):
    • "S line" / "S-Line" → s_line=true, s_line_exterieur=true
    • "S line Paket" / "S line Sportpaket" → s_line=true, s_line_exterieur=true
-   • "Assistenzpaket Tour" → acc=true, lane_assist=true, emergency_assist=true
-   • "Assistenzpaket Parken" / "Park-Paket" → camera_360=true, camera_achteruit=true
+   • "Assistenzpaket Tour" / "Assistenz-Paket Tour" → acc=true, lane_assist=true, emergency_assist=true, side_assist=true
+   • "Assistenzpaket Parken" / "Park-Paket" / "Assistenzpaket Stadt" → camera_360=true, camera_achteruit=true
    • "Adaptiver Fahrassistent" → acc=true, lane_assist=true, travel_assist=true
-   • "Business-Paket" → stoelverwarming=true
+   • "Business-Paket" / "Business Paket" / "Businesspaket" → stoelverwarming=true, acc=true (Q3), soms keyless
+   • "Komfort-Paket" / "Komfortpaket" → elektrische_stoelen=true, soms keyless
    • "Komfortschlüssel" / "Keyless" / "KESSY" → keyless=true
-   • "Top View Kamera" / "Umgebungskameras" → camera_360=true, camera_achteruit=true
-   • "Ambiente Lichtpaket" → ambient_lighting=true
-   • "Optikpaket Schwarz" / "Optik Paket Schwarz" → optik_pakket_zwart=true
-   • A3: "Assistenzpaket Fahren und Parken plus" → acc=true, lane_assist=true, camera_achteruit=true
+   • "Top View Kamera" / "Umgebungskameras" / "Area View" → camera_360=true, camera_achteruit=true
+   • "Ambiente Lichtpaket" / "Ambiente-Lichtpaket plus" → ambient_lighting=true
+   • "Optikpaket Schwarz" / "Optik Paket Schwarz" / "Black Style" → optik_pakket_zwart=true
+   • A3: "Assistenzpaket Fahren und Parken plus" → acc=true, lane_assist=true, camera_achteruit=true, emergency_assist=true
+   • A3: "Businesspaket plus" → acc=true, lane_assist=true, camera_achteruit=true, elektrische_stoelen=true
+   • Q3: "Technikpaket" / "Technik-Paket" → acc=true, lane_assist=true, vaak ook camera_achteruit
 
    MERCEDES-BENZ (C-Klasse / GLC):
-   • "AMG Line" / "AMG-Line" / "AMG Paket" / "AMG Sportpaket" → s_line=true, s_line_exterieur=true
+   • "AMG Line" / "AMG-Line" / "AMG Paket" / "AMG Sportpaket" → s_line=true, s_line_exterieur=true, stoelverwarming=true (standaard bij AMG Line C-Klasse)
    • "AMG Line Interieur" → s_line=true
    • "AMG Line Exterieur" → s_line_exterieur=true
-   • "Night-Paket" / "Night Paket" / "Nightpaket" → optik_pakket_zwart=true
+   • "Night-Paket" / "Night Paket" / "Nightpaket" → optik_pakket_zwart=true (vereist AMG Line)
    • "DISTRONIC" / "Aktiver Abstands-Assistent" → acc=true
-   • "Fahrassistenz-Paket" / "Fahrassistenzpaket" → acc=true, lane_assist=true, travel_assist=true
+   • "Fahrassistenz-Paket" / "Fahrassistenzpaket" → acc=true, lane_assist=true, travel_assist=true, emergency_assist=true
    • "Fahrassistenz-Paket Plus" → acc=true, lane_assist=true, travel_assist=true, side_assist=true, emergency_assist=true
-   • "KEYLESS-GO Komfort-Paket" / "Keyless-Go" / "KEYLESS-GO" → keyless=true
+   • "KEYLESS-GO Komfort-Paket" / "Keyless-Go" / "KEYLESS-GO" → keyless=true, elektrische_achterklep=true (HANDS-FREE ACCESS)
    • "Burmester" (Surround/3D) → audio_premium=true
    • "DIGITAL LIGHT" → matrix_led=true
    • "EASY-PACK Heckklappe" → elektrische_achterklep=true
@@ -429,23 +432,31 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • "Aktiver Lenk-Assistent" → lane_assist=true, travel_assist=true (als ook DISTRONIC aanwezig)
    • "Panorama-Schiebedach" → panoramadak=true
    • "Park-Paket mit 360°-Kamera" / "360°-Kamera" / "Surroundview" → camera_360=true, camera_achteruit=true
+   • "Park-Paket mit Rückfahrkamera" → camera_achteruit=true
    • "DYNAMIC SELECT" → drive_select=true
    • "AIRMATIC" / "Luftfederung" → adaptief_onderstel=true
-   • "Ambientebeleuchtung Plus" / "64 Farben" → ambient_lighting=true
+   • "Ambientebeleuchtung Plus" / "64 Farben" / "Aktives Ambientelicht" → ambient_lighting=true
    • "Memory-Paket" → elektrische_stoelen=true, stoelen_memory=true
+   • "Sitzkomfort-Paket" → elektrische_stoelen=true, stoelen_memory=true, stoelverwarming=true
+   • "Advanced Plus" (pakket-tier) → ambient_lighting=true, side_assist=true, elektrische_stoelen=true, stoelen_memory=true
+   • "Premium" (pakket-tier) → camera_360=true, camera_achteruit=true, matrix_led=true
+   • "Premium Plus" (pakket-tier) → keyless=true, camera_360=true, matrix_led=true, ambient_lighting=true
 
    BMW (3er / 330e):
-   • "M Sportpaket" / "M Sport Paket" / "M-Sport" / "M Sport" / "M Paket" / "M-Paket" → s_line=true, s_line_exterieur=true
-   • "M Sportpaket Pro" / "M Sport Pro" → s_line=true, s_line_exterieur=true
+   • "M Sportpaket" / "M Sport Paket" / "M-Sport" / "M Sport" / "M Paket" / "M-Paket" → s_line=true, s_line_exterieur=true, optik_pakket_zwart=true (bevat Hochglanz Shadow Line)
+   • "M Sportpaket Pro" / "M Sport Pro" → s_line=true, s_line_exterieur=true, optik_pakket_zwart=true
    • "Shadow Line" / "Shadowline" / "Shadow-Line" / "Hochglanz Shadow Line" → optik_pakket_zwart=true
    • "Harman Kardon" / "Harman/Kardon" / "H/K" / "H+K" / "HK" → audio_premium=true
    • "Adaptive LED" / "Adaptive LED-Scheinwerfer" → matrix_led=true
    • "BMW Laserlicht" / "Laser" → matrix_led=true
    • "Comfort Access" / "Komfortzugang" → keyless=true
    • "Active Cruise Control" / "ACC" / "Aktive Geschwindigkeitsregelung" → acc=true
-   • "Driving Assistant Professional" / "DAP" / "DA Professional" → acc=true, lane_assist=true, travel_assist=true, emergency_assist=true
+   • "Driving Assistant Professional" / "DAP" / "DA Professional" → acc=true, lane_assist=true, travel_assist=true, emergency_assist=true, side_assist=true
    • "Driving Assistant Plus" / "DA+" → acc=true, lane_assist=true
    • "Driving Assistant" (zonder Plus/Professional) → lane_assist=true, emergency_assist=true
+   • "Innovationspaket" → keyless=true, matrix_led=true, acc=true
+   • "Komfortpaket" → keyless=true
+   • "Business Paket" → stoelverwarming=true
    • "Lenk- und Spurführungsassistent" → lane_assist=true
    • "Surround View" / "360°" / "360-Grad-Kamera" → camera_360=true, camera_achteruit=true
    • "Parking Assistant Plus" / "PA+" → camera_360=true, camera_achteruit=true
