@@ -1396,6 +1396,40 @@ def _run_scrape():
             sc.detail_incomplete = getattr(orig, 'detail_incomplete', False)
         all_listings = scored
 
+    # Detect seed mode: als er nog geen listings van een bepaald merk in de DB zitten,
+    # sla alles op zonder alerts te sturen (voorkomt spam bij eerste run van nieuwe URL)
+    seed_brands = set()
+    if conn:
+        for lst in all_listings:
+            tl = lst.title.lower()
+            if "mercedes" in tl or "benz" in tl:
+                brand = "mercedes"
+            elif "bmw" in tl or "330" in tl:
+                brand = "bmw"
+            elif "a3" in tl or "a 3" in tl:
+                brand = "audi_a3"
+            else:
+                brand = "audi_q3"
+            lst._brand = brand
+            seed_brands.add(brand)
+
+        brands_in_db = set()
+        for brand in seed_brands:
+            if brand == "mercedes":
+                row = conn.execute("SELECT 1 FROM listings WHERE title LIKE '%ercedes%' OR title LIKE '%enz%' LIMIT 1").fetchone()
+            elif brand == "bmw":
+                row = conn.execute("SELECT 1 FROM listings WHERE title LIKE '%BMW%' OR title LIKE '%330%' LIMIT 1").fetchone()
+            elif brand == "audi_a3":
+                row = conn.execute("SELECT 1 FROM listings WHERE (title LIKE '%A3%' OR title LIKE '%A 3%') AND title NOT LIKE '%Q3%' LIMIT 1").fetchone()
+            else:
+                row = conn.execute("SELECT 1 FROM listings WHERE title LIKE '%Q3%' LIMIT 1").fetchone()
+            if row:
+                brands_in_db.add(brand)
+
+        new_brands = seed_brands - brands_in_db
+        if new_brands:
+            log.info("SEED MODE voor merken %s — opslaan zonder alerts", new_brands)
+
     for listing in all_listings:
         # Als AI scoring mislukt is na alle retries: NIET opslaan zodat volgende run opnieuw probeert
         if listing.score < 0:
@@ -1414,21 +1448,27 @@ def _run_scrape():
 
         if is_new:
             new_count += 1
-            sent = send_telegram(listing)
-            if sent:
-                # Alleen opslaan NA succesvolle Telegram send
+            listing_brand = getattr(listing, '_brand', 'audi_q3')
+            is_seed = listing_brand in new_brands if new_brands else False
+
+            if is_seed:
                 save_listing(conn, listing)
-                alert_count += 1
-                log.info(
-                    "ALERT: %s — score %d/%d — €%s — %s",
-                    listing.title,
-                    listing.score,
-                    len(FULL_OPTION_FEATURES),
-                    f"{listing.price:,}" if listing.price else "?",
-                    listing.url,
-                )
+                log.info("SEED: %s — opgeslagen zonder alert (eerste run voor dit merk)", listing.title[:50])
             else:
-                log.error("NIET opgeslagen (Telegram mislukt, retry volgende run): %s", listing.title[:40])
+                sent = send_telegram(listing)
+                if sent:
+                    save_listing(conn, listing)
+                    alert_count += 1
+                    log.info(
+                        "ALERT: %s — score %d/%d — €%s — %s",
+                        listing.title,
+                        listing.score,
+                        len(FULL_OPTION_FEATURES),
+                        f"{listing.price:,}" if listing.price else "?",
+                        listing.url,
+                    )
+                else:
+                    log.error("NIET opgeslagen (Telegram mislukt, retry volgende run): %s", listing.title[:40])
         else:
             save_listing(conn, listing)
             log.info("Bekende listing bijgewerkt: %s", listing.id)
