@@ -88,8 +88,9 @@ MOBILE_DE_SEARCH_URLS = [
             "&ml=%3A80000&ms=1900%3B37&od=down"
             "&p=%3A40000&s=Car&sb=doc&vc=Car"
         ),
-        "label": "Q3 catch-all (pano check)",
+        "label": "Q3 Sportback catch-all (pano check)",
         "require_pano_in_desc": True,
+        "require_text": "sportback",
     },
     {
         "url": (
