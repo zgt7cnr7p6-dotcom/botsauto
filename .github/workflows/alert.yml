@@ -14,7 +14,7 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
 
 defaults:
   run:
@@ -54,14 +54,18 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python scraper.py 2>&1 | tee scraper_output.log
 
-      - name: Show AI scoring summary
+      - name: Post log summary as commit comment
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -f scraper_output.log ]; then
-            echo "## Scraper Summary" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            grep -E '\[AI\]|\[TELEGRAM\]|\[SCRAPE\]|ERROR|WARNING|NIEUWE|BESTAANDE|GEFAALD' scraper_output.log | tail -100 >> $GITHUB_STEP_SUMMARY || echo "Geen relevante logregels" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
+            SUMMARY=$(tail -60 scraper_output.log | head -c 60000)
+            gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments \
+              -f body="### Run #${{ github.run_number }} — $(date -u +'%Y-%m-%d %H:%M UTC')
+          \`\`\`
+          ${SUMMARY}
+          \`\`\`"
           fi
 
       - name: Save database to cache
