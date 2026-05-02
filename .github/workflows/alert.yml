@@ -76,6 +76,8 @@ jobs:
         if: always()
         with:
           name: debug-html
-          path: auto-alert/debug_*.html
+          path: |
+            auto-alert/debug_*.html
+            auto-alert/scraper_output.log
           retention-days: 3
           if-no-files-found: ignore
