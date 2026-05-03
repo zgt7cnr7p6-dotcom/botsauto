@@ -1425,39 +1425,15 @@ def _run_scrape():
             sc.detail_incomplete = getattr(orig, 'detail_incomplete', False)
         all_listings = scored
 
-    # Detect seed mode: als er nog geen listings van een bepaald merk in de DB zitten,
-    # sla alles op zonder alerts te sturen (voorkomt spam bij eerste run van nieuwe URL)
-    seed_brands = set()
+    # Seed mode: alleen als de DB helemaal leeg is (eerste run ooit / cache verloren)
+    # Voorkomt 70+ alerts tegelijk. Bij niet-lege DB: gewoon alerten.
+    seed_mode = False
     if conn:
-        for lst in all_listings:
-            tl = lst.title.lower()
-            if "mercedes" in tl or "benz" in tl:
-                brand = "mercedes"
-            elif "bmw" in tl or "330" in tl:
-                brand = "bmw"
-            elif "a3" in tl or "a 3" in tl:
-                brand = "audi_a3"
-            else:
-                brand = "audi_q3"
-            lst._brand = brand
-            seed_brands.add(brand)
-
-        brands_in_db = set()
-        for brand in seed_brands:
-            if brand == "mercedes":
-                row = conn.execute("SELECT 1 FROM listings WHERE title LIKE '%ercedes%' OR title LIKE '%enz%' LIMIT 1").fetchone()
-            elif brand == "bmw":
-                row = conn.execute("SELECT 1 FROM listings WHERE title LIKE '%BMW%' OR title LIKE '%330%' LIMIT 1").fetchone()
-            elif brand == "audi_a3":
-                row = conn.execute("SELECT 1 FROM listings WHERE (title LIKE '%A3%' OR title LIKE '%A 3%') AND title NOT LIKE '%Q3%' LIMIT 1").fetchone()
-            else:
-                row = conn.execute("SELECT 1 FROM listings WHERE title LIKE '%Q3%' LIMIT 1").fetchone()
-            if row:
-                brands_in_db.add(brand)
-
-        new_brands = seed_brands - brands_in_db
-        if new_brands:
-            log.info("SEED MODE voor merken %s — opslaan zonder alerts", new_brands)
+        row = conn.execute("SELECT COUNT(*) FROM listings").fetchone()
+        db_count = row[0] if row else 0
+        if db_count == 0 and len(all_listings) > 5:
+            seed_mode = True
+            log.info("SEED MODE: DB is leeg, %d listings opslaan zonder alerts (eerste run)", len(all_listings))
 
     for listing in all_listings:
         # Als AI scoring mislukt is na alle retries: NIET opslaan zodat volgende run opnieuw probeert
@@ -1470,19 +1446,20 @@ def _run_scrape():
         # URL 2 pano check: laat Claude AI bepalen of panoramadak aanwezig is
         require_pano = getattr(listing, '_require_pano', False)
         if require_pano and "panoramadak" not in listing.features:
+            if getattr(listing, 'detail_incomplete', False):
+                log.warning("[pano-AI] Detail page incompleet, NIET opslaan (retry volgende run): %s", listing.title[:40])
+                continue
             log.info("[pano-AI] Overgeslagen (AI zegt geen pano): %s | features=%s",
                      listing.title[:40], listing.features)
-            save_listing(conn, listing)  # wel opslaan zodat we 'm niet opnieuw checken
+            save_listing(conn, listing)
             continue
 
         if is_new:
             new_count += 1
-            listing_brand = getattr(listing, '_brand', 'audi_q3')
-            is_seed = listing_brand in new_brands if new_brands else False
 
-            if is_seed:
+            if seed_mode:
                 save_listing(conn, listing)
-                log.info("SEED: %s — opgeslagen zonder alert (eerste run voor dit merk)", listing.title[:50])
+                log.info("SEED: %s — opgeslagen zonder alert (DB was leeg)", listing.title[:50])
             else:
                 sent = send_telegram(listing)
                 if sent:
