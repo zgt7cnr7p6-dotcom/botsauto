@@ -24,6 +24,9 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    concurrency:
+      group: scraper-run
+      cancel-in-progress: false
 
     steps:
       - name: Checkout repository
