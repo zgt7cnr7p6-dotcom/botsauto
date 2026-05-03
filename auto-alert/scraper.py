@@ -1393,6 +1393,9 @@ def _run_scrape():
             # Filter op vereiste tekst in titel (card-tekst bevat description=card_text[:500])
             if require_text and require_text.lower() not in (lst.title + " " + lst.description).lower():
                 log.info("[%s] Overgeslagen (geen '%s' in titel/beschrijving): %s", url_label, require_text, lst.title[:40])
+                if not listing_exists(conn, lst.id):
+                    save_listing(conn, lst)
+                    log.info("[%s] Opgeslagen in DB (zonder alert) om herhaling te voorkomen", url_label)
                 continue
             seen_ids.add(lst.id)
             lst._require_pano = require_pano
