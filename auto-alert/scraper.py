@@ -187,7 +187,7 @@ DB_PATH = "listings.db"
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS listings (
@@ -1268,7 +1268,7 @@ def _fetch_single_detail(idx_url: tuple) -> tuple:
     # Eén poging met de juiste params — playWithBrowser klikt consent weg en
     # wacht tot de echte page (h1) gerenderd is.
     html = scrape_do_fetch(
-        clean_url, render=True, super_mode=True, retries=1, timeout=90,
+        clean_url, render=True, super_mode=True, retries=2, timeout=90,
         render_wait=3000, geo_code="de",
         wait_until="networkidle0",
         block_resources=False,
@@ -1367,17 +1367,33 @@ def _run_scrape():
     all_listings: list[Listing] = []
     seen_ids: set[str] = set()
 
-    # ── mobile.de ──
-    for search_cfg in MOBILE_DE_SEARCH_URLS:
-        search_url = search_cfg["url"]
+    # ── mobile.de: zoekpagina's PARALLEL ophalen ──
+    search_results: dict[int, list[Listing]] = {}
+
+    def _fetch_search_page(idx_cfg):
+        idx, cfg = idx_cfg
+        return idx, scrape_mobile_de(conn, search_url=cfg["url"], fetch_details=False)
+
+    log.info("Zoekpagina's parallel ophalen (%d URLs) ...", len(MOBILE_DE_SEARCH_URLS))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_fetch_search_page, (i, cfg)): i for i, cfg in enumerate(MOBILE_DE_SEARCH_URLS)}
+        for future in as_completed(futures):
+            try:
+                idx, listings = future.result()
+                search_results[idx] = listings
+            except Exception as e:
+                idx = futures[future]
+                log.error("Zoekpagina %d fout: %s", idx, e)
+                search_results[idx] = []
+
+    # ── Verwerk resultaten (sequentieel voor dedup) ──
+    for i, search_cfg in enumerate(MOBILE_DE_SEARCH_URLS):
         url_label = search_cfg["label"]
         require_pano = search_cfg["require_pano_in_desc"]
         require_text = search_cfg.get("require_text", "")
 
         log.info("━━━ %s ━━━", url_label)
-
-        # Stap 1: Zoekpagina ophalen (snel, geen render) — geeft card-tekst
-        mobile_listings = scrape_mobile_de(conn, search_url=search_url, fetch_details=False)
+        mobile_listings = search_results.get(i, [])
 
         if mobile_listings:
             log.info("[%s] %d listings gevonden", url_label, len(mobile_listings))
