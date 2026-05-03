@@ -133,11 +133,12 @@ FULL_OPTION_FEATURES = [
     "elektrische_achterklep",
     "optik_pakket_zwart",
     "dynamisch_knipperlicht",
+    "head_up",
 ]
 
 FEATURE_DISPLAY_NAMES = {
     "panoramadak": "Panoramadak",
-    "keyless": "Keyless Entry",
+    "keyless": "Keyless",
     "camera_achteruit": "Achteruitrijcamera",
     "camera_360": "360° Camera",
     "s_line": "S-Line interieur",
@@ -148,10 +149,10 @@ FEATURE_DISPLAY_NAMES = {
     "elektrische_stoelen": "Elektrische stoelen",
     "stoelverwarming": "Stoelverwarming",
     "stuurverwarming": "Stuurverwarming",
-    "acc": "ACC (Abstandstempomat)",
-    "lane_assist": "Lane assist",
+    "acc": "ACC",
+    "lane_assist": "Lane Assist",
     "travel_assist": "Travel Assist",
-    "drive_select": "Drive select",
+    "drive_select": "Drive Select",
     "adaptief_onderstel": "Adaptief onderstel",
     "emergency_assist": "Noodrem-assistent",
     "side_assist": "Dodehoek-assistent",
@@ -159,6 +160,7 @@ FEATURE_DISPLAY_NAMES = {
     "elektrische_achterklep": "Elektrische achterklep",
     "optik_pakket_zwart": "Optik pakket zwart",
     "dynamisch_knipperlicht": "Dynamisch knipperlicht",
+    "head_up": "Head-Up Display",
 }
 
 FEATURE_DISPLAY_NAMES_MERCEDES = {
@@ -167,14 +169,7 @@ FEATURE_DISPLAY_NAMES_MERCEDES = {
     "optik_pakket_zwart": "Night-Paket",
     "matrix_led": "DIGITAL LIGHT",
     "audio_premium": "Burmester",
-    "keyless": "KEYLESS-GO",
-    "acc": "DISTRONIC",
-    "travel_assist": "Fahrassistenz-Paket",
-    "side_assist": "Totwinkel-Assistent",
-    "emergency_assist": "PRE-SAFE",
-    "drive_select": "DYNAMIC SELECT",
-    "adaptief_onderstel": "AIRMATIC",
-    "elektrische_achterklep": "EASY-PACK Heckklappe",
+    "adaptief_onderstel": "AIRMATIC (luchtvering)",
 }
 
 FEATURE_DISPLAY_NAMES_BMW = {
@@ -183,12 +178,6 @@ FEATURE_DISPLAY_NAMES_BMW = {
     "optik_pakket_zwart": "Shadow Line",
     "matrix_led": "Adaptive LED",
     "audio_premium": "Harman Kardon",
-    "keyless": "Comfort Access",
-    "acc": "Active Cruise Control",
-    "travel_assist": "Driving Assistant Professional",
-    "side_assist": "Spurwechselwarnung",
-    "emergency_assist": "Frontkollisionswarnung",
-    "drive_select": "Driving Experience Control",
 }
 
 DB_PATH = "listings.db"
@@ -467,7 +456,7 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • "Parking Assistant Plus" / "PA+" → camera_360=true, camera_achteruit=true
    • "Panorama-Glasdach" / "GSD" / "Pano" → panoramadak=true
    • "Adaptives Fahrwerk" / "Adaptives M Fahrwerk" → adaptief_onderstel=true
-   • "Head-Up Display" / "HUD" → (niet in score maar detecteer)
+   • "Head-Up Display" / "HUD" → head_up=true
    • "Driving Experience Control" → drive_select=true
    • "Sportsitze" → (niet hetzelfde als elektrische stoelen)
    • "Memory" / "Memory-Sitze" → elektrische_stoelen=true, stoelen_memory=true
@@ -526,8 +515,9 @@ Bepaal voor elk true of false:
 22. elektrische_achterklep — Elektrische Heckklappe / EASY-PACK Heckklappe
 23. optik_pakket_zwart — Audi: Optikpaket Schwarz | Mercedes: Night-Paket | BMW: Shadow Line
 24. dynamisch_knipperlicht — Dynamischer Blinker/dynamisches Blinklicht/Lauflicht
+25. head_up — Head-Up Display / HUD (alle merken)
 
-25. color — Exterieur kleur van de auto (bijv. "Navarrablau", "Obsidianschwarz", "Alpinweiß"). Zoek naar: Farbe, Außenfarbe, Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
+26. color — Exterieur kleur van de auto (bijv. "Navarrablau", "Obsidianschwarz", "Alpinweiß"). Zoek naar: Farbe, Außenfarbe, Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
 
 Antwoord ALLEEN met JSON, geen uitleg:
 {
@@ -555,6 +545,7 @@ Antwoord ALLEEN met JSON, geen uitleg:
   "elektrische_achterklep": false,
   "optik_pakket_zwart": false,
   "dynamisch_knipperlicht": false,
+  "head_up": false,
   "color": ""
 }"""
 
