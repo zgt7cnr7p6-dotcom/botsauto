@@ -95,14 +95,23 @@ MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
             "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "isSearchRequest=true&s=Car&vc=Car"
-            "&c=Limousine&c=SmallCar&c=SportsCar"
-            "&dam=false&fr=2021&ft=HYBRID&ml=%3A90000"
-            "&ms=17200%3B%3B6%3Bpano&ms=17200%3B%3B59%3Bpano"
+            "c=Cabrio&c=Limousine&c=OffRoad&c=SmallCar&c=SportsCar"
+            "&dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
+            "&ml=%3A90000&ms=17200%3B%3B6%3Bpano&ms=17200%3B%3B59%3Bpano"
             "&ms=3500%3B15%3B%3Bpano&ms=1900%3B8%3B%3Bpano"
-            "&p=28000%3A40000&od=down&sb=doc&ref=dsp"
+            "&od=down&p=28000%3A44000&s=Car&sb=doc&vc=Car"
         ),
         "label": "Multi-brand pano (C/GLC/330/A3)",
+        "require_pano_in_desc": False,
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "cn=DE&dam=false&ft=HYBRID&isSearchRequest=true"
+            "&ml=%3A80000&ms=3500%3B15%3B%3Bglasdach"
+            "&od=up&s=Car&sb=rel&vc=Car"
+        ),
+        "label": "BMW 330e glasdach",
         "require_pano_in_desc": False,
     },
 ]
