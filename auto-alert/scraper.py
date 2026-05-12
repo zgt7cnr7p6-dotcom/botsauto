@@ -454,7 +454,7 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • "Lenk- und Spurführungsassistent" → lane_assist=true
    • "Surround View" / "360°" / "360-Grad-Kamera" → camera_360=true, camera_achteruit=true
    • "Parking Assistant Plus" / "PA+" → camera_360=true, camera_achteruit=true
-   • "Panorama-Glasdach" / "GSD" / "Pano" → panoramadak=true
+   • "Panorama-Glasdach" / "Glasdach" / "GSD" / "Pano" → panoramadak=true
    • "Adaptives Fahrwerk" / "Adaptives M Fahrwerk" → adaptief_onderstel=true
    • "Head-Up Display" / "HUD" → head_up=true
    • "Driving Experience Control" → drive_select=true
@@ -469,7 +469,7 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • Abstandstempomat / adaptive Geschwindigkeitsregelung / ACC / DISTRONIC → acc
    • Rückfahrkamera / Heckkamera → camera_achteruit
    • Umgebungskameras / 360-Grad / Top View / Area View / Surround View → camera_360
-   • Panorama-Glasdach / Panoramadach / Panorama-Schiebedach / Schiebedach → panoramadak
+   • Panorama-Glasdach / Glasdach / Panoramadach / Panorama-Schiebedach / Schiebedach → panoramadak
    • Elektrische Heckklappe / elektr. Heckklappe / EASY-PACK Heckklappe → elektrische_achterklep
    • Ambientebeleuchtung / Ambiente-Licht / Konturfarbenes Ambiente-Licht → ambient_lighting
    • Dynamischer Blinker / dynamisches Blinklicht / Lauflicht → dynamisch_knipperlicht
