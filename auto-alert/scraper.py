@@ -114,6 +114,17 @@ MOBILE_DE_SEARCH_URLS = [
         "label": "BMW 330e glasdach",
         "require_pano_in_desc": False,
     },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
+            "&ml=%3A80000&ms=1900%3B32%3B%3Bpano&od=down"
+            "&p=%3A45000&s=Car&sb=doc&vc=Car"
+        ),
+        "label": "Q5 pano",
+        "require_pano_in_desc": False,
+        "min_listing_month": "2026-05",
+    },
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
 
@@ -143,6 +154,7 @@ FULL_OPTION_FEATURES = [
     "optik_pakket_zwart",
     "dynamisch_knipperlicht",
     "head_up",
+    "luchtvering",
 ]
 
 FEATURE_DISPLAY_NAMES = {
@@ -170,6 +182,8 @@ FEATURE_DISPLAY_NAMES = {
     "optik_pakket_zwart": "Optik pakket zwart",
     "dynamisch_knipperlicht": "Dynamisch knipperlicht",
     "head_up": "Head-Up Display",
+    "luchtvering": "Luchtvering",
+    "sportback": "Sportback",
 }
 
 FEATURE_DISPLAY_NAMES_MERCEDES = {
@@ -379,12 +393,20 @@ def clean_detail_html(soup: BeautifulSoup) -> str:
 AI_SCORING_PROMPT = """\
 Je bent een auto-expert. Lees de advertentietekst en bepaal welke opties aanwezig zijn.
 
-Dit kan een Audi (Q3/A3), Mercedes-Benz (C-Klasse/GLC), of BMW (3er/330e) zijn. Detecteer het merk uit de tekst en gebruik de juiste terminologie.
+Dit kan een Audi (Q3/Q5/A3), Mercedes-Benz (C-Klasse/GLC), of BMW (3er/330e) zijn. Detecteer het merk uit de tekst en gebruik de juiste terminologie.
 
 BELANGRIJK: Wees NAUWKEURIG. Markeer een feature ALLEEN als true als het DUIDELIJK en EXPLICIET vermeld staat in de tekst (als optie, Sonderausstattung, of pakket). Bij twijfel: false.
 LET OP: Een auto kan "sportief" of "sport" in de beschrijving hebben zonder dat het een sport-pakket (S line / AMG Line / M Sport) betreft. Markeer sport-pakketten alleen als ze LETTERLIJK als optie/uitrusting genoemd worden.
 
-De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serienausstattung, Pakete, losse vermeldingen, bullet lists, etc.
+De tekst is vaak Duits (mobile.de). Lees ALLES grondig — mis NIETS:
+   • Titel en subtitel
+   • "Technische Daten" sectie (motor, vermogen, versnellingsbak, etc.)
+   • "Ausstattung" / "Sonderausstattung" / "Serienausstattung" (VOLLEDIGE lijst doornemen!)
+   • "Pakete" / gebundelde opties
+   • Losse vermeldingen, bullet lists, lopende beschrijvingstekst
+   • Afkortingen en samengestelde termen (bijv. "Sitz-u.Spiegelheizung")
+
+BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE regel — features staan vaak onderaan!
 
 ## REGELS
 
@@ -397,7 +419,7 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
 
 3. PAKKET-HERKENNING PER MERK:
 
-   AUDI (Q3 / A3):
+   AUDI (Q3 / Q5 / A3):
    • "S line Interieur" / "S line innen" → s_line=true (NIET automatisch s_line_exterieur)
    • "S line Exterieur" / "S line außen" → s_line_exterieur=true (NIET automatisch s_line)
    • "S line" / "S-Line" (zonder int/ext specificatie) → bepaal uit context welke variant(en). Check of interieur EN/OF exterieur apart vermeld worden
@@ -414,6 +436,14 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • A3: "Assistenzpaket Fahren und Parken plus" → acc=true, lane_assist=true, camera_achteruit=true, emergency_assist=true
    • A3: "Businesspaket plus" → acc=true, lane_assist=true, camera_achteruit=true, elektrische_stoelen=true
    • Q3: "Technikpaket" / "Technik-Paket" → acc=true, lane_assist=true, vaak ook camera_achteruit
+   • Q5: "Sportback" in titel/model → sportback=true
+   • Q5: "Luftfederung" / "adaptive Luftfederung" / "adaptive air suspension" → luchtvering=true
+   • Q5: "Assistenzpaket Tour" → acc=true, lane_assist=true, emergency_assist=true, side_assist=true, travel_assist=true
+   • Q5: "Assistenzpaket Stadt" / "Assistenzpaket Parken" → camera_360=true, camera_achteruit=true
+   • Q5: "Technik" / "Technikpaket" → acc=true, lane_assist=true, head_up=true
+   • Q5: "Ambiente Lichtpaket plus" → ambient_lighting=true
+   • Q5: "Komfortpaket plus" → keyless=true, elektrische_stoelen=true, stoelen_memory=true
+   • Q5: "Dynamikpaket plus" → adaptief_onderstel=true, drive_select=true
 
    MERCEDES-BENZ (C-Klasse / GLC):
    • "AMG Line Interieur" → s_line=true (NIET automatisch s_line_exterieur)
@@ -436,7 +466,7 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • "Park-Paket mit 360°-Kamera" / "360°-Kamera" / "Surroundview" → camera_360=true, camera_achteruit=true
    • "Park-Paket mit Rückfahrkamera" → camera_achteruit=true
    • "DYNAMIC SELECT" → drive_select=true
-   • "AIRMATIC" / "Luftfederung" → adaptief_onderstel=true
+   • "AIRMATIC" / "Luftfederung" → adaptief_onderstel=true, luchtvering=true
    • "Ambientebeleuchtung Plus" / "64 Farben" / "Aktives Ambientelicht" → ambient_lighting=true
    • "Memory-Paket" → elektrische_stoelen=true, stoelen_memory=true
    • "Sitzkomfort-Paket" → elektrische_stoelen=true, stoelen_memory=true, stoelverwarming=true
@@ -465,6 +495,7 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • "Parking Assistant Plus" / "PA+" → camera_360=true, camera_achteruit=true
    • "Panorama-Glasdach" / "Glasdach" / "GSD" / "Pano" → panoramadak=true
    • "Adaptives Fahrwerk" / "Adaptives M Fahrwerk" → adaptief_onderstel=true
+   • "Luftfederung" / "air suspension" → luchtvering=true
    • "Head-Up Display" / "HUD" → head_up=true
    • "Driving Experience Control" → drive_select=true
    • "Sportsitze" → (niet hetzelfde als elektrische stoelen)
@@ -482,10 +513,12 @@ De tekst is vaak Duits (mobile.de). Lees ALLES: titel, Sonderausstattung, Serien
    • Elektrische Heckklappe / elektr. Heckklappe / EASY-PACK Heckklappe → elektrische_achterklep
    • Ambientebeleuchtung / Ambiente-Licht / Konturfarbenes Ambiente-Licht → ambient_lighting
    • Dynamischer Blinker / dynamisches Blinklicht / Lauflicht → dynamisch_knipperlicht
+   • Luftfederung / adaptive Luftfederung / air suspension / AIRMATIC → luchtvering
 
 5. IMPLICIETE FEATURES:
    • camera_360=true → camera_achteruit=true automatisch
    • travel_assist=true → acc=true EN lane_assist=true automatisch
+   • luchtvering=true → adaptief_onderstel=true automatisch
    • s_line en s_line_exterieur zijn ONAFHANKELIJK — een auto kan alleen interieur, alleen exterieur, of beide hebben. Bepaal elk apart op basis van wat er EXPLICIET vermeld staat
 
 6. ZOEK BREED — features kunnen overal staan:
@@ -525,8 +558,10 @@ Bepaal voor elk true of false:
 23. optik_pakket_zwart — Audi: Optikpaket Schwarz | Mercedes: Night-Paket | BMW: Shadow Line
 24. dynamisch_knipperlicht — Dynamischer Blinker/dynamisches Blinklicht/Lauflicht
 25. head_up — Head-Up Display / HUD (alle merken)
+26. luchtvering — Luftfederung / adaptive Luftfederung / AIRMATIC / air suspension (NIET gewoon adaptief onderstel/Sportfahrwerk)
+27. sportback — true als het een Sportback variant is (Q3 Sportback, Q5 Sportback). Alleen op basis van modelnaam, NIET op uiterlijk
 
-26. color — Exterieur kleur van de auto (bijv. "Navarrablau", "Obsidianschwarz", "Alpinweiß"). Zoek naar: Farbe, Außenfarbe, Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
+28. color — Exterieur kleur van de auto (bijv. "Navarrablau", "Obsidianschwarz", "Alpinweiß"). Zoek naar: Farbe, Außenfarbe, Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
 
 Antwoord ALLEEN met JSON, geen uitleg:
 {
@@ -555,6 +590,8 @@ Antwoord ALLEEN met JSON, geen uitleg:
   "optik_pakket_zwart": false,
   "dynamisch_knipperlicht": false,
   "head_up": false,
+  "luchtvering": false,
+  "sportback": false,
   "color": ""
 }"""
 
@@ -602,6 +639,10 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         if features_dict.get("camera_360", False):
             features_dict["camera_achteruit"] = True
 
+        # Luchtvering impliceert adaptief onderstel
+        if features_dict.get("luchtvering", False):
+            features_dict["adaptief_onderstel"] = True
+
         # Travel Assist: als ACC + lane_assist beide true → travel_assist ook true
         if features_dict.get("acc", False) and features_dict.get("lane_assist", False):
             if not features_dict.get("travel_assist", False):
@@ -617,6 +658,8 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         # stoelen_memory is niet in FULL_OPTION_FEATURES maar wel relevant voor display
         if features_dict.get("stoelen_memory", False):
             found.append("stoelen_memory")
+        if features_dict.get("sportback", False):
+            found.append("sportback")
         listing.features = found
         listing.score = len([f for f in found if f in FULL_OPTION_FEATURES])
 
@@ -1400,6 +1443,7 @@ def _run_scrape():
         url_label = search_cfg["label"]
         require_pano = search_cfg["require_pano_in_desc"]
         require_text = search_cfg.get("require_text", "")
+        min_listing_month = search_cfg.get("min_listing_month", "")
 
         log.info("━━━ %s ━━━", url_label)
         mobile_listings = search_results.get(i, [])
@@ -1422,6 +1466,17 @@ def _run_scrape():
                     save_listing(conn, lst)
                     log.info("[%s] Opgeslagen in DB (zonder alert) om herhaling te voorkomen", url_label)
                 continue
+            if min_listing_month and lst.listing_date:
+                try:
+                    dt = datetime.strptime(lst.listing_date.split(",")[0].strip(), "%d.%m.%Y")
+                    listing_ym = dt.strftime("%Y-%m")
+                    if listing_ym < min_listing_month:
+                        log.info("[%s] Overgeslagen (te oud: %s < %s): %s", url_label, listing_ym, min_listing_month, lst.title[:40])
+                        if not listing_exists(conn, lst.id):
+                            save_listing(conn, lst)
+                        continue
+                except (ValueError, IndexError):
+                    pass
             seen_ids.add(lst.id)
             lst._require_pano = require_pano
             filtered.append(lst)
