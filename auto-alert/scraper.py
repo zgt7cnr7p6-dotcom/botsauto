@@ -425,25 +425,37 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
    • "S line" / "S-Line" (zonder int/ext specificatie) → bepaal uit context welke variant(en). Check of interieur EN/OF exterieur apart vermeld worden
    • "S line Paket" / "S line Sportpaket" → s_line=true, s_line_exterieur=true (volledig pakket = beide)
    • "Assistenzpaket Tour" / "Assistenz-Paket Tour" → acc=true, lane_assist=true, emergency_assist=true, side_assist=true
-   • "Assistenzpaket Parken" / "Park-Paket" / "Assistenzpaket Stadt" → camera_360=true, camera_achteruit=true
+   • "Assistenzpaket Sicherheit" / "Sicherheitspaket" → emergency_assist=true, side_assist=true
+   • "Assistenzpaket Parken" / "Park-Paket" / "Assistenzpaket Stadt" / "Stadtpaket" → camera_360=true, camera_achteruit=true
    • "Adaptiver Fahrassistent" → acc=true, lane_assist=true, travel_assist=true
    • "Business-Paket" / "Business Paket" / "Businesspaket" → stoelverwarming=true, acc=true (Q3), soms keyless
    • "Komfort-Paket" / "Komfortpaket" → elektrische_stoelen=true, soms keyless
-   • "Komfortschlüssel" / "Keyless" / "KESSY" → keyless=true
+   • "Komfortschlüssel" / "Keyless" / "KESSY" / "Komfortschlüssel mit sensorgesteuerter Gepäckraumentriegelung" → keyless=true (+ elektrische_achterklep als "Gepäckraumentriegelung" vermeld)
    • "Top View Kamera" / "Umgebungskameras" / "Area View" → camera_360=true, camera_achteruit=true
-   • "Ambiente Lichtpaket" / "Ambiente-Lichtpaket plus" → ambient_lighting=true
-   • "Optikpaket Schwarz" / "Optik Paket Schwarz" / "Black Style" → optik_pakket_zwart=true
+   • "Ambiente Lichtpaket" / "Ambiente-Lichtpaket plus" / "Ambiente Lichtpaket plus" → ambient_lighting=true
+   • "Optikpaket Schwarz" / "Optik Paket Schwarz" / "Black Style" / "Schwarz-Paket" → optik_pakket_zwart=true
+   • "Audi pre sense front" / "pre sense city" / "pre sense basic" / "pre sense rear" → emergency_assist=true
+   • "Bang & Olufsen" / "B&O" / "B&O 3D" / "Bang & Olufsen 3D" / "Bang & Olufsen Premium Sound" → audio_premium=true
+   • "Sonos" / "SONOS" → audio_premium=true
+   • "Matrix LED" / "Matrix-LED-Scheinwerfer" / "HD Matrix LED" → matrix_led=true
+   • "Elektrische Heckklappe" / "elektr. Heckkl." / "Heckklappe elektrisch" / "Fußgesteuerte Heckklappe" / "Heckklappe mit Fußsensor" → elektrische_achterklep=true
+   • "adaptive Dämpferregelung" / "Dämpferregelung" / "Adaptives Fahrwerk" → adaptief_onderstel=true (NIET "Sportfahrwerk" — dat is vast, niet adaptief)
+   • "Audi drive select" / "drive select" → drive_select=true
+   • "Dynamische Blinker" / "dynamisches Blinklicht" → dynamisch_knipperlicht=true
+   • "Audi Side Assist" / "Side Assist" / "Spurwechselwarnung" → side_assist=true
+   • Q3: "Sportback" in titel/model → sportback=true
+   • Q3: "Technikpaket" / "Technik-Paket" → acc=true, lane_assist=true, vaak ook camera_achteruit
    • A3: "Assistenzpaket Fahren und Parken plus" → acc=true, lane_assist=true, camera_achteruit=true, emergency_assist=true
    • A3: "Businesspaket plus" → acc=true, lane_assist=true, camera_achteruit=true, elektrische_stoelen=true
-   • Q3: "Technikpaket" / "Technik-Paket" → acc=true, lane_assist=true, vaak ook camera_achteruit
    • Q5: "Sportback" in titel/model → sportback=true
-   • Q5: "Luftfederung" / "adaptive Luftfederung" / "adaptive air suspension" → luchtvering=true
+   • Q5: "Luftfederung" / "adaptive Luftfederung" / "adaptive air suspension" → luchtvering=true, adaptief_onderstel=true
    • Q5: "Assistenzpaket Tour" → acc=true, lane_assist=true, emergency_assist=true, side_assist=true, travel_assist=true
    • Q5: "Assistenzpaket Stadt" / "Assistenzpaket Parken" → camera_360=true, camera_achteruit=true
    • Q5: "Technik" / "Technikpaket" → acc=true, lane_assist=true, head_up=true
    • Q5: "Ambiente Lichtpaket plus" → ambient_lighting=true
    • Q5: "Komfortpaket plus" → keyless=true, elektrische_stoelen=true, stoelen_memory=true
    • Q5: "Dynamikpaket plus" → adaptief_onderstel=true, drive_select=true
+   • Q5: "Panorama-Glasdach" / "Panoramadach" → panoramadak=true
 
    MERCEDES-BENZ (C-Klasse / GLC):
    • "AMG Line Interieur" → s_line=true (NIET automatisch s_line_exterieur)
