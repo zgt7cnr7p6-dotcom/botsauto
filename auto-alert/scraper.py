@@ -1320,7 +1320,11 @@ def _fetch_single_detail(idx_url: tuple) -> tuple:
 
 
 def _fetch_detail_pages(listings: list) -> list:
-    """Haal detail pages op voor listings (parallel, max 5 threads).
+    """Haal detail pages sequentieel op (1 tegelijk).
+
+    Scrape.do heeft een apart browser-concurrent limiet dat lager is dan het
+    algemene limiet. Meerdere render+super requests tegelijk geeft
+    502 RotationFailed ("cannot handle browser network").
 
     Muteert listings in-place: zet description + detail_incomplete.
     """
@@ -1328,38 +1332,38 @@ def _fetch_detail_pages(listings: list) -> list:
     if not urls_to_fetch:
         return listings
 
-    log.info("Detail pages ophalen voor %d listings (parallel) ...", len(urls_to_fetch))
+    log.info("Detail pages ophalen voor %d listings (sequentieel) ...", len(urls_to_fetch))
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        futures = {pool.submit(_fetch_single_detail, item): item for item in urls_to_fetch.items()}
-        for future in as_completed(futures):
-            try:
-                idx, detail_html = future.result()
-                lst = listings[idx]
-                if detail_html and len(detail_html) > 5000:
-                    detail_soup = BeautifulSoup(detail_html, "html.parser")
-                    body_text = clean_detail_html(detail_soup)
-                    if len(body_text) > 100:
-                        lst.description = body_text[:20000]
-                        log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
-                    else:
-                        lst.detail_incomplete = True
-                        log.warning("Detail geblokkeerd: %s (body %d chars, raw %d) — dumping HTML", lst.title[:40], len(body_text), len(detail_html))
-                        try:
-                            with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
-                                fh.write(detail_html)
-                        except Exception as dump_err:
-                            log.warning("Kon detail HTML niet dumpen: %s", dump_err)
-                elif detail_html:
-                    log.warning("Detail te klein: %s (%d bytes) — dumping HTML", lst.title[:40], len(detail_html))
+    for item_num, (idx, url) in enumerate(urls_to_fetch.items()):
+        if item_num > 0:
+            time.sleep(2)
+        lst = listings[idx]
+        try:
+            _, detail_html = _fetch_single_detail((idx, url))
+            if detail_html and len(detail_html) > 5000:
+                detail_soup = BeautifulSoup(detail_html, "html.parser")
+                body_text = clean_detail_html(detail_soup)
+                if len(body_text) > 100:
+                    lst.description = body_text[:20000]
+                    log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
+                else:
                     lst.detail_incomplete = True
+                    log.warning("Detail geblokkeerd: %s (body %d chars, raw %d) — dumping HTML", lst.title[:40], len(body_text), len(detail_html))
                     try:
                         with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
                             fh.write(detail_html)
                     except Exception as dump_err:
                         log.warning("Kon detail HTML niet dumpen: %s", dump_err)
-            except Exception as e:
-                log.warning("Detail fetch fout: %s", e)
+            elif detail_html:
+                log.warning("Detail te klein: %s (%d bytes) — dumping HTML", lst.title[:40], len(detail_html))
+                lst.detail_incomplete = True
+                try:
+                    with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
+                        fh.write(detail_html)
+                except Exception as dump_err:
+                    log.warning("Kon detail HTML niet dumpen: %s", dump_err)
+        except Exception as e:
+            log.warning("Detail fetch fout voor %s: %s", lst.title[:40], e)
 
     # Log welke listings GEEN detail page kregen
     for lst in listings:
