@@ -791,37 +791,56 @@ def _buy_advice(price: int, score: int, max_score: int, features: list, km: int)
     return ""
 
 
-def send_telegram(listing: Listing):
-    max_score = len(FULL_OPTION_FEATURES)
+FEATURES_NOT_AVAILABLE = {
+    "q3": {"head_up", "luchtvering", "adaptief_onderstel"},
+    "a3": {"head_up", "luchtvering", "adaptief_onderstel", "camera_360"},
+    "330e": {"luchtvering"},
+    "c_klasse": {"luchtvering"},
+    "glc": set(),
+    "q5": set(),
+}
 
+
+def send_telegram(listing: Listing):
     title_lower = listing.title.lower()
     if "mercedes" in title_lower or "benz" in title_lower:
         if "glc" in title_lower:
             model_tag = "Mercedes GLC"
+            model_key = "glc"
         else:
             model_tag = "Mercedes C-Klasse"
+            model_key = "c_klasse"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_MERCEDES}
     elif "bmw" in title_lower or "330e" in title_lower:
         model_tag = "BMW 330e"
+        model_key = "330e"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_BMW}
     elif "a3" in title_lower or "a 3" in title_lower:
         if "sportback" in title_lower:
             model_tag = "Audi A3 Sportback"
         else:
             model_tag = "Audi A3"
+        model_key = "a3"
         display_names = FEATURE_DISPLAY_NAMES
     elif "q5" in title_lower:
         if "sportback" in title_lower:
             model_tag = "Audi Q5 Sportback"
         else:
             model_tag = "Audi Q5"
+        model_key = "q5"
         display_names = FEATURE_DISPLAY_NAMES
     elif "sportback" in title_lower:
         model_tag = "Audi Q3 Sportback"
+        model_key = "q3"
         display_names = FEATURE_DISPLAY_NAMES
     else:
         model_tag = "Audi Q3"
+        model_key = "q3"
         display_names = FEATURE_DISPLAY_NAMES
+
+    excluded = FEATURES_NOT_AVAILABLE.get(model_key, set())
+    model_features = [f for f in FULL_OPTION_FEATURES if f not in excluded]
+    max_score = len(model_features)
 
     pct = listing.score / max_score if max_score else 0
     if pct >= 0.85:
@@ -856,7 +875,7 @@ def send_telegram(listing: Listing):
     found_normal = []
     missing_star = []
     missing_normal = []
-    for f in FULL_OPTION_FEATURES:
+    for f in model_features:
         name = display_names.get(f, f)
         # Dynamische naam voor elektrische stoelen: + memory als dat gedetecteerd is
         if f == "elektrische_stoelen" and "stoelen_memory" in listing.features:
