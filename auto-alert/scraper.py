@@ -94,10 +94,10 @@ MOBILE_DE_SEARCH_URLS = [
             "&ms=17200%3B%3B6%3Bpano&ms=17200%3B%3B59%3Bpano"
             "&ms=3500%3B15%3B%3Bpano&ms=1900%3B8%3B%3Bpano"
             "&ms=1900%3B32%3B%3Bpano&ms=3500%3B15%3B%3Bglasdach"
-            "&ms=1900%3B32%3B%3Bpanorama"
+            "&ms=1900%3B32%3B%3Bpanorama&ms=3%3B5%3B%3Bpano"
             "&p=28000%3A44000&od=down&sb=doc&ref=dsp"
         ),
-        "label": "Multi-brand pano (C/GLC/330/A3/Q5)",
+        "label": "Multi-brand pano (C/GLC/330/A3/Q5/Formentor)",
         "require_pano_in_desc": False,
         "min_listing_month": "2026-05",
     },
@@ -177,6 +177,17 @@ FEATURE_DISPLAY_NAMES_BMW = {
     "optik_pakket_zwart": "Shadow Line",
     "matrix_led": "Adaptive LED",
     "audio_premium": "Harman Kardon",
+}
+
+FEATURE_DISPLAY_NAMES_CUPRA = {
+    "s_line": "VZ-pakket",
+    "s_line_exterieur": "VZ-pakket exterieur",
+    "optik_pakket_zwart": "Dark Aluminium / Copper pakket",
+    "matrix_led": "Full LED",
+    "audio_premium": "Beats Audio",
+    "keyless": "KESSY",
+    "drive_select": "Cupra Drive Profile",
+    "travel_assist": "Travel Assist",
 }
 
 DB_PATH = "listings.db"
@@ -369,7 +380,7 @@ def clean_detail_html(soup: BeautifulSoup) -> str:
 AI_SCORING_PROMPT = """\
 Je bent een auto-expert. Lees de advertentietekst en bepaal welke opties aanwezig zijn.
 
-Dit kan een Audi (Q3/Q5/A3), Mercedes-Benz (C-Klasse/GLC), of BMW (3er/330e) zijn. Detecteer het merk uit de tekst en gebruik de juiste terminologie.
+Dit kan een Audi (Q3/Q5/A3), Mercedes-Benz (C-Klasse/GLC), BMW (3er/330e) of Cupra (Formentor) zijn. Detecteer het merk uit de tekst en gebruik de juiste terminologie.
 
 BELANGRIJK: Wees NAUWKEURIG. Markeer een feature ALLEEN als true als het DUIDELIJK en EXPLICIET vermeld staat in de tekst (als optie, Sonderausstattung, of pakket). Bij twijfel: false.
 LET OP: Een auto kan "sportief" of "sport" in de beschrijving hebben zonder dat het een sport-pakket (S line / AMG Line / M Sport) betreft. Markeer sport-pakketten alleen als ze LETTERLIJK als optie/uitrusting genoemd worden.
@@ -488,6 +499,26 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
    • "Driving Experience Control" → drive_select=true
    • "Sportsitze" → (niet hetzelfde als elektrische stoelen)
    • "Memory" / "Memory-Sitze" → elektrische_stoelen=true, stoelen_memory=true
+
+   CUPRA (Formentor):
+   • "VZ" / "VZ-Paket" / "VZ-Ausstattung" → s_line=true, s_line_exterieur=true (volledig sportpakket)
+   • "Beats" / "Beats Audio" / "Beats Sound" → audio_premium=true
+   • "KESSY" / "Keyless" / "Komfortschlüssel" → keyless=true
+   • "Travel Assist" / "Travel-Assist" → travel_assist=true, acc=true, lane_assist=true
+   • "ACC" / "Abstandstempomat" / "Adaptive Cruise Control" → acc=true
+   • "Side Assist" / "Spurwechselassistent" / "Totwinkelassistent" → side_assist=true
+   • "Lane Assist" / "Spurhalteassistent" → lane_assist=true
+   • "Emergency Assist" / "Notbremsassistent" → emergency_assist=true
+   • "Panoramadach" / "Panorama-Glasdach" / "Panorama-Schiebedach" → panoramadak=true
+   • "360°-Kamera" / "Area View" / "Top View" / "Umgebungskameras" → camera_360=true, camera_achteruit=true
+   • "Rückfahrkamera" → camera_achteruit=true
+   • "Voll-LED" / "Full LED" / "Matrix LED" → matrix_led=true
+   • "Elektrische Heckklappe" → elektrische_achterklep=true
+   • "Drive Profile" / "Cupra Drive Profile" → drive_select=true
+   • "Copper" / "Dark Aluminium" / "Kupfer-Paket" → optik_pakket_zwart=true
+   • "Adaptives Fahrwerk" / "DCC" / "Adaptive Fahrwerksregelung" → adaptief_onderstel=true
+   • "Dynamische Blinker" / "dynamisches Blinklicht" → dynamisch_knipperlicht=true
+   • "Ambient Light" / "Ambientebeleuchtung" → ambient_lighting=true
 
 4. UNIVERSELE GERMAN-DUTCH MAPPINGS (alle merken):
    • Sitzheizung / beheizbare Sitze / Sitz-u.Spiegelheizung → stoelverwarming
@@ -798,6 +829,7 @@ FEATURES_NOT_AVAILABLE = {
     "c_klasse": set(),
     "glc": set(),
     "q5": set(),
+    "formentor": {"luchtvering", "head_up"},
 }
 
 
@@ -822,6 +854,10 @@ def send_telegram(listing: Listing):
             model_tag = "Audi A3"
         model_key = "a3"
         display_names = FEATURE_DISPLAY_NAMES
+    elif "cupra" in title_lower or "formentor" in title_lower:
+        model_tag = "Cupra Formentor"
+        model_key = "formentor"
+        display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_CUPRA}
     elif "q5" in title_lower:
         if "sportback" in title_lower:
             model_tag = "Audi Q5 Sportback"
