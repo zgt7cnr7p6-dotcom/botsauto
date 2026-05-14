@@ -1311,8 +1311,8 @@ def _fetch_single_detail(idx_url: tuple) -> tuple:
     # wacht tot de echte page (h1) gerenderd is.
     html = scrape_do_fetch(
         clean_url, render=True, super_mode=True, retries=2, timeout=90,
-        render_wait=2000, regional_geo_code="europe",
-        wait_until="networkidle2",
+        render_wait=3000, geo_code="de",
+        wait_until="networkidle0",
         block_resources=False,
         play_with_browser=CONSENT_ACTIONS,
     )
@@ -1320,54 +1320,46 @@ def _fetch_single_detail(idx_url: tuple) -> tuple:
 
 
 def _fetch_detail_pages(listings: list) -> list:
-    """Haal detail pages op voor listings (sequentieel, met delay).
+    """Haal detail pages op voor listings (parallel, max 5 threads).
 
     Muteert listings in-place: zet description + detail_incomplete.
-    Sequentieel i.p.v. parallel om binnen Scrape.do concurrent limit te blijven
-    (render+super = 25 credits, max 15 concurrent requests op Pro plan).
     """
     urls_to_fetch = {i: lst.url for i, lst in enumerate(listings) if lst.url}
     if not urls_to_fetch:
         return listings
 
-    log.info("Detail pages ophalen voor %d listings (sequentieel) ...", len(urls_to_fetch))
+    log.info("Detail pages ophalen voor %d listings (parallel) ...", len(urls_to_fetch))
 
-    results = []
-    for item_idx, item in enumerate(urls_to_fetch.items()):
-        if item_idx > 0:
-            time.sleep(3)
-        try:
-            result = _fetch_single_detail(item)
-            results.append(result)
-        except Exception as e:
-            idx = item[0]
-            log.error("Detail fetch mislukt voor listing %d: %s", idx, e)
-            results.append((idx, None))
-
-    for idx, detail_html in results:
-        lst = listings[idx]
-        if detail_html and len(detail_html) > 5000:
-            detail_soup = BeautifulSoup(detail_html, "html.parser")
-            body_text = clean_detail_html(detail_soup)
-            if len(body_text) > 100:
-                lst.description = body_text[:20000]
-                log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
-            else:
-                lst.detail_incomplete = True
-                log.warning("Detail geblokkeerd: %s (body %d chars, raw %d) — dumping HTML", lst.title[:40], len(body_text), len(detail_html))
-                try:
-                    with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
-                        fh.write(detail_html)
-                except Exception as dump_err:
-                    log.warning("Kon detail HTML niet dumpen: %s", dump_err)
-        elif detail_html:
-            log.warning("Detail te klein: %s (%d bytes) — dumping HTML", lst.title[:40], len(detail_html))
-            lst.detail_incomplete = True
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {pool.submit(_fetch_single_detail, item): item for item in urls_to_fetch.items()}
+        for future in as_completed(futures):
             try:
-                with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
-                    fh.write(detail_html)
-            except Exception as dump_err:
-                log.warning("Kon detail HTML niet dumpen: %s", dump_err)
+                idx, detail_html = future.result()
+                lst = listings[idx]
+                if detail_html and len(detail_html) > 5000:
+                    detail_soup = BeautifulSoup(detail_html, "html.parser")
+                    body_text = clean_detail_html(detail_soup)
+                    if len(body_text) > 100:
+                        lst.description = body_text[:20000]
+                        log.info("Detail OK: %s (%d chars)", lst.title[:40], len(lst.description))
+                    else:
+                        lst.detail_incomplete = True
+                        log.warning("Detail geblokkeerd: %s (body %d chars, raw %d) — dumping HTML", lst.title[:40], len(body_text), len(detail_html))
+                        try:
+                            with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
+                                fh.write(detail_html)
+                        except Exception as dump_err:
+                            log.warning("Kon detail HTML niet dumpen: %s", dump_err)
+                elif detail_html:
+                    log.warning("Detail te klein: %s (%d bytes) — dumping HTML", lst.title[:40], len(detail_html))
+                    lst.detail_incomplete = True
+                    try:
+                        with open(f"debug_detail_{lst.id}.html", "w", encoding="utf-8") as fh:
+                            fh.write(detail_html)
+                    except Exception as dump_err:
+                        log.warning("Kon detail HTML niet dumpen: %s", dump_err)
+            except Exception as e:
+                log.warning("Detail fetch fout: %s", e)
 
     # Log welke listings GEEN detail page kregen
     for lst in listings:
