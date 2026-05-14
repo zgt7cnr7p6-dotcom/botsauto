@@ -810,6 +810,12 @@ def send_telegram(listing: Listing):
         else:
             model_tag = "Audi A3"
         display_names = FEATURE_DISPLAY_NAMES
+    elif "q5" in title_lower:
+        if "sportback" in title_lower:
+            model_tag = "Audi Q5 Sportback"
+        else:
+            model_tag = "Audi Q5"
+        display_names = FEATURE_DISPLAY_NAMES
     elif "sportback" in title_lower:
         model_tag = "Audi Q3 Sportback"
         display_names = FEATURE_DISPLAY_NAMES
@@ -879,7 +885,7 @@ def send_telegram(listing: Listing):
     found_time = now_cet.strftime("%d-%m-%Y %H:%M")
 
     text = (
-        f"<b>{model_tag}</b>\n"
+        f"<b>{listing.title}</b>\n"
         f"{info_line}\n"
     )
 
