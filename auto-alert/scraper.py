@@ -792,10 +792,10 @@ def _buy_advice(price: int, score: int, max_score: int, features: list, km: int)
 
 
 FEATURES_NOT_AVAILABLE = {
-    "q3": {"head_up", "luchtvering", "adaptief_onderstel"},
-    "a3": {"head_up", "luchtvering", "adaptief_onderstel", "camera_360"},
+    "q3": {"head_up", "luchtvering"},
+    "a3": {"head_up", "luchtvering", "adaptief_onderstel"},
     "330e": {"luchtvering"},
-    "c_klasse": {"luchtvering"},
+    "c_klasse": set(),
     "glc": set(),
     "q5": set(),
 }
