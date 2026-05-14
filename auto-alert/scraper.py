@@ -76,23 +76,14 @@ MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
             "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "cn=DE&dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
-            "&ml=%3A80000&ms=1900%3B37%3B%3Bsportback&od=down"
-            "&p=%3A40000&s=Car&sb=doc&vc=Car"
+            "lang=en&isSearchRequest=true&s=Car&vc=Car"
+            "&cn=DE&dam=false&fr=2021&ft=HYBRID&ml=%3A80000"
+            "&ms=1900%3B37%3B%3Bsportback&ms=1900%3B37%3B%3Bspb"
+            "&ms=1900%3B37%3B%3Bsport+back&ms=1900%3B37%3B%3Bsport"
+            "&p=%3A40000&od=down&sb=doc&ref=dsp"
         ),
         "label": "Q3 Sportback (pano check)",
         "require_pano_in_desc": True,
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
-            "&ml=%3A80000&ms=1900%3B37&od=down"
-            "&p=%3A40000&s=Car&sb=doc&vc=Car"
-        ),
-        "label": "Q3 Sportback catch-all (pano check)",
-        "require_pano_in_desc": True,
-        "require_text": "sportback",
     },
     {
         "url": (
