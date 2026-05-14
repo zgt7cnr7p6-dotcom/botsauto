@@ -64,7 +64,7 @@ MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
             "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "lang=en&isSearchRequest=true&s=Car&vc=Car"
+            "isSearchRequest=true&s=Car&vc=Car"
             "&dam=false&fr=2021&ft=HYBRID&ml=%3A80000"
             "&ms=1900%3B37%3B%3Bpano&ms=1900%3B37%3B%3Bpanorama"
             "&ms=1900%3B37%3B%3Bp.dach&ms=1900%3B37%3B%3Bdach"
@@ -76,7 +76,7 @@ MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
             "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "lang=en&isSearchRequest=true&s=Car&vc=Car"
+            "isSearchRequest=true&s=Car&vc=Car"
             "&cn=DE&dam=false&fr=2021&ft=HYBRID&ml=%3A80000"
             "&ms=1900%3B37%3B%3Bsportback&ms=1900%3B37%3B%3Bspb"
             "&ms=1900%3B37%3B%3Bsport+back&ms=1900%3B37%3B%3Bsport"
@@ -88,7 +88,7 @@ MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
             "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "lang=en&isSearchRequest=true&s=Car&vc=Car"
+            "isSearchRequest=true&s=Car&vc=Car"
             "&c=Cabrio&c=Limousine&c=OffRoad&c=SmallCar&c=SportsCar"
             "&dam=false&fr=2021&ft=HYBRID&ml=%3A90000"
             "&ms=17200%3B%3B6%3Bpano&ms=17200%3B%3B59%3Bpano"
@@ -1151,7 +1151,8 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             card_full_text = card.get_text(separator=" ", strip=True)
 
             # Skip gesponsorde advertenties
-            if "gesponsert" in card_full_text.lower()[:50]:
+            first_50 = card_full_text.lower()[:50]
+            if "gesponsert" in first_50 or "sponsored" in first_50:
                 log.info("Gesponsorde advertentie overgeslagen")
                 continue
 
@@ -1164,7 +1165,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             if not title:
                 title = card_full_text.split("\n")[0][:100]
 
-            title = re.sub(r"^Gesponsert\s*", "", title, flags=re.IGNORECASE)
+            title = re.sub(r"^(Gesponsert|Sponsored|NEU|NEW)\s*", "", title, flags=re.IGNORECASE)
 
             if not title:
                 continue
