@@ -1310,11 +1310,9 @@ def _fetch_single_detail(idx_url: tuple) -> tuple:
     # Eén poging met de juiste params — playWithBrowser klikt consent weg en
     # wacht tot de echte page (h1) gerenderd is.
     html = scrape_do_fetch(
-        clean_url, render=True, super_mode=False, retries=2, timeout=90,
-        render_wait=3000, geo_code="de",
-        wait_until="networkidle0",
-        block_resources=False,
-        play_with_browser=CONSENT_ACTIONS,
+        clean_url, render=False, super_mode=True, retries=2, timeout=45,
+        geo_code="de",
+        set_cookies="usercentrics-cmp-consent=true",
     )
     return idx, html
 
