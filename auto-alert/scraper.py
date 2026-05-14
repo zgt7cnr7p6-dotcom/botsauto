@@ -64,9 +64,11 @@ MOBILE_DE_SEARCH_URLS = [
     {
         "url": (
             "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fr=2021%3A&ft=HYBRID&isSearchRequest=true"
-            "&ml=%3A80000&ms=1900%3B37%3B%3Bpano&od=down"
-            "&p=%3A40000&s=Car&sb=doc&vc=Car"
+            "lang=en&isSearchRequest=true&s=Car&vc=Car"
+            "&dam=false&fr=2021&ft=HYBRID&ml=%3A80000"
+            "&ms=1900%3B37%3B%3Bpano&ms=1900%3B37%3B%3Bpanorama"
+            "&ms=1900%3B37%3B%3Bp.dach&ms=1900%3B37%3B%3Bdach"
+            "&p=%3A40000&od=down&sb=doc&ref=dsp"
         ),
         "label": "Q3 pano",
         "require_pano_in_desc": False,
@@ -952,7 +954,7 @@ def send_telegram(listing: Listing):
 # ── Scrape.do fetch ─────────────────────────────────────────────────────────
 
 
-def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None, set_cookies: str = "", wait_until: str = "", block_resources: bool | None = None) -> str | None:
+def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode: bool = True, timeout: int = 45, render_wait: int = 5000, geo_code: str = "", regional_geo_code: str = "", wait_selector: str = "", play_with_browser: list | None = None, set_cookies: str = "", wait_until: str = "", block_resources: bool | None = None) -> str | None:
     """Haal een pagina op via Scrape.do met retry logica.
 
     Scrape.do docs: https://scrape.do/documentation/
@@ -978,6 +980,8 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                 params["super"] = "true"
             if geo_code:
                 params["geoCode"] = geo_code
+            if regional_geo_code:
+                params["regionalGeoCode"] = regional_geo_code
             if set_cookies:
                 params["setCookies"] = set_cookies
             if render:
@@ -1275,7 +1279,7 @@ def _clean_detail_url(url: str) -> str:
 #  3. WaitSelector: wacht tot <h1> verschijnt = detail page geladen
 #
 # Daarnaast:
-#  - waitUntil=networkidle0   → wachten tot alle JS settled (consent code draait)
+#  - waitUntil=networkidle2   → wachten tot max 2 connections over (sneller, minder timeouts)
 #  - blockResources=false     → Usercentrics CSS/fonts moeten kunnen laden
 #  - customWait=3000          → kleine extra buffer na network idle
 CONSENT_CLICK_JS = (
@@ -1315,17 +1319,17 @@ def _fetch_single_detail(idx_url: tuple) -> tuple:
     # Eén poging met de juiste params — playWithBrowser klikt consent weg en
     # wacht tot de echte page (h1) gerenderd is.
     html = scrape_do_fetch(
-        clean_url, render=True, super_mode=True, retries=2, timeout=90,
-        render_wait=3000, geo_code="de",
-        wait_until="networkidle0",
-        block_resources=False,
+        clean_url, render=True, super_mode=True, retries=2, timeout=70,
+        render_wait=1500, regional_geo_code="europe",
+        wait_until="networkidle2",
+        block_resources=True,
         play_with_browser=CONSENT_ACTIONS,
     )
     return idx, html
 
 
 def _fetch_detail_pages(listings: list) -> list:
-    """Haal detail pages op voor listings (parallel, max 8 threads).
+    """Haal detail pages op voor listings (parallel, max 3 threads).
 
     Muteert listings in-place: zet description + detail_incomplete.
     """
@@ -1335,7 +1339,7 @@ def _fetch_detail_pages(listings: list) -> list:
 
     log.info("Detail pages ophalen voor %d listings (parallel) ...", len(urls_to_fetch))
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(_fetch_single_detail, item): item for item in urls_to_fetch.items()}
         for future in as_completed(futures):
             try:
