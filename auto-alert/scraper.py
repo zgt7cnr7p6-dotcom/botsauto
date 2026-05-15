@@ -940,7 +940,7 @@ def send_telegram(listing: Listing):
     found_time = now_cet.strftime("%d-%m-%Y %H:%M")
 
     text = (
-        f"<b>{listing.title}</b>\n"
+        f"<b>{model_tag}</b>\n"
         f"{info_line}\n"
     )
 
