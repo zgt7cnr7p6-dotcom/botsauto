@@ -833,44 +833,58 @@ FEATURES_NOT_AVAILABLE = {
 }
 
 
+def _extract_engine(title: str) -> str:
+    """Haal motorvariant uit titel, bijv. '45 TFSI e', '300e', '330e'."""
+    m = re.search(r"(\d{2,3}\s*TFSI\s*e)", title, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"(\d{3}\s*e)\b", title, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
 def send_telegram(listing: Listing):
     title_lower = listing.title.lower()
+    engine = _extract_engine(listing.title)
+    engine_suffix = f" {engine}" if engine else ""
+
     if "mercedes" in title_lower or "benz" in title_lower:
         if "glc" in title_lower:
-            model_tag = "Mercedes GLC"
+            model_tag = f"Mercedes GLC{engine_suffix}"
             model_key = "glc"
         else:
-            model_tag = "Mercedes C-Klasse"
+            model_tag = f"Mercedes C{engine_suffix}"
             model_key = "c_klasse"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_MERCEDES}
     elif "bmw" in title_lower or "330e" in title_lower:
-        model_tag = "BMW 330e"
+        model_tag = f"BMW{engine_suffix}" if engine else "BMW 330e"
         model_key = "330e"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_BMW}
     elif "a3" in title_lower or "a 3" in title_lower:
         if "sportback" in title_lower:
-            model_tag = "Audi A3 Sportback"
+            model_tag = f"Audi A3 Sportback{engine_suffix}"
         else:
-            model_tag = "Audi A3"
+            model_tag = f"Audi A3{engine_suffix}"
         model_key = "a3"
         display_names = FEATURE_DISPLAY_NAMES
     elif "cupra" in title_lower or "formentor" in title_lower:
-        model_tag = "Cupra Formentor"
+        model_tag = f"Cupra Formentor{engine_suffix}"
         model_key = "formentor"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_CUPRA}
     elif "q5" in title_lower:
         if "sportback" in title_lower:
-            model_tag = "Audi Q5 Sportback"
+            model_tag = f"Audi Q5 Sportback{engine_suffix}"
         else:
-            model_tag = "Audi Q5"
+            model_tag = f"Audi Q5{engine_suffix}"
         model_key = "q5"
         display_names = FEATURE_DISPLAY_NAMES
     elif "sportback" in title_lower:
-        model_tag = "Audi Q3 Sportback"
+        model_tag = f"Audi Q3 Sportback{engine_suffix}"
         model_key = "q3"
         display_names = FEATURE_DISPLAY_NAMES
     else:
-        model_tag = "Audi Q3"
+        model_tag = f"Audi Q3{engine_suffix}"
         model_key = "q3"
         display_names = FEATURE_DISPLAY_NAMES
 
