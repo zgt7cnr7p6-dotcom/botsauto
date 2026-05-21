@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Research NL marktprijzen via Gaspedaal + Marktplaats.
+"""Research NL marktprijzen via Gaspedaal.
 
-Scraped zoekpagina's via Scrape.do en parsed prijzen, km, bouwjaar en opties.
+Scraped zoekpagina's via Scrape.do (render=true) en parsed prijzen, km, bouwjaar en opties.
 Output: gestructureerde prijstabel per model/jaar/optieniveau.
 
-Gaspedaal = alles behalve Marktplaats (AutoTrack, AutoScout24, viaBOVAG, etc.)
-Marktplaats = grootste NL platform
-
-Samen = 100% NL marktdekking.
+Gaspedaal = meta-zoekmachine die alle NL autosites aggregeert
+(AutoTrack, AutoScout24, viaBOVAG, Autoweek, etc. — alles behalve Marktplaats)
 
 Gebruik: python research_prices.py
 Vereist: SCRAPE_DO_TOKEN env var
@@ -30,30 +28,26 @@ if not SCRAPE_DO_TOKEN:
     sys.exit(1)
 
 
-# Gaspedaal: /merk/model/brandstof?trefw=zoekterm&srt=df-a
-# Marktplaats: /l/auto-s/merk/q/zoekterm/
-# Altijd pano erbij — dat is de baseline
+# Gaspedaal: /merk/model/brandstof?bmin=2021&kmax=100000&trefw=pano&srt=df-a
+# Alleen Gaspedaal — aggregeert alle NL autosites behalve Marktplaats
 SEARCH_URLS = {
     "q3_sportback_45_tfsi_e": {
-        "gaspedaal": "https://www.gaspedaal.nl/audi/q3-sportback/hybride?trefw=pano&srt=df-a",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/audi/q/q3+sportback+45+tfsi+e+panorama/",
+        "gaspedaal": "https://www.gaspedaal.nl/audi/q3-sportback/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
     },
     "q5_50_tfsi_e": {
-        "gaspedaal": "https://www.gaspedaal.nl/audi/q5/hybride?trefw=pano&srt=df-a",
-        "gaspedaal_sportback": "https://www.gaspedaal.nl/audi/q5-sportback/hybride?trefw=pano&srt=df-a",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/audi/q/q5+50+tfsi+e+panorama/",
+        "gaspedaal": "https://www.gaspedaal.nl/audi/q5/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal_sportback": "https://www.gaspedaal.nl/audi/q5-sportback/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
     },
     "mercedes_glc_300e": {
-        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/hybride?model=2814,5595&trefw=pano&srt=df-a",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/mercedes-benz/q/glc+300+e+panorama/",
+        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/hybride?model=2814,5595&bmin=2021&kmax=100000&trefw=pano&srt=df-a",
     },
     "mercedes_c_300e": {
-        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/c-klasse/hybride?trefw=300e+pano&srt=df-a",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/mercedes-benz/q/c+300+e+panorama/",
+        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/c-klasse/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal_estate": "https://www.gaspedaal.nl/mercedes-benz/c-klasse-estate/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
     },
     "bmw_330e": {
-        "gaspedaal": "https://www.gaspedaal.nl/bmw/3-serie/hybride?trefw=330e+pano&srt=df-a",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/bmw/q/330e+panorama/",
+        "gaspedaal": "https://www.gaspedaal.nl/bmw/3-serie/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal_touring": "https://www.gaspedaal.nl/bmw/3-serie-touring/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
     },
 }
 
@@ -203,50 +197,85 @@ def parse_gaspedaal(html: str) -> list:
     soup = BeautifulSoup(html, "html.parser")
     listings = []
 
-    # Debug: toon page title
     title = soup.title.string if soup.title else "geen titel"
     print(f"  Page title: {title}")
 
-    # Gaspedaal listing cards
-    cards = soup.select(".listing, .result, article, [class*='listing'], [class*='result'], [class*='car-card'], [class*='vehicle']")
-    print(f"  Cards via CSS selectors: {len(cards)}")
-
-    if cards:
-        for card in cards[:30]:
+    # Methode 1: zoek __NEXT_DATA__ of inline JSON met listing data
+    for script in soup.select("script"):
+        script_text = script.string or ""
+        if len(script_text) < 100:
+            continue
+        # Zoek JSON blobs met prijzen en auto-data
+        if any(kw in script_text for kw in ['"price"', '"mileage"', '"kilometer"', '"prijs"', '"occasions"', '"results"', '"listings"']):
+            print(f"  JSON script gevonden: {len(script_text):,} chars, type={script.get('type','')}, id={script.get('id','')}")
             try:
-                text = card.get_text(separator=" ", strip=True)
-                if len(text) < 15:
-                    continue
+                data = json.loads(script_text)
+                gp_listings = _extract_gaspedaal_json(data)
+                if gp_listings:
+                    print(f"  → {len(gp_listings)} listings uit JSON")
+                    listings.extend(gp_listings)
+            except json.JSONDecodeError:
+                # Probeer embedded JSON objecten te vinden
+                for m in re.finditer(r'\{[^{}]{200,}\}', script_text):
+                    try:
+                        obj = json.loads(m.group())
+                        gp_listings = _extract_gaspedaal_json(obj)
+                        listings.extend(gp_listings)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
 
+    # Methode 2: zoek <a> tags naar externe autosites met prijs erbij
+    if not listings:
+        external_links = soup.select("a[href*='autotrack'], a[href*='autoscout'], a[href*='viabovag'], a[href*='autoweek'], a[href*='occasion']")
+        print(f"  Externe autosite links: {len(external_links)}")
+        for link in external_links[:40]:
+            parent = link.parent
+            if parent:
+                block = parent.parent if parent.parent else parent
+                text = block.get_text(separator=" ", strip=True)
+                if len(text) > 20:
+                    price = parse_price(text)
+                    if 10000 < price < 150000:
+                        listing = Listing(source="gaspedaal")
+                        listing.title = text[:100]
+                        listing.price = price
+                        listing.year = parse_year(text)
+                        listing.km = parse_km(text)
+                        listing.options_found = detect_options(text)
+                        listing.option_score = classify_options(listing.options_found, listing.title)
+                        listings.append(listing)
+
+    # Methode 3: zoek alle elementen met € teken en context
+    if not listings:
+        price_elements = [el for el in soup.find_all(string=re.compile(r'€\s*[\d.]')) if el.parent]
+        print(f"  Elementen met €: {len(price_elements)}")
+        for el in price_elements[:50]:
+            block = el.parent
+            for _ in range(3):
+                if block.parent and len(block.get_text(strip=True)) < 300:
+                    block = block.parent
+            text = block.get_text(separator=" ", strip=True)
+            price = parse_price(text)
+            if 10000 < price < 150000:
                 listing = Listing(source="gaspedaal")
                 listing.title = text[:100]
-                listing.price = parse_price(text)
+                listing.price = price
                 listing.year = parse_year(text)
                 listing.km = parse_km(text)
                 listing.options_found = detect_options(text)
                 listing.option_score = classify_options(listing.options_found, listing.title)
+                listings.append(listing)
 
-                if listing.price > 10000:
-                    listings.append(listing)
-            except Exception as e:
-                print(f"  Card parse error: {e}")
-
-    # Fallback: regex op hele pagina
-    if len(listings) < 3:
-        print("  Fallback: regex parsing...")
+    # Methode 4: regex fallback op hele tekst
+    if not listings:
+        print("  Fallback: regex op tekst...")
         text = soup.get_text(separator="\n", strip=True)
-
-        # Zoek blokken met prijzen
         lines = text.split("\n")
         i = 0
         while i < len(lines):
-            line = lines[i]
-            price = parse_price(line)
-            if 10000 < price < 100000:
-                # Pak context: 5 regels ervoor en erna
-                context_lines = lines[max(0, i-5):min(len(lines), i+5)]
-                context = " ".join(context_lines)
-
+            price = parse_price(lines[i])
+            if 10000 < price < 150000:
+                context = " ".join(lines[max(0, i-5):min(len(lines), i+5)])
                 listing = Listing(source="gaspedaal")
                 listing.price = price
                 listing.year = parse_year(context)
@@ -254,132 +283,94 @@ def parse_gaspedaal(html: str) -> list:
                 listing.title = context[:100]
                 listing.options_found = detect_options(context)
                 listing.option_score = classify_options(listing.options_found, listing.title)
-
-                if listing.year >= 2021:
+                if listing.year >= 2020:
                     listings.append(listing)
-                    i += 5
-                    continue
+                i += 5
+                continue
             i += 1
 
-    # Dedup op prijs
+    # Dedup
     seen = set()
     unique = []
     for lst in listings:
-        key = (lst.price, lst.year)
+        key = (lst.price, lst.year, lst.km)
         if key not in seen:
             seen.add(key)
             unique.append(lst)
 
     print(f"  Totaal na dedup: {len(unique)}")
 
-    # Debug eerste 3000 chars als weinig resultaten
     if len(unique) < 3:
-        text = soup.get_text(separator="\n", strip=True)
-        print(f"  --- DEBUG TEKST (3000 chars) ---")
-        print(text[:3000])
+        # Dump HTML structuur voor debugging
+        all_scripts = soup.select("script")
+        print(f"  DEBUG: {len(all_scripts)} script tags, page size {len(html):,} chars")
+        for i, s in enumerate(all_scripts[:10]):
+            stype = s.get("type", "")
+            sid = s.get("id", "")
+            slen = len(s.string or "")
+            preview = (s.string or "")[:100].replace("\n", " ")
+            print(f"    script[{i}] type={stype} id={sid} len={slen} → {preview}")
+        # Dump stuk van de HTML zelf (niet text) om structuur te zien
+        print(f"  --- DEBUG HTML BODY (2000 chars) ---")
+        body = soup.find("body")
+        if body:
+            body_str = str(body)[:2000]
+            print(body_str)
         print(f"  --- EINDE DEBUG ---")
 
     return unique
 
 
-def parse_marktplaats(html: str) -> list:
-    """Parse Marktplaats zoekresultaten."""
-    soup = BeautifulSoup(html, "html.parser")
+def _extract_gaspedaal_json(data, depth=0) -> list:
+    """Recursief listings uit Gaspedaal JSON data halen."""
+    if depth > 5:
+        return []
     listings = []
 
-    title = soup.title.string if soup.title else "geen titel"
-    print(f"  Page title: {title}")
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                # Check of dit een auto-listing is
+                has_price = any(k in item for k in ["price", "prijs", "askingPrice", "amount"])
+                has_title = any(k in item for k in ["title", "name", "titel", "make", "brand"])
+                if has_price and has_title:
+                    listing = Listing(source="gaspedaal")
+                    listing.title = str(item.get("title", item.get("name", item.get("titel", ""))))[:100]
+                    for pk in ["price", "prijs", "askingPrice", "amount"]:
+                        if pk in item:
+                            val = item[pk]
+                            if isinstance(val, dict):
+                                listing.price = int(val.get("amount", val.get("value", 0)))
+                            elif isinstance(val, (int, float)):
+                                listing.price = int(val)
+                            if listing.price > 0:
+                                break
+                    for yk in ["year", "jaar", "buildYear", "constructionYear", "registrationYear"]:
+                        if yk in item:
+                            listing.year = int(item[yk])
+                            break
+                    for mk in ["mileage", "km", "kilometer", "kilometres"]:
+                        if mk in item:
+                            val = item[mk]
+                            listing.km = int(val) if isinstance(val, (int, float)) else parse_km(str(val))
+                            break
+                    full_text = json.dumps(item, ensure_ascii=False)
+                    listing.options_found = detect_options(full_text)
+                    listing.option_score = classify_options(listing.options_found, listing.title)
+                    if listing.price > 10000:
+                        listings.append(listing)
+                else:
+                    listings.extend(_extract_gaspedaal_json(item, depth + 1))
+            elif isinstance(item, list):
+                listings.extend(_extract_gaspedaal_json(item, depth + 1))
 
-    # Marktplaats listing cards
-    cards = soup.select("[class*='Listing'], [class*='listing'], article, [data-testid*='listing']")
-    print(f"  Cards via CSS selectors: {len(cards)}")
-
-    # Probeer ook JSON-LD
-    for script in soup.select("script[type='application/ld+json']"):
-        try:
-            data = json.loads(script.string)
-            if isinstance(data, dict) and "offers" in str(data):
-                print(f"  JSON-LD gevonden: {list(data.keys())[:10]}")
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    # Zoek __NEXT_DATA__
-    next_data = soup.select_one("script#__NEXT_DATA__")
-    if next_data:
-        try:
-            data = json.loads(next_data.string)
-            props = data.get("props", {}).get("pageProps", {})
-            # Zoek listings in de data
-            print(f"  __NEXT_DATA__ pageProps keys: {list(props.keys())[:15]}")
-
-            # Marktplaats stopt listings vaak in searchRequestResult of listings
-            for key in ["searchRequestResult", "listings", "items", "results", "data"]:
-                if key in props:
-                    val = props[key]
-                    if isinstance(val, dict):
-                        print(f"    {key} keys: {list(val.keys())[:15]}")
-                        # Zoek listings in nested dict
-                        for k2 in ["listings", "items", "results", "ads"]:
-                            if k2 in val and isinstance(val[k2], list):
-                                listing_data = val[k2]
-                                print(f"    {key}.{k2}: {len(listing_data)} items")
-                                for item in listing_data[:25]:
-                                    if not isinstance(item, dict):
-                                        continue
-                                    listing = Listing(source="marktplaats")
-                                    listing.title = str(item.get("title", item.get("name", "")))[:100]
-                                    # Prijs
-                                    price_info = item.get("priceInfo", item.get("price", {}))
-                                    if isinstance(price_info, dict):
-                                        listing.price = int(price_info.get("priceCents", 0)) // 100
-                                        if not listing.price:
-                                            listing.price = int(price_info.get("amount", 0))
-                                    elif isinstance(price_info, (int, float)):
-                                        listing.price = int(price_info)
-
-                                    # Attributen
-                                    attrs = item.get("attributes", item.get("specs", []))
-                                    attrs_text = json.dumps(attrs, ensure_ascii=False) if attrs else ""
-
-                                    listing.year = parse_year(attrs_text + " " + listing.title)
-                                    listing.km = parse_km(attrs_text)
-
-                                    full_text = listing.title + " " + attrs_text + " " + json.dumps(item.get("description", ""), ensure_ascii=False)
-                                    listing.options_found = detect_options(full_text)
-                                    listing.option_score = classify_options(listing.options_found, listing.title)
-
-                                    if listing.price > 10000:
-                                        listings.append(listing)
-                                if listings:
-                                    return listings
-                    elif isinstance(val, list) and len(val) > 0:
-                        print(f"    {key}: list[{len(val)}]")
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            print(f"  __NEXT_DATA__ error: {e}")
-
-    # Fallback: cards of regex
-    if cards and not listings:
-        for card in cards[:30]:
-            text = card.get_text(separator=" ", strip=True)
-            if len(text) < 15:
-                continue
-            listing = Listing(source="marktplaats")
-            listing.title = text[:100]
-            listing.price = parse_price(text)
-            listing.year = parse_year(text)
-            listing.km = parse_km(text)
-            listing.options_found = detect_options(text)
-            listing.option_score = classify_options(listing.options_found, listing.title)
-            if listing.price > 10000:
-                listings.append(listing)
-
-    if not listings:
-        text = soup.get_text(separator="\n", strip=True)
-        print(f"  --- DEBUG TEKST (3000 chars) ---")
-        print(text[:3000])
-        print(f"  --- EINDE DEBUG ---")
+    elif isinstance(data, dict):
+        for key, val in data.items():
+            if isinstance(val, (dict, list)):
+                listings.extend(_extract_gaspedaal_json(val, depth + 1))
 
     return listings
+
 
 
 def analyze_model(model_key: str, all_listings: list):
@@ -439,10 +430,11 @@ def analyze_model(model_key: str, all_listings: list):
 
 def main():
     print("=" * 70)
-    print("NL MARKTPRIJS RESEARCH — Gaspedaal + Marktplaats")
+    print("NL MARKTPRIJS RESEARCH — Gaspedaal")
     print("=" * 70)
-    print(f"Models: {len(SEARCH_URLS)}")
-    print(f"Credits: ~{len(SEARCH_URLS) * 5 + len(SEARCH_URLS)} (Gaspedaal render=5cr, Marktplaats basic=1cr)")
+    total_urls = sum(len(urls) for urls in SEARCH_URLS.values())
+    print(f"Models: {len(SEARCH_URLS)}, URLs: {total_urls}")
+    print(f"Credits: ~{total_urls * 5} (render=true, 5 credits per URL)")
     print()
 
     all_results = {}
@@ -461,21 +453,6 @@ def main():
             if html:
                 listings = parse_gaspedaal(html)
                 print(f"  → {len(listings)} listings van {label}")
-                model_listings.extend(listings)
-            time.sleep(1)
-
-        # Marktplaats (probeer basic, fallback render)
-        if "marktplaats" in urls:
-            print(f"\n  [Marktplaats]")
-            html = scrape_do_fetch(urls["marktplaats"])
-            if html:
-                listings = parse_marktplaats(html)
-                if not listings:
-                    print("  Basic mode leverde 0 listings, retry met render=true")
-                    html = scrape_do_fetch(urls["marktplaats"], render=True)
-                    if html:
-                        listings = parse_marktplaats(html)
-                print(f"  → {len(listings)} listings van Marktplaats")
                 model_listings.extend(listings)
             time.sleep(1)
 
