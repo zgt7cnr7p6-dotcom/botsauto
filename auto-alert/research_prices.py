@@ -372,6 +372,27 @@ def analyze_model(model_key: str, all_listings: list):
     print(f"  P25-P75:  €{p25:,} - €{p75:,}")
     print(f"  Range:    €{min(all_prices):,} - €{max(all_prices):,}")
 
+    # Brackets: jaar × km-range → goedkoopste prijs
+    KM_BRACKETS = [(0, 40000), (40000, 60000), (60000, 80000), (80000, 150000)]
+    brackets = {}
+    for lst in all_listings:
+        if lst.year < 2021:
+            continue
+        for km_lo, km_hi in KM_BRACKETS:
+            if km_lo <= lst.km < km_hi:
+                key = (lst.year, km_lo)
+                if key not in brackets or lst.price < brackets[key]["min"]:
+                    brackets[key] = {"min": lst.price, "count": brackets.get(key, {}).get("count", 0) + 1}
+                else:
+                    brackets[key]["count"] += 1
+                break
+
+    if brackets:
+        print(f"\n  BRACKETS (jaar × km):")
+        for (year, km_lo), data in sorted(brackets.items()):
+            km_label = f"{km_lo//1000}-{(km_lo+20000)//1000}k" if km_lo < 80000 else "80k+"
+            print(f"    {year} / {km_label}: vanaf €{data['min']:,} ({data['count']}x)")
+
     result = {
         "count": len(all_prices),
         "median": median,
@@ -381,6 +402,8 @@ def analyze_model(model_key: str, all_listings: list):
         "min": min(all_prices),
         "max": max(all_prices),
         "by_year": {y: sorted(p)[len(p)//2] for y, p in by_year.items()},
+        "by_year_min": {y: min(p) for y, p in by_year.items()},
+        "brackets": {f"{y}_{km_lo}": d["min"] for (y, km_lo), d in brackets.items()},
     }
     return result
 
@@ -416,17 +439,35 @@ def main():
         result = analyze_model(model_key, model_listings)
         all_results[model_key] = result
 
-    # Finale output
+    # Finale output: bracket dict voor scraper.py
     print("\n\n" + "=" * 70)
-    print("PYTHON DICT VOOR SCRAPER — NL MARKTWAARDEN")
+    print("PYTHON DICT VOOR SCRAPER — NL_MARKET_PRICES (brackets)")
     print("=" * 70)
+    print("# Format: (jaar, km_ondergrens) → goedkoopste NL prijs")
+    print("# km brackets: 0-40k, 40-60k, 60-80k, 80k+")
     print("NL_MARKET_PRICES = {")
     for model_key, data in all_results.items():
-        if not data:
-            print(f'    "{model_key}": {{"median": 0, "count": 0}},')
+        if not data or not data.get("brackets"):
+            print(f'    "{model_key}": {{}},')
             continue
-        by_year_str = ", ".join(f"{y}: {p}" for y, p in sorted(data.get("by_year", {}).items()))
-        print(f'    "{model_key}": {{"median": {data["median"]}, "p25": {data["p25"]}, "p75": {data["p75"]}, "count": {data["count"]}, "by_year": {{{by_year_str}}}}},')
+        print(f'    "{model_key}": {{')
+        for bkey, price in sorted(data["brackets"].items()):
+            parts = bkey.split("_")
+            year = int(parts[0])
+            km_lo = int(parts[1])
+            print(f'        ({year}, {km_lo}): {price},')
+        print(f'    }},')
+    print("}")
+
+    # Ook simpele per-jaar "vanaf" dict voor fallback
+    print("\n# Fallback: simpele per-jaar 'vanaf' (goedkoopste)")
+    print("NL_MARKET_PRICES_SIMPLE = {")
+    for model_key, data in all_results.items():
+        if not data or not data.get("by_year_min"):
+            print(f'    "{model_key}": {{}},')
+            continue
+        year_str = ", ".join(f"{y}: {p}" for y, p in sorted(data["by_year_min"].items()))
+        print(f'    "{model_key}": {{{year_str}}},')
     print("}")
 
 

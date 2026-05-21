@@ -832,27 +832,77 @@ FEATURES_NOT_AVAILABLE = {
 }
 
 
-# NL marktprijzen per model/jaar (mediaan, bron: Gaspedaal.nl, ~50-167 listings per model)
-# Gebruikt in Telegram alerts om importmarge te tonen
+# NL marktprijzen: bracket lookup (jaar, km_range) → goedkoopste NL prijs
+# Bron: Gaspedaal.nl research (pano + hybride, 2021+, 20-100k km)
+# km brackets: 0=0-40k, 40000=40-60k, 60000=60-80k, 80000=80k+
 NL_MARKET_PRICES = {
-    "q3": {2021: 38900, 2022: 40900, 2023: 43999, 2024: 49950},
-    "q5": {2021: 43950, 2022: 47500, 2023: 49950, 2024: 52900},
-    "glc": {2021: 39950, 2022: 44750, 2023: 59980, 2024: 68950},
-    "c_klasse": {2021: 39950, 2022: 40950, 2023: 41995, 2024: 49980},
-    "330e": {2021: 34745, 2022: 38950, 2023: 41950, 2024: 49400},
+    "q3": {
+        (2021, 40000): 34950, (2021, 60000): 32950,
+        (2022, 0): 38900, (2022, 40000): 36450, (2022, 60000): 34950,
+        (2023, 0): 41999, (2023, 40000): 39950,
+        (2024, 0): 47950,
+    },
+    "q5": {
+        (2021, 40000): 39950, (2021, 60000): 37950,
+        (2022, 0): 44950, (2022, 40000): 41950,
+        (2023, 0): 47950, (2023, 40000): 44950,
+        (2024, 0): 49950,
+    },
+    "glc": {
+        (2021, 40000): 36950, (2021, 60000): 34950,
+        (2022, 0): 42950, (2022, 40000): 39950,
+        (2023, 0): 54980, (2023, 40000): 49950,
+        (2024, 0): 64950,
+    },
+    "c_klasse": {
+        (2021, 40000): 35950, (2021, 60000): 33950,
+        (2022, 0): 38950, (2022, 40000): 36450,
+        (2023, 0): 39995, (2023, 40000): 37950,
+        (2024, 0): 46980,
+    },
+    "330e": {
+        (2021, 40000): 31950, (2021, 60000): 29450,
+        (2022, 0): 36950, (2022, 40000): 34450,
+        (2023, 0): 39950, (2023, 40000): 37450,
+        (2024, 0): 46950,
+    },
 }
 
 
-def _nl_market_price(model_key: str, year: int) -> int:
-    """Geef NL marktprijs (mediaan) voor model + bouwjaar. 0 als onbekend."""
-    prices = NL_MARKET_PRICES.get(model_key, {})
-    if year in prices:
-        return prices[year]
-    # Fallback: dichtsbijzijnde jaar
-    if prices:
-        closest = min(prices.keys(), key=lambda y: abs(y - year))
-        if abs(closest - year) <= 1:
-            return prices[closest]
+def _nl_market_price(model_key: str, year: int, km: int = 0) -> int:
+    """Geef goedkoopste NL prijs voor model + bouwjaar + km-bracket. 0 als onbekend."""
+    brackets = NL_MARKET_PRICES.get(model_key, {})
+    if not brackets:
+        return 0
+
+    # Bepaal km bracket
+    if km < 40000:
+        km_bracket = 0
+    elif km < 60000:
+        km_bracket = 40000
+    elif km < 80000:
+        km_bracket = 60000
+    else:
+        km_bracket = 80000
+
+    # Exact match
+    if (year, km_bracket) in brackets:
+        return brackets[(year, km_bracket)]
+
+    # Fallback: zelfde jaar, dichtstbijzijnde km bracket
+    year_brackets = {k: v for k, v in brackets.items() if k[0] == year}
+    if year_brackets:
+        closest = min(year_brackets.keys(), key=lambda k: abs(k[1] - km_bracket))
+        return year_brackets[closest]
+
+    # Fallback: dichtstbijzijnde jaar
+    all_years = set(k[0] for k in brackets.keys())
+    closest_year = min(all_years, key=lambda y: abs(y - year))
+    if abs(closest_year - year) <= 1:
+        year_brackets = {k: v for k, v in brackets.items() if k[0] == closest_year}
+        closest = min(year_brackets.keys(), key=lambda k: abs(k[1] - km_bracket))
+        return year_brackets[closest]
+
     return 0
 
 
@@ -938,18 +988,18 @@ def send_telegram(listing: Listing):
         info_parts.append(str(listing.year))
     info_line = " · ".join(info_parts)
 
-    # NL marktprijs vergelijking
+    # NL marktprijs vergelijking (bracket: jaar × km-range)
     nl_price_line = ""
     if listing.price and listing.year:
-        nl_price = _nl_market_price(model_key, listing.year)
+        nl_price = _nl_market_price(model_key, listing.year, listing.km or 0)
         if nl_price:
             margin = nl_price - listing.price
             nl_str = f"€{nl_price:,.0f}".replace(",", ".")
             if margin > 0:
                 margin_str = f"€{margin:,.0f}".replace(",", ".")
-                nl_price_line = f"🇳🇱 NL mediaan: {nl_str} → +{margin_str} marge\n"
+                nl_price_line = f"🇳🇱 NL vanaf: {nl_str} → +{margin_str} marge\n"
             else:
-                nl_price_line = f"🇳🇱 NL mediaan: {nl_str} (geen marge)\n"
+                nl_price_line = f"🇳🇱 NL vanaf: {nl_str} (geen marge)\n"
 
     # Koopadvies
     advice = _buy_advice(listing.price, listing.score, max_score, listing.features, listing.km)
