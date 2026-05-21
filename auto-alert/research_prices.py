@@ -30,28 +30,29 @@ if not SCRAPE_DO_TOKEN:
     sys.exit(1)
 
 
-# Gaspedaal URLs — getest formaat
-# Marktplaats URLs — zoekpagina met filters
+# Gaspedaal: /merk/model/brandstof?trefw=zoekterm&srt=df-a
+# Marktplaats: /l/auto-s/merk/q/zoekterm/
+# Altijd pano erbij — dat is de baseline
 SEARCH_URLS = {
     "q3_sportback_45_tfsi_e": {
-        "gaspedaal": "https://www.gaspedaal.nl/audi-q3-sportback/45-tfsi-e",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/audi/q-q3+sportback+45+tfsi+e/",
+        "gaspedaal": "https://www.gaspedaal.nl/audi/q3-sportback/hybride?trefw=pano&srt=df-a",
+        "marktplaats": "https://www.marktplaats.nl/l/auto-s/audi/q/q3+sportback+45+tfsi+e+panorama/",
     },
     "q5_50_tfsi_e": {
-        "gaspedaal": "https://www.gaspedaal.nl/audi-q5/50-tfsi-e",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/audi/q-q5+50+tfsi+e/",
+        "gaspedaal": "https://www.gaspedaal.nl/audi/q5-sportback/hybride?trefw=pano&srt=df-a",
+        "marktplaats": "https://www.marktplaats.nl/l/auto-s/audi/q/q5+50+tfsi+e+panorama/",
     },
     "mercedes_glc_300e": {
-        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz-glc/300-e",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/mercedes-benz/q-glc+300+e+panorama/",
+        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/glc/hybride?trefw=300e+pano&srt=df-a",
+        "marktplaats": "https://www.marktplaats.nl/l/auto-s/mercedes-benz/q/glc+300+e+panorama/",
     },
     "mercedes_c_300e": {
-        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz-c-klasse/300-e",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/mercedes-benz/q-c+300+e+amg/",
+        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/c-klasse/hybride?trefw=300e+pano&srt=df-a",
+        "marktplaats": "https://www.marktplaats.nl/l/auto-s/mercedes-benz/q/c+300+e+panorama/",
     },
     "bmw_330e": {
-        "gaspedaal": "https://www.gaspedaal.nl/bmw-3-serie/330e",
-        "marktplaats": "https://www.marktplaats.nl/l/auto-s/bmw/q-330e+m+sport/",
+        "gaspedaal": "https://www.gaspedaal.nl/bmw/3-serie/hybride?trefw=330e+pano&srt=df-a",
+        "marktplaats": "https://www.marktplaats.nl/l/auto-s/bmw/q/330e+panorama/",
     },
 }
 
@@ -112,7 +113,7 @@ def scrape_do_fetch(url: str, render: bool = False) -> str:
             return resp.text
         else:
             print(f"  [{credits}cr] FAIL: status {resp.status_code} — {url[:80]}")
-            if resp.status_code in (403, 429, 502):
+            if resp.status_code in (403, 404, 429, 502):
                 print(f"  Response: {resp.text[:500]}")
             return ""
     except Exception as e:
@@ -439,9 +440,8 @@ def main():
     print("=" * 70)
     print("NL MARKTPRIJS RESEARCH — Gaspedaal + Marktplaats")
     print("=" * 70)
-    total_requests = sum(len(urls) for urls in SEARCH_URLS.values())
-    print(f"Models: {len(SEARCH_URLS)}, requests: {total_requests}")
-    print(f"Credits: ~{total_requests} (basic mode, 1 credit per request)")
+    print(f"Models: {len(SEARCH_URLS)}")
+    print(f"Credits: ~{len(SEARCH_URLS) * 5 + len(SEARCH_URLS)} (Gaspedaal render=5cr, Marktplaats basic=1cr)")
     print()
 
     all_results = {}
@@ -452,22 +452,27 @@ def main():
         print(f"{'─'*70}")
         model_listings = []
 
-        # Gaspedaal
+        # Gaspedaal (JS-rendered meta-zoekmachine, render=true nodig)
         if "gaspedaal" in urls:
             print(f"\n  [Gaspedaal]")
-            html = scrape_do_fetch(urls["gaspedaal"])
+            html = scrape_do_fetch(urls["gaspedaal"], render=True)
             if html:
                 listings = parse_gaspedaal(html)
                 print(f"  → {len(listings)} listings van Gaspedaal")
                 model_listings.extend(listings)
             time.sleep(1)
 
-        # Marktplaats
+        # Marktplaats (probeer basic, fallback render)
         if "marktplaats" in urls:
             print(f"\n  [Marktplaats]")
             html = scrape_do_fetch(urls["marktplaats"])
             if html:
                 listings = parse_marktplaats(html)
+                if not listings:
+                    print("  Basic mode leverde 0 listings, retry met render=true")
+                    html = scrape_do_fetch(urls["marktplaats"], render=True)
+                    if html:
+                        listings = parse_marktplaats(html)
                 print(f"  → {len(listings)} listings van Marktplaats")
                 model_listings.extend(listings)
             time.sleep(1)
