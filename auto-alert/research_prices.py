@@ -39,11 +39,12 @@ SEARCH_URLS = {
         "marktplaats": "https://www.marktplaats.nl/l/auto-s/audi/q/q3+sportback+45+tfsi+e+panorama/",
     },
     "q5_50_tfsi_e": {
-        "gaspedaal": "https://www.gaspedaal.nl/audi/q5-sportback/hybride?trefw=pano&srt=df-a",
+        "gaspedaal": "https://www.gaspedaal.nl/audi/q5/hybride?trefw=pano&srt=df-a",
+        "gaspedaal_sportback": "https://www.gaspedaal.nl/audi/q5-sportback/hybride?trefw=pano&srt=df-a",
         "marktplaats": "https://www.marktplaats.nl/l/auto-s/audi/q/q5+50+tfsi+e+panorama/",
     },
     "mercedes_glc_300e": {
-        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/glc/hybride?trefw=300e+pano&srt=df-a",
+        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/hybride?model=2814,5595&trefw=pano&srt=df-a",
         "marktplaats": "https://www.marktplaats.nl/l/auto-s/mercedes-benz/q/glc+300+e+panorama/",
     },
     "mercedes_c_300e": {
@@ -453,12 +454,13 @@ def main():
         model_listings = []
 
         # Gaspedaal (JS-rendered meta-zoekmachine, render=true nodig)
-        if "gaspedaal" in urls:
-            print(f"\n  [Gaspedaal]")
-            html = scrape_do_fetch(urls["gaspedaal"], render=True)
+        for url_key in [k for k in urls if k.startswith("gaspedaal")]:
+            label = url_key.replace("gaspedaal_", "Gaspedaal ") if "_" in url_key else "Gaspedaal"
+            print(f"\n  [{label}]")
+            html = scrape_do_fetch(urls[url_key], render=True)
             if html:
                 listings = parse_gaspedaal(html)
-                print(f"  → {len(listings)} listings van Gaspedaal")
+                print(f"  → {len(listings)} listings van {label}")
                 model_listings.extend(listings)
             time.sleep(1)
 
