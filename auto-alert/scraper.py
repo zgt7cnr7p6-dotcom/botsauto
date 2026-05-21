@@ -90,14 +90,13 @@ MOBILE_DE_SEARCH_URLS = [
             "https://suchen.mobile.de/fahrzeuge/search.html?"
             "isSearchRequest=true&s=Car&vc=Car"
             "&c=Cabrio&c=Limousine&c=OffRoad&c=SmallCar&c=SportsCar"
-            "&dam=false&fr=2021&ft=HYBRID&ml=%3A90000"
+            "&dam=false&fr=2021%3A&ft=HYBRID&ml=%3A90000"
             "&ms=17200%3B%3B6%3Bpano&ms=17200%3B%3B59%3Bpano"
-            "&ms=3500%3B15%3B%3Bpano&ms=1900%3B8%3B%3Bpano"
-            "&ms=1900%3B32%3B%3Bpano&ms=3500%3B15%3B%3Bglasdach"
-            "&ms=1900%3B32%3B%3Bpanorama&ms=3%3B5%3B%3Bpano"
+            "&ms=3500%3B15%3B%3Bpano&ms=1900%3B32%3B%3Bpano"
+            "&ms=3500%3B15%3B%3Bglasdach&ms=1900%3B32%3B%3Bpanorama"
             "&p=28000%3A44000&od=down&sb=doc&ref=dsp"
         ),
-        "label": "Multi-brand pano (C/GLC/330/A3/Q5/Formentor)",
+        "label": "Multi-brand pano (C/GLC/330/Q5)",
         "require_pano_in_desc": False,
         "min_listing_month": "2026-05",
     },
