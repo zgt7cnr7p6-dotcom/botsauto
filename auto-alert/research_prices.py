@@ -32,22 +32,22 @@ if not SCRAPE_DO_TOKEN:
 # Alleen Gaspedaal — aggregeert alle NL autosites behalve Marktplaats
 SEARCH_URLS = {
     "q3_sportback_45_tfsi_e": {
-        "gaspedaal": "https://www.gaspedaal.nl/audi/q3/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
-        "gaspedaal_sportback": "https://www.gaspedaal.nl/audi/q3-sportback/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal": "https://www.gaspedaal.nl/audi/q3/hybride?bmin=2021&pmax=50000&kmin=20000&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal_sportback": "https://www.gaspedaal.nl/audi/q3-sportback/hybride?bmin=2021&pmax=50000&kmin=20000&kmax=100000&trefw=pano&srt=df-a",
     },
     "q5_50_tfsi_e": {
-        "gaspedaal": "https://www.gaspedaal.nl/audi/q5/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
-        "gaspedaal_sportback": "https://www.gaspedaal.nl/audi/q5-sportback/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal": "https://www.gaspedaal.nl/audi/q5/hybride?bmin=2021&pmax=50000&kmin=20000&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal_sportback": "https://www.gaspedaal.nl/audi/q5-sportback/hybride?bmin=2021&pmax=50000&kmin=20000&kmax=100000&trefw=pano&srt=df-a",
     },
     "mercedes_glc_300e": {
-        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/hybride?model=2814,5595&bmin=2021&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/hybride?model=2814,5595&bmin=2021&pmax=50000&kmin=20000&kmax=100000&trefw=pano&srt=df-a",
     },
     "mercedes_c_300e": {
-        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/c-klasse/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/c-klasse/hybride?bmin=2021&pmax=50000&kmin=20000&kmax=100000&trefw=pano&srt=df-a",
     },
     "bmw_330e": {
-        "gaspedaal": "https://www.gaspedaal.nl/bmw/3-serie/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
-        "gaspedaal_touring": "https://www.gaspedaal.nl/bmw/3-serie-touring/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal": "https://www.gaspedaal.nl/bmw/3-serie/hybride?bmin=2021&pmax=50000&kmin=20000&kmax=100000&trefw=pano&srt=df-a",
+        "gaspedaal_touring": "https://www.gaspedaal.nl/bmw/3-serie-touring/hybride?bmin=2021&pmax=50000&kmin=20000&kmax=100000&trefw=pano&srt=df-a",
     },
 }
 
@@ -266,11 +266,23 @@ def parse_gaspedaal(html: str) -> list:
                         break
                 break
 
-        # Km: zoek "Km.stand:" of "Km.stand" gevolgd door getal
+        # Km: zoek "Km.stand:" gevolgd door getal op volgende regel(s)
+        # Gaspedaal format: "Km.stand:" op één regel, getal op volgende, "km" op derde
         for j, cl in enumerate(context_lines):
             if "Km" in cl and "stand" in cl.lower():
-                for next_line in context_lines[j:j+3]:
-                    km_val = parse_km(next_line)
+                for next_line in context_lines[j+1:j+4]:
+                    next_stripped = next_line.strip()
+                    m_km = re.match(r"^([\d.]+)$", next_stripped)
+                    if m_km:
+                        km_str = m_km.group(1).replace(".", "")
+                        try:
+                            km_val = int(km_str)
+                            if 0 < km_val < 500000:
+                                km = km_val
+                        except ValueError:
+                            pass
+                        break
+                    km_val = parse_km(next_stripped)
                     if km_val:
                         km = km_val
                         break

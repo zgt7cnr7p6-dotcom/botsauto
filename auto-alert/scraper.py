@@ -832,6 +832,30 @@ FEATURES_NOT_AVAILABLE = {
 }
 
 
+# NL marktprijzen per model/jaar (mediaan, bron: Gaspedaal.nl, ~50-167 listings per model)
+# Gebruikt in Telegram alerts om importmarge te tonen
+NL_MARKET_PRICES = {
+    "q3": {2021: 38900, 2022: 40900, 2023: 43999, 2024: 49950},
+    "q5": {2021: 43950, 2022: 47500, 2023: 49950, 2024: 52900},
+    "glc": {2021: 39950, 2022: 44750, 2023: 59980, 2024: 68950},
+    "c_klasse": {2021: 39950, 2022: 40950, 2023: 41995, 2024: 49980},
+    "330e": {2021: 34745, 2022: 38950, 2023: 41950, 2024: 49400},
+}
+
+
+def _nl_market_price(model_key: str, year: int) -> int:
+    """Geef NL marktprijs (mediaan) voor model + bouwjaar. 0 als onbekend."""
+    prices = NL_MARKET_PRICES.get(model_key, {})
+    if year in prices:
+        return prices[year]
+    # Fallback: dichtsbijzijnde jaar
+    if prices:
+        closest = min(prices.keys(), key=lambda y: abs(y - year))
+        if abs(closest - year) <= 1:
+            return prices[closest]
+    return 0
+
+
 def _extract_engine(title: str) -> str:
     """Haal motorvariant uit titel, bijv. '45 TFSI e', '300e', '330e'."""
     m = re.search(r"(\d{2,3}\s*TFSI\s*e)", title, re.IGNORECASE)
@@ -914,6 +938,19 @@ def send_telegram(listing: Listing):
         info_parts.append(str(listing.year))
     info_line = " · ".join(info_parts)
 
+    # NL marktprijs vergelijking
+    nl_price_line = ""
+    if listing.price and listing.year:
+        nl_price = _nl_market_price(model_key, listing.year)
+        if nl_price:
+            margin = nl_price - listing.price
+            nl_str = f"€{nl_price:,.0f}".replace(",", ".")
+            if margin > 0:
+                margin_str = f"€{margin:,.0f}".replace(",", ".")
+                nl_price_line = f"🇳🇱 NL mediaan: {nl_str} → +{margin_str} marge\n"
+            else:
+                nl_price_line = f"🇳🇱 NL mediaan: {nl_str} (geen marge)\n"
+
     # Koopadvies
     advice = _buy_advice(listing.price, listing.score, max_score, listing.features, listing.km)
 
@@ -956,6 +993,9 @@ def send_telegram(listing: Listing):
         f"<b>{model_tag}</b>\n"
         f"{info_line}\n"
     )
+
+    if nl_price_line:
+        text += nl_price_line
 
     if advice:
         text += f"\n<b>{advice}</b>\n"
