@@ -44,7 +44,6 @@ SEARCH_URLS = {
     },
     "mercedes_c_300e": {
         "gaspedaal": "https://www.gaspedaal.nl/mercedes-benz/c-klasse/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
-        "gaspedaal_estate": "https://www.gaspedaal.nl/mercedes-benz/c-klasse-estate/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
     },
     "bmw_330e": {
         "gaspedaal": "https://www.gaspedaal.nl/bmw/3-serie/hybride?bmin=2021&kmax=100000&trefw=pano&srt=df-a",
@@ -320,10 +319,12 @@ def analyze_model(model_key: str, all_listings: list):
     # Sort by price
     all_listings.sort(key=lambda x: x.price)
 
-    for i, lst in enumerate(all_listings, 1):
-        opts = ", ".join(lst.options_found[:6]) if lst.options_found else "-"
-        print(f"  {i:2d}. €{lst.price:>6,} | {lst.year} | {lst.km:>6,} km | [{lst.option_score:5s}] | {lst.source:11s} | {lst.title[:50]}")
-        print(f"      Opties: {opts}")
+    show_count = min(10, len(all_listings))
+    for i, lst in enumerate(all_listings[:show_count], 1):
+        opts = ", ".join(lst.options_found[:5]) if lst.options_found else "-"
+        print(f"  {i:2d}. €{lst.price:>6,} | {lst.year} | {lst.km:>6,} km | {lst.title[:55]}")
+    if len(all_listings) > show_count:
+        print(f"  ... en nog {len(all_listings) - show_count} listings")
 
     # Groepeer per jaar (als beschikbaar)
     by_year = {}
