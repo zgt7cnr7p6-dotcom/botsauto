@@ -93,6 +93,7 @@ class Listing:
     km: int = 0
     options_found: list = field(default_factory=list)
     option_score: str = ""
+    body_type: str = ""
     source: str = ""
 
 
@@ -295,11 +296,24 @@ def parse_gaspedaal(html: str) -> list:
                         break
                 break
 
+        # Body type detectie uit titel + context
+        body_type = ""
+        combined = (title + " " + context).lower()
+        if any(w in combined for w in ["sportback"]):
+            body_type = "sportback"
+        elif any(w in combined for w in ["touring", "estate", "stationwagon", "station"]):
+            body_type = "touring"
+        elif any(w in combined for w in ["sedan", "limousine"]):
+            body_type = "sedan"
+        elif any(w in combined for w in ["suv", "coupé", "coupe"]):
+            body_type = "suv"
+
         listing = Listing(source="gaspedaal")
         listing.price = price
         listing.title = title
         listing.year = year
         listing.km = km
+        listing.body_type = body_type
         listing.options_found = detect_options(title + " " + context)
         listing.option_score = classify_options(listing.options_found, listing.title)
         listings.append(listing)
@@ -379,20 +393,21 @@ def analyze_model(model_key: str, all_listings: list):
     print(f"  P25-P75:  €{p25:,} - €{p75:,}")
     print(f"  Range:    €{min(all_prices):,} - €{max(all_prices):,}")
 
-    # Optieniveau per listing (basis/mid/full via classify_options)
-    tier_counts = {"basis": 0, "mid": 0, "full": 0}
+    # Sport tier per listing (AMG/S-line/M-sport = grootste prijsverschil)
+    SPORT_KEYWORDS = ["amg", "s line", "s-line", "sline", "s edition", "m sport", "m-sport", "msport", "m paket"]
     for lst in all_listings:
-        tier_counts[lst.option_score] = tier_counts.get(lst.option_score, 0) + 1
+        lst.is_sport = any(kw in lst.title.lower() for kw in SPORT_KEYWORDS)
 
-    print(f"\n  OPTIES: {tier_counts['full']} full, {tier_counts['mid']} mid, {tier_counts['basis']} basis")
+    sport_count = sum(1 for lst in all_listings if lst.is_sport)
+    print(f"\n  SPORT/STANDAARD: {sport_count} sport, {len(all_listings) - sport_count} standaard")
 
-    # Brackets: jaar × km-range × optieniveau → goedkoopste prijs
+    # Brackets: jaar × km-range × sport/std → goedkoopste prijs
     KM_BRACKETS = [(0, 40000), (40000, 60000), (60000, 80000), (80000, 150000)]
     brackets = {}
     for lst in all_listings:
         if lst.year < 2021:
             continue
-        tier = lst.option_score
+        tier = "sport" if lst.is_sport else "std"
         for km_lo, km_hi in KM_BRACKETS:
             if km_lo <= lst.km < km_hi:
                 key = (lst.year, km_lo, tier)
@@ -403,7 +418,7 @@ def analyze_model(model_key: str, all_listings: list):
                 break
 
     if brackets:
-        print(f"\n  BRACKETS (jaar × km × optieniveau):")
+        print(f"\n  BRACKETS (jaar × km × sport/std):")
         for (year, km_lo, tier), data in sorted(brackets.items()):
             km_label = f"{km_lo//1000}-{(km_lo+20000)//1000}k" if km_lo < 80000 else "80k+"
             print(f"    {year} / {km_label} / {tier}: vanaf €{data['min']:,} ({data['count']}x)")
@@ -463,8 +478,23 @@ def main():
             if filtered:
                 print(f"  Titel-filter: {filtered} verwijderd (niet {'/'.join(title_filters)}), {len(model_listings)} over")
 
-        result = analyze_model(model_key, model_listings)
-        all_results[model_key] = result
+        # Split per body type (sedan/touring/sportback/suv)
+        body_groups = {}
+        for lst in model_listings:
+            bt = lst.body_type or "overig"
+            if bt not in body_groups:
+                body_groups[bt] = []
+            body_groups[bt].append(lst)
+
+        if len(body_groups) > 1:
+            print(f"\n  BODY TYPES: {', '.join(f'{bt}: {len(lsts)}x' for bt, lsts in sorted(body_groups.items()))}")
+            for bt, lsts in sorted(body_groups.items()):
+                sub_key = f"{model_key}_{bt}" if bt != "overig" else model_key
+                result = analyze_model(sub_key, lsts)
+                all_results[sub_key] = result
+        else:
+            result = analyze_model(model_key, model_listings)
+            all_results[model_key] = result
 
     # Finale output: bracket dict met tier voor scraper.py
     print("\n\n" + "=" * 70)

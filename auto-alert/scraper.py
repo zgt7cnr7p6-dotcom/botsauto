@@ -832,33 +832,26 @@ FEATURES_NOT_AVAILABLE = {
 }
 
 
-# NL marktprijzen: bracket lookup (jaar, km_range, optieniveau) → goedkoopste NL prijs
+# NL marktprijzen: bracket lookup (jaar, km_range, sport/std) → goedkoopste NL prijs
 # Bron: Gaspedaal.nl research 21-05-2026 (pano + hybride, 2021+, 20-100k km, max €50k)
 # km brackets: 0=0-40k, 40000=40-60k, 60000=60-80k, 80000=80k+
-# tier: "full" (6+ opties), "mid" (3-5 opties), "basis" (<3 opties)
-# Opties geteld: sportpakket, audio, 360cam, HUD, keyless, matrix, ACC, leder, pano
-NL_MARKET_PRICES = {}  # Wordt gevuld na volgende research run
+# tier: "sport" = AMG/S-line/M-sport, "std" = standaard
+NL_MARKET_PRICES = {}  # Wordt gevuld na research run
+
+# Scraper features die "sport" tier triggeren
+_SPORT_FEATURES = {"s_line", "s_line_exterieur", "amg_line", "amg_exterieur", "m_sportpaket", "m_exterieur"}
 
 
-def _score_to_tier(score: int, max_score: int) -> str:
-    """Map scraper AI score naar optieniveau (full/mid/basis)."""
-    if max_score <= 0:
-        return "mid"
-    pct = score / max_score
-    if pct >= 0.60:
-        return "full"
-    elif pct >= 0.35:
-        return "mid"
-    return "basis"
-
-
-def _nl_market_price(model_key: str, year: int, km: int = 0, tier: str = "mid") -> tuple:
-    """Geef goedkoopste NL prijs + tier voor model + bouwjaar + km + optieniveau. (0, '') als onbekend."""
+def _nl_market_price(model_key: str, year: int, km: int = 0, features: set = None) -> tuple:
+    """Geef goedkoopste NL prijs + tier. Returns (prijs, tier) of (0, '')."""
     brackets = NL_MARKET_PRICES.get(model_key, {})
     if not brackets:
         return 0, ""
 
-    # Bepaal km bracket
+    is_sport = bool(features and features & _SPORT_FEATURES)
+    tier = "sport" if is_sport else "std"
+    alt_tier = "std" if is_sport else "sport"
+
     if km < 40000:
         km_bracket = 0
     elif km < 60000:
@@ -868,34 +861,30 @@ def _nl_market_price(model_key: str, year: int, km: int = 0, tier: str = "mid") 
     else:
         km_bracket = 80000
 
-    # Zoek in volgorde: exact match → zelfde tier ander km → ander tier → ander jaar
-    tier_order = [tier] + [t for t in ("full", "mid", "basis") if t != tier]
-
-    for try_tier in tier_order:
+    # Exact match → andere tier → dichtstbijzijnde km → dichtstbijzijnde jaar
+    for try_tier in (tier, alt_tier):
         if (year, km_bracket, try_tier) in brackets:
             return brackets[(year, km_bracket, try_tier)], try_tier
 
-    # Fallback: zelfde jaar, dichtstbijzijnde km bracket
     year_brackets = {k: v for k, v in brackets.items() if k[0] == year}
     if year_brackets:
-        for try_tier in tier_order:
-            same_tier = {k: v for k, v in year_brackets.items() if k[2] == try_tier}
-            if same_tier:
-                closest = min(same_tier.keys(), key=lambda k: abs(k[1] - km_bracket))
-                return same_tier[closest], closest[2]
+        for try_tier in (tier, alt_tier):
+            pool = {k: v for k, v in year_brackets.items() if k[2] == try_tier}
+            if pool:
+                closest = min(pool.keys(), key=lambda k: abs(k[1] - km_bracket))
+                return pool[closest], closest[2]
 
-    # Fallback: dichtstbijzijnde jaar
     all_years = set(k[0] for k in brackets.keys())
     if not all_years:
         return 0, ""
     closest_year = min(all_years, key=lambda y: abs(y - year))
     if abs(closest_year - year) <= 1:
-        year_brackets = {k: v for k, v in brackets.items() if k[0] == closest_year}
-        for try_tier in tier_order:
-            same_tier = {k: v for k, v in year_brackets.items() if k[2] == try_tier}
-            if same_tier:
-                closest = min(same_tier.keys(), key=lambda k: abs(k[1] - km_bracket))
-                return same_tier[closest], closest[2]
+        yr = {k: v for k, v in brackets.items() if k[0] == closest_year}
+        for try_tier in (tier, alt_tier):
+            pool = {k: v for k, v in yr.items() if k[2] == try_tier}
+            if pool:
+                closest = min(pool.keys(), key=lambda k: abs(k[1] - km_bracket))
+                return pool[closest], closest[2]
 
     return 0, ""
 
@@ -916,20 +905,30 @@ def send_telegram(listing: Listing):
     engine = _extract_engine(listing.title)
     engine_suffix = f" {engine}" if engine else ""
 
+    is_touring = any(w in title_lower for w in ["touring", "estate", "kombi", "t-model"])
+    is_sportback = "sportback" in title_lower
+
     if "mercedes" in title_lower or "benz" in title_lower:
         if "glc" in title_lower:
             model_tag = f"Mercedes GLC{engine_suffix}"
             model_key = "glc"
+        elif is_touring:
+            model_tag = f"Mercedes C Estate{engine_suffix}"
+            model_key = "c_klasse_touring"
         else:
             model_tag = f"Mercedes C{engine_suffix}"
-            model_key = "c_klasse"
+            model_key = "c_klasse_sedan"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_MERCEDES}
     elif "bmw" in title_lower or "330e" in title_lower:
-        model_tag = f"BMW{engine_suffix}" if engine else "BMW 330e"
-        model_key = "330e"
+        if is_touring:
+            model_tag = f"BMW Touring{engine_suffix}" if engine else "BMW 330e Touring"
+            model_key = "330e_touring"
+        else:
+            model_tag = f"BMW{engine_suffix}" if engine else "BMW 330e"
+            model_key = "330e_sedan"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_BMW}
     elif "a3" in title_lower or "a 3" in title_lower:
-        if "sportback" in title_lower:
+        if is_sportback:
             model_tag = f"Audi A3 Sportback{engine_suffix}"
         else:
             model_tag = f"Audi A3{engine_suffix}"
@@ -940,22 +939,24 @@ def send_telegram(listing: Listing):
         model_key = "formentor"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_CUPRA}
     elif "q5" in title_lower:
-        if "sportback" in title_lower:
+        if is_sportback:
             model_tag = f"Audi Q5 Sportback{engine_suffix}"
+            model_key = "q5_sportback"
         else:
             model_tag = f"Audi Q5{engine_suffix}"
-        model_key = "q5"
+            model_key = "q5"
         display_names = FEATURE_DISPLAY_NAMES
-    elif "sportback" in title_lower:
+    elif is_sportback:
         model_tag = f"Audi Q3 Sportback{engine_suffix}"
-        model_key = "q3"
+        model_key = "q3_sportback"
         display_names = FEATURE_DISPLAY_NAMES
     else:
         model_tag = f"Audi Q3{engine_suffix}"
         model_key = "q3"
         display_names = FEATURE_DISPLAY_NAMES
 
-    excluded = FEATURES_NOT_AVAILABLE.get(model_key, set())
+    base_model = model_key.replace("_sportback", "").replace("_touring", "").replace("_sedan", "")
+    excluded = FEATURES_NOT_AVAILABLE.get(base_model, set())
     model_features = [f for f in FULL_OPTION_FEATURES if f not in excluded]
     max_score = len(model_features)
 
@@ -982,21 +983,18 @@ def send_telegram(listing: Listing):
         info_parts.append(str(listing.year))
     info_line = " · ".join(info_parts)
 
-    # NL marktprijs vergelijking (bracket: jaar × km × optieniveau)
+    # NL marktprijs vergelijking (bracket: jaar × km × sport/std)
     nl_price_line = ""
     if listing.price and listing.year:
-        tier = _score_to_tier(listing.score, max_score)
-        nl_price, nl_tier = _nl_market_price(model_key, listing.year, listing.km or 0, tier)
+        nl_price, nl_tier = _nl_market_price(model_key, listing.year, listing.km or 0, listing.features)
         if nl_price:
-            tier_labels = {"full": "full option", "mid": "mid", "basis": "basis"}
-            tier_label = tier_labels.get(nl_tier, nl_tier)
             margin = nl_price - listing.price
             nl_str = f"€{nl_price:,.0f}".replace(",", ".")
             if margin > 0:
                 margin_str = f"€{margin:,.0f}".replace(",", ".")
-                nl_price_line = f"🇳🇱 NL vanaf ({tier_label}): {nl_str} → +{margin_str} marge\n"
+                nl_price_line = f"🇳🇱 NL vanaf: {nl_str} → +{margin_str} marge\n"
             else:
-                nl_price_line = f"🇳🇱 NL vanaf ({tier_label}): {nl_str} (geen marge)\n"
+                nl_price_line = f"🇳🇱 NL vanaf: {nl_str} (geen marge)\n"
 
     # Koopadvies
     advice = _buy_advice(listing.price, listing.score, max_score, listing.features, listing.km)
