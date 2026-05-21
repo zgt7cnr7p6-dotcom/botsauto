@@ -201,78 +201,98 @@ def parse_gaspedaal(html: str) -> list:
     title = soup.title.string if soup.title else "geen titel"
     print(f"  Page title: {title}")
 
-    # Methode 1: Parse listing cards uit gerenderde HTML
-    # Gaspedaal listing cards bevatten: titel, prijs, km, bouwjaar, locatie
-    # Zoek elementen met data-testid of structurele patronen
-    cards = soup.select("[data-testid*='listing'], [data-testid*='car'], [data-testid*='result']")
-    print(f"  Cards via data-testid: {len(cards)}")
+    # Gaspedaal body tekst formaat per listing:
+    # <prijs>  (bijv. "37.900" of "€ 37.900")
+    # <titel>  (bijv. "Audi Q3 - 45 TFSI e S edition | PANO | ...")
+    # Bouwjaar:
+    # <jaar>   (bijv. "2022")
+    # Km.stand:
+    # <km>     (bijv. "55.456")
+    # km
+    body = soup.find("body")
+    if not body:
+        return []
 
-    # Zoek ook op <a> tags die naar detail-pagina's linken
-    if not cards:
-        cards = soup.select("a[href*='/occasion/']")
-        print(f"  Cards via /occasion/ links: {len(cards)}")
+    body_text = body.get_text(separator="\n", strip=True)
+    lines = body_text.split("\n")
+    print(f"  Body: {len(lines)} regels, {len(body_text):,} chars")
 
-    if not cards:
-        # Zoek links naar externe sites (autotrack, autoscout, etc.)
-        cards = soup.select("a[href*='autotrack.nl'], a[href*='autoscout24.nl'], a[href*='viabovag.nl']")
-        print(f"  Cards via externe links: {len(cards)}")
+    i = 0
+    while i < len(lines) - 5:
+        line = lines[i].strip()
 
-    # Parse elke card
-    for card in cards[:60]:
-        # Walk up tot we een blok vinden met prijs + tekst
-        block = card
-        for _ in range(5):
-            if block.parent and len(str(block)) < 2000:
-                block = block.parent
-            else:
+        # Zoek prijsregel: getal in formaat XX.XXX (NL notatie, punt als scheidingsteken)
+        price = 0
+        # Probeer met €
+        price = parse_price(line)
+        # Probeer zonder € — raw getal als XX.XXX
+        if not price:
+            m = re.match(r"^([\d.]+)$", line)
+            if m:
+                val_str = m.group(1).replace(".", "")
+                try:
+                    val = int(val_str)
+                    if 10000 < val < 200000:
+                        price = val
+                except ValueError:
+                    pass
+
+        if not price or price < 10000 or price > 150000:
+            i += 1
+            continue
+
+        # Gevonden prijs — pak de volgende regels als context
+        # Titel = volgende niet-lege regel (vaak merk + model + opties)
+        title = ""
+        year = 0
+        km = 0
+
+        context_lines = lines[i+1:min(i+25, len(lines))]
+        context = "\n".join(context_lines)
+
+        # Titel: eerste substantiële regel na de prijs
+        for cl in context_lines[:5]:
+            cl = cl.strip()
+            if len(cl) > 15 and not cl.startswith("Bouwjaar") and not cl.startswith("Km"):
+                title = cl[:120]
                 break
-        text = block.get_text(separator=" ", strip=True)
-        if len(text) < 20:
-            continue
 
-        price = parse_price(text)
-        if price < 10000 or price > 150000:
-            continue
+        # Bouwjaar: zoek "Bouwjaar:" gevolgd door jaargetal
+        for j, cl in enumerate(context_lines):
+            if "Bouwjaar" in cl:
+                for next_line in context_lines[j:j+3]:
+                    yr = parse_year(next_line)
+                    if yr:
+                        year = yr
+                        break
+                break
+
+        # Km: zoek "Km.stand:" of "Km.stand" gevolgd door getal
+        for j, cl in enumerate(context_lines):
+            if "Km" in cl and "stand" in cl.lower():
+                for next_line in context_lines[j:j+3]:
+                    km_val = parse_km(next_line)
+                    if km_val:
+                        km = km_val
+                        break
+                break
 
         listing = Listing(source="gaspedaal")
         listing.price = price
-        listing.year = parse_year(text)
-        listing.km = parse_km(text)
-        listing.title = text[:120]
-        listing.options_found = detect_options(text)
+        listing.title = title
+        listing.year = year
+        listing.km = km
+        listing.options_found = detect_options(title + " " + context)
         listing.option_score = classify_options(listing.options_found, listing.title)
         listings.append(listing)
 
-    print(f"  Listings uit HTML cards: {len(listings)}")
+        # Skip voorbij deze listing
+        i += 15
+        continue
 
-    # Methode 2: scan body tekst op prijs-blokken als cards niet werkt
-    if len(listings) < 5:
-        print("  Methode 2: body tekst scannen...")
-        body = soup.find("body")
-        if body:
-            body_text = body.get_text(separator="\n", strip=True)
-            lines = body_text.split("\n")
-            i = 0
-            while i < len(lines):
-                price = parse_price(lines[i])
-                if 10000 < price < 150000:
-                    context = " ".join(lines[max(0, i-8):min(len(lines), i+8)])
-                    if len(context) > 30:
-                        listing = Listing(source="gaspedaal")
-                        listing.price = price
-                        listing.year = parse_year(context)
-                        listing.km = parse_km(context)
-                        listing.title = context[:120]
-                        listing.options_found = detect_options(context)
-                        listing.option_score = classify_options(listing.options_found, listing.title)
-                        listings.append(listing)
-                    i += 8
-                    continue
-                i += 1
+    print(f"  Listings gevonden: {len(listings)}")
 
-    print(f"  Listings totaal (voor dedup): {len(listings)}")
-
-    # Dedup op prijs+km combinatie
+    # Dedup op prijs+km
     seen = set()
     unique = []
     for lst in listings:
@@ -281,18 +301,7 @@ def parse_gaspedaal(html: str) -> list:
             seen.add(key)
             unique.append(lst)
 
-    print(f"  Totaal na dedup: {len(unique)}")
-
-    if len(unique) < 3:
-        body = soup.find("body")
-        if body:
-            body_text = body.get_text(separator="\n", strip=True)
-            # Toon deel rond het midden (skip nav/header)
-            mid = len(body_text) // 3
-            print(f"  --- DEBUG BODY TEXT ({mid}..{mid+3000}) ---")
-            print(body_text[mid:mid+3000])
-            print(f"  --- EINDE DEBUG ---")
-
+    print(f"  Na dedup: {len(unique)}")
     return unique
 
 
