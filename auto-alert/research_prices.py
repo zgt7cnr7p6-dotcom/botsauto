@@ -301,6 +301,13 @@ def _parse_jsonld(data) -> list:
         listing = _parse_car_jsonld(data)
         if listing and listing.price > 10000:
             listings.append(listing)
+            if len(listings) == 1:
+                # Debug: toon structuur van eerste auto
+                print(f"  Eerste Car object keys: {list(data.keys())}")
+                print(f"  → title='{listing.title}', price={listing.price}, year={listing.year}, km={listing.km}")
+                # Toon eerste 500 chars van het object
+                preview = json.dumps(data, ensure_ascii=False)[:500]
+                print(f"  → {preview}")
         return listings
 
     # Recursief zoeken in nested dicts
