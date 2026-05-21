@@ -836,7 +836,56 @@ FEATURES_NOT_AVAILABLE = {
 # Bron: Gaspedaal.nl research 21-05-2026 (pano + hybride, 2021+, 20-100k km, max €50k)
 # km brackets: 0=0-40k, 40000=40-60k, 60000=60-80k, 80000=80k+
 # tier: "sport" = AMG/S-line/M-sport, "std" = standaard
-NL_MARKET_PRICES = {}  # Wordt gevuld na research run
+NL_MARKET_PRICES = {
+    "q3": {
+        (2021, 0, "sport"): 37500, (2021, 40000, "sport"): 35950, (2021, 60000, "sport"): 34200, (2021, 80000, "sport"): 36995,
+        (2022, 0, "sport"): 39990, (2022, 40000, "sport"): 37900, (2022, 40000, "std"): 33550, (2022, 60000, "sport"): 37950, (2022, 80000, "sport"): 32990, (2022, 80000, "std"): 28444,
+        (2023, 40000, "sport"): 43895, (2023, 40000, "std"): 33839, (2023, 60000, "sport"): 39950,
+        (2024, 0, "sport"): 47995, (2024, 0, "std"): 49950,
+    },
+    "q3_sportback": {
+        (2021, 0, "sport"): 39500, (2021, 40000, "sport"): 35950, (2021, 60000, "sport"): 34900, (2021, 80000, "sport"): 33950,
+        (2022, 0, "sport"): 40450, (2022, 40000, "sport"): 37445, (2022, 40000, "std"): 37980, (2022, 60000, "sport"): 37950, (2022, 80000, "sport"): 33995,
+        (2023, 0, "sport"): 35995, (2023, 40000, "sport"): 44500, (2023, 60000, "sport"): 39850, (2023, 80000, "sport"): 37900,
+        (2024, 0, "sport"): 47895, (2024, 60000, "sport"): 41950,
+    },
+    "q5": {
+        (2021, 0, "sport"): 46480, (2021, 0, "std"): 40899, (2021, 40000, "sport"): 40999, (2021, 60000, "sport"): 39890, (2021, 60000, "std"): 36889, (2021, 80000, "sport"): 37950,
+        (2022, 0, "sport"): 49950, (2022, 40000, "sport"): 47950, (2022, 60000, "sport"): 37850, (2022, 80000, "sport"): 47950,
+        (2023, 0, "sport"): 47900, (2023, 60000, "sport"): 45999, (2023, 60000, "std"): 44883, (2023, 80000, "sport"): 41500,
+        (2024, 0, "sport"): 48950,
+    },
+    "q5_sportback": {
+        (2021, 0, "sport"): 47950, (2021, 40000, "sport"): 43950, (2021, 60000, "sport"): 43950, (2021, 80000, "sport"): 38950,
+        (2022, 40000, "sport"): 38500, (2022, 40000, "std"): 49950, (2022, 60000, "sport"): 44900, (2022, 80000, "sport"): 42950,
+        (2023, 40000, "sport"): 47900, (2023, 60000, "sport"): 46950, (2023, 80000, "sport"): 43900,
+        (2024, 80000, "sport"): 46950,
+    },
+    "glc": {
+        (2021, 40000, "sport"): 40950, (2021, 60000, "sport"): 36950, (2021, 80000, "sport"): 37950, (2021, 80000, "std"): 34800,
+        (2022, 0, "sport"): 46207, (2022, 40000, "sport"): 47795, (2022, 60000, "sport"): 43500, (2022, 60000, "std"): 42950,
+    },
+    "c_klasse_sedan": {
+        (2022, 0, "sport"): 47950, (2022, 40000, "sport"): 39950, (2022, 60000, "sport"): 37950, (2022, 80000, "sport"): 42950,
+        (2023, 40000, "sport"): 49950, (2023, 60000, "sport"): 43950,
+    },
+    "c_klasse_touring": {
+        (2021, 40000, "sport"): 41500, (2021, 60000, "sport"): 35495, (2021, 80000, "sport"): 34950,
+        (2022, 0, "sport"): 41900, (2022, 40000, "sport"): 38900, (2022, 60000, "sport"): 35900, (2022, 80000, "sport"): 33430, (2022, 80000, "std"): 31950,
+        (2023, 0, "sport"): 34800, (2023, 40000, "sport"): 39945, (2023, 60000, "sport"): 38950, (2023, 80000, "sport"): 38950,
+        (2024, 0, "sport"): 48950,
+    },
+    "330e_sedan": {
+        (2022, 40000, "sport"): 39950, (2022, 80000, "sport"): 39950,
+        (2023, 80000, "std"): 42995,
+    },
+    "330e_touring": {
+        (2021, 40000, "std"): 36950, (2021, 60000, "sport"): 34745, (2021, 60000, "std"): 31900, (2021, 80000, "sport"): 27495, (2021, 80000, "std"): 26950,
+        (2022, 0, "sport"): 39950, (2022, 40000, "sport"): 35950, (2022, 40000, "std"): 36900, (2022, 60000, "sport"): 32950, (2022, 60000, "std"): 32950, (2022, 80000, "sport"): 30950, (2022, 80000, "std"): 31940,
+        (2023, 0, "sport"): 37950, (2023, 40000, "sport"): 34900, (2023, 40000, "std"): 38450, (2023, 60000, "sport"): 32950, (2023, 60000, "std"): 35950, (2023, 80000, "sport"): 34950, (2023, 80000, "std"): 36950,
+        (2024, 0, "sport"): 37950, (2024, 0, "std"): 47950, (2024, 40000, "sport"): 43890, (2024, 40000, "std"): 45995,
+    },
+}
 
 # Scraper features die "sport" tier triggeren
 _SPORT_FEATURES = {"s_line", "s_line_exterieur", "amg_line", "amg_exterieur", "m_sportpaket", "m_exterieur"}
@@ -845,6 +894,12 @@ _SPORT_FEATURES = {"s_line", "s_line_exterieur", "amg_line", "amg_exterieur", "m
 def _nl_market_price(model_key: str, year: int, km: int = 0, features: set = None) -> tuple:
     """Geef goedkoopste NL prijs + tier. Returns (prijs, tier) of (0, '')."""
     brackets = NL_MARKET_PRICES.get(model_key, {})
+    if not brackets:
+        base = model_key.replace("_sportback", "").replace("_touring", "").replace("_sedan", "")
+        for fallback_key in NL_MARKET_PRICES:
+            if fallback_key.startswith(base):
+                brackets = NL_MARKET_PRICES[fallback_key]
+                break
     if not brackets:
         return 0, ""
 
