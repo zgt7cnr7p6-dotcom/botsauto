@@ -51,6 +51,13 @@ SEARCH_URLS = {
     },
 }
 
+# Titel-filter per model: listing titel MOET een van deze strings bevatten
+# Voorkomt vervuiling (bv. BMW 1-serie, X1 in de 330e results)
+MODEL_TITLE_FILTERS = {
+    "bmw_330e": ["3-serie", "330e", "330 e"],
+    "mercedes_glc_300e": ["glc", "300e", "300 e"],
+}
+
 IMPORTANT_OPTIONS = [
     "panorama", "pano", "glasdach", "panoramadak", "schuifdak",
     "s line", "s-line", "sline", "s edition", "amg", "amg line", "m sport", "m-sport", "msport", "m paket",
@@ -435,6 +442,18 @@ def main():
                 print(f"  → {len(listings)} listings van {label}")
                 model_listings.extend(listings)
             time.sleep(1)
+
+        # Filter op titel als er een MODEL_TITLE_FILTERS entry is
+        title_filters = MODEL_TITLE_FILTERS.get(model_key)
+        if title_filters and model_listings:
+            before = len(model_listings)
+            model_listings = [
+                lst for lst in model_listings
+                if any(f.lower() in lst.title.lower() for f in title_filters)
+            ]
+            filtered = before - len(model_listings)
+            if filtered:
+                print(f"  Titel-filter: {filtered} verwijderd (niet {'/'.join(title_filters)}), {len(model_listings)} over")
 
         result = analyze_model(model_key, model_listings)
         all_results[model_key] = result
