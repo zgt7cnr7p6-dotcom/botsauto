@@ -1,0 +1,56 @@
+name: Research NL Prices
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+defaults:
+  run:
+    working-directory: auto-alert
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run price research
+        env:
+          SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
+        run: python research_prices.py 2>&1 | tee research_output.log
+
+      - name: Post results as commit comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f research_output.log ]; then
+            SUMMARY=$(cat research_output.log | head -c 60000)
+            gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments \
+              -f body="### Price Research — $(date -u +'%Y-%m-%d %H:%M UTC')
+          \`\`\`
+          ${SUMMARY}
+          \`\`\`"
+          fi
+
+      - name: Upload research output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-output
+          path: auto-alert/research_output.log
+          retention-days: 7
