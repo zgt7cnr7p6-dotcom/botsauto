@@ -832,46 +832,31 @@ FEATURES_NOT_AVAILABLE = {
 }
 
 
-# NL marktprijzen: bracket lookup (jaar, km_range) → goedkoopste NL prijs
+# NL marktprijzen: bracket lookup (jaar, km_range, optieniveau) → goedkoopste NL prijs
 # Bron: Gaspedaal.nl research 21-05-2026 (pano + hybride, 2021+, 20-100k km, max €50k)
 # km brackets: 0=0-40k, 40000=40-60k, 60000=60-80k, 80000=80k+
-NL_MARKET_PRICES = {
-    "q3": {
-        (2021, 0): 37500, (2021, 40000): 35950, (2021, 60000): 34200, (2021, 80000): 33950,
-        (2022, 0): 39990, (2022, 40000): 33550, (2022, 60000): 37950, (2022, 80000): 28444,
-        (2023, 0): 35995, (2023, 40000): 33839, (2023, 60000): 39850, (2023, 80000): 37900,
-        (2024, 0): 47895, (2024, 60000): 41950,
-    },
-    "q5": {
-        (2021, 0): 40899, (2021, 40000): 40999, (2021, 60000): 36889, (2021, 80000): 37950,
-        (2022, 0): 49950, (2022, 40000): 38500, (2022, 60000): 37850, (2022, 80000): 42950,
-        (2023, 0): 47900, (2023, 40000): 47900, (2023, 60000): 44883, (2023, 80000): 41500,
-        (2024, 0): 48950, (2024, 80000): 46950,
-    },
-    "glc": {
-        (2021, 40000): 40950, (2021, 60000): 36950, (2021, 80000): 34800,
-        (2022, 0): 46207, (2022, 40000): 47795, (2022, 60000): 42950,
-    },
-    "c_klasse": {
-        (2021, 40000): 41500, (2021, 60000): 35495, (2021, 80000): 34950,
-        (2022, 0): 41900, (2022, 40000): 38900, (2022, 60000): 35900, (2022, 80000): 31950,
-        (2023, 0): 34800, (2023, 40000): 39945, (2023, 60000): 38950, (2023, 80000): 38950,
-        (2024, 0): 48950,
-    },
-    "330e": {
-        (2021, 0): 33000, (2021, 40000): 30950, (2021, 60000): 29950, (2021, 80000): 26950,
-        (2022, 0): 34950, (2022, 40000): 32950, (2022, 60000): 33500, (2022, 80000): 30950,
-        (2023, 0): 35950, (2023, 40000): 33950, (2023, 60000): 32950, (2023, 80000): 34950,
-        (2024, 0): 38950, (2024, 40000): 35950,
-    },
-}
+# tier: "full" (6+ opties), "mid" (3-5 opties), "basis" (<3 opties)
+# Opties geteld: sportpakket, audio, 360cam, HUD, keyless, matrix, ACC, leder, pano
+NL_MARKET_PRICES = {}  # Wordt gevuld na volgende research run
 
 
-def _nl_market_price(model_key: str, year: int, km: int = 0) -> int:
-    """Geef goedkoopste NL prijs voor model + bouwjaar + km-bracket. 0 als onbekend."""
+def _score_to_tier(score: int, max_score: int) -> str:
+    """Map scraper AI score naar optieniveau (full/mid/basis)."""
+    if max_score <= 0:
+        return "mid"
+    pct = score / max_score
+    if pct >= 0.60:
+        return "full"
+    elif pct >= 0.35:
+        return "mid"
+    return "basis"
+
+
+def _nl_market_price(model_key: str, year: int, km: int = 0, tier: str = "mid") -> tuple:
+    """Geef goedkoopste NL prijs + tier voor model + bouwjaar + km + optieniveau. (0, '') als onbekend."""
     brackets = NL_MARKET_PRICES.get(model_key, {})
     if not brackets:
-        return 0
+        return 0, ""
 
     # Bepaal km bracket
     if km < 40000:
@@ -883,25 +868,36 @@ def _nl_market_price(model_key: str, year: int, km: int = 0) -> int:
     else:
         km_bracket = 80000
 
-    # Exact match
-    if (year, km_bracket) in brackets:
-        return brackets[(year, km_bracket)]
+    # Zoek in volgorde: exact match → zelfde tier ander km → ander tier → ander jaar
+    tier_order = [tier] + [t for t in ("full", "mid", "basis") if t != tier]
+
+    for try_tier in tier_order:
+        if (year, km_bracket, try_tier) in brackets:
+            return brackets[(year, km_bracket, try_tier)], try_tier
 
     # Fallback: zelfde jaar, dichtstbijzijnde km bracket
     year_brackets = {k: v for k, v in brackets.items() if k[0] == year}
     if year_brackets:
-        closest = min(year_brackets.keys(), key=lambda k: abs(k[1] - km_bracket))
-        return year_brackets[closest]
+        for try_tier in tier_order:
+            same_tier = {k: v for k, v in year_brackets.items() if k[2] == try_tier}
+            if same_tier:
+                closest = min(same_tier.keys(), key=lambda k: abs(k[1] - km_bracket))
+                return same_tier[closest], closest[2]
 
     # Fallback: dichtstbijzijnde jaar
     all_years = set(k[0] for k in brackets.keys())
+    if not all_years:
+        return 0, ""
     closest_year = min(all_years, key=lambda y: abs(y - year))
     if abs(closest_year - year) <= 1:
         year_brackets = {k: v for k, v in brackets.items() if k[0] == closest_year}
-        closest = min(year_brackets.keys(), key=lambda k: abs(k[1] - km_bracket))
-        return year_brackets[closest]
+        for try_tier in tier_order:
+            same_tier = {k: v for k, v in year_brackets.items() if k[2] == try_tier}
+            if same_tier:
+                closest = min(same_tier.keys(), key=lambda k: abs(k[1] - km_bracket))
+                return same_tier[closest], closest[2]
 
-    return 0
+    return 0, ""
 
 
 def _extract_engine(title: str) -> str:
@@ -986,18 +982,21 @@ def send_telegram(listing: Listing):
         info_parts.append(str(listing.year))
     info_line = " · ".join(info_parts)
 
-    # NL marktprijs vergelijking (bracket: jaar × km-range)
+    # NL marktprijs vergelijking (bracket: jaar × km × optieniveau)
     nl_price_line = ""
     if listing.price and listing.year:
-        nl_price = _nl_market_price(model_key, listing.year, listing.km or 0)
+        tier = _score_to_tier(listing.score, max_score)
+        nl_price, nl_tier = _nl_market_price(model_key, listing.year, listing.km or 0, tier)
         if nl_price:
+            tier_labels = {"full": "full option", "mid": "mid", "basis": "basis"}
+            tier_label = tier_labels.get(nl_tier, nl_tier)
             margin = nl_price - listing.price
             nl_str = f"€{nl_price:,.0f}".replace(",", ".")
             if margin > 0:
                 margin_str = f"€{margin:,.0f}".replace(",", ".")
-                nl_price_line = f"🇳🇱 NL vanaf: {nl_str} → +{margin_str} marge\n"
+                nl_price_line = f"🇳🇱 NL vanaf ({tier_label}): {nl_str} → +{margin_str} marge\n"
             else:
-                nl_price_line = f"🇳🇱 NL vanaf: {nl_str} (geen marge)\n"
+                nl_price_line = f"🇳🇱 NL vanaf ({tier_label}): {nl_str} (geen marge)\n"
 
     # Koopadvies
     advice = _buy_advice(listing.price, listing.score, max_score, listing.features, listing.km)
