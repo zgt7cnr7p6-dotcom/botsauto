@@ -903,7 +903,7 @@ def _nl_market_price(model_key: str, year: int, km: int = 0, features: set = Non
     if not brackets:
         return 0, ""
 
-    is_sport = bool(features and features & _SPORT_FEATURES)
+    is_sport = bool(features and set(features) & _SPORT_FEATURES)
     tier = "sport" if is_sport else "std"
     alt_tier = "std" if is_sport else "sport"
 
