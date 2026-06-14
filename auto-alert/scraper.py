@@ -98,7 +98,107 @@ MOBILE_DE_SEARCH_URLS = [
         ),
         "label": "Multi-brand pano (C/GLC/330/Q5)",
         "require_pano_in_desc": False,
-        "min_listing_month": "2026-05",
+        "min_listing_date": "2026-05-01",
+    },
+    # ── Dealer-inkoop URLs (pano via fe=PANORAMIC_GLASS_ROOF) ──
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2023%3A2025&ft=HYBRID"
+            "&isSearchRequest=true&ml=%3A80000&ms=3500%3B6%3B%3B"
+            "&od=up&p=%3A40000&s=Car&sb=p&vc=Car"
+        ),
+        "label": "GLC pano 2023-2025",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2022%3A&ft=HYBRID"
+            "&isSearchRequest=true&ml=%3A80000&ms=3500%3B48%3B%3B"
+            "&od=down&p=%3A40000&s=Car&sb=doc&vc=Car"
+        ),
+        "label": "Mercedes CLA pano",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2023%3A&ft=HYBRID"
+            "&isSearchRequest=true&ml=%3A80000&ms=3500%3B%3B21%3B"
+            "&od=down&p=%3A36000&s=Car&sb=doc&vc=Car"
+        ),
+        "label": "Mercedes E-Klasse pano",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2022%3A&ft=HYBRID"
+            "&isSearchRequest=true&ml=%3A80000&ms=3500%3B%3B22%3B"
+            "&od=down&p=%3A35000&s=Car&sb=doc&vc=Car"
+        ),
+        "label": "Mercedes C pano 2022+",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2023%3A&ft=HYBRID"
+            "&isSearchRequest=true&ml=%3A80000&ms=17200%3B%3B59%3BAMG"
+            "&od=up&p=%3A52000&s=Car&sb=p&vc=Car"
+        ),
+        "label": "GLC AMG pano 2023+",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2021%3A&ft=HYBRID"
+            "&isSearchRequest=true&ml=%3A90000&ms=1900%3B15%3B%3B"
+            "&od=down&p=%3A51000&s=Car&sb=doc&vc=Car"
+        ),
+        "label": "Q5 pano 2021+",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2023%3A&ft=HYBRID"
+            "&isSearchRequest=true&ml=%3A80000&ms=1900%3B32%3B%3B"
+            "&od=up&p=%3A41500&s=Car&sb=p&vc=Car"
+        ),
+        "label": "A3 pano 2023+",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "isSearchRequest=true&s=Car&vc=Car&c=EstateCar"
+            "&fe=PANORAMIC_GLASS_ROOF&fr=2022&ft=HYBRID&ml=%3A80000"
+            "&ms=1900%3B10%3B%3B&p=%3A38000&od=up&sb=p&ref=dsp"
+        ),
+        "label": "A4 Avant pano 2022+",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
+    },
+    {
+        "url": (
+            "https://suchen.mobile.de/fahrzeuge/search.html?"
+            "isSearchRequest=true&s=Car&vc=Car"
+            "&dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2021&ft=HYBRID&ml=%3A80000"
+            "&ms=1900%3B46&p=%3A60000&od=up&sb=p&ref=dsp"
+        ),
+        "label": "Q8 pano 2021+",
+        "require_pano_in_desc": False,
+        "min_listing_date": "2026-06-14",
     },
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
@@ -1649,7 +1749,7 @@ def _run_scrape():
         url_label = search_cfg["label"]
         require_pano = search_cfg["require_pano_in_desc"]
         require_text = search_cfg.get("require_text", "")
-        min_listing_month = search_cfg.get("min_listing_month", "")
+        min_listing_date = search_cfg.get("min_listing_date", "")
 
         log.info("━━━ %s ━━━", url_label)
         mobile_listings = search_results.get(i, [])
@@ -1672,12 +1772,12 @@ def _run_scrape():
                     save_listing(conn, lst)
                     log.info("[%s] Opgeslagen in DB (zonder alert) om herhaling te voorkomen", url_label)
                 continue
-            if min_listing_month and lst.listing_date:
+            if min_listing_date and lst.listing_date:
                 try:
                     dt = datetime.strptime(lst.listing_date.split(",")[0].strip(), "%d.%m.%Y")
-                    listing_ym = dt.strftime("%Y-%m")
-                    if listing_ym < min_listing_month:
-                        log.info("[%s] Overgeslagen (te oud: %s < %s): %s", url_label, listing_ym, min_listing_month, lst.title[:40])
+                    listing_ymd = dt.strftime("%Y-%m-%d")
+                    if listing_ymd < min_listing_date:
+                        log.info("[%s] Overgeslagen (te oud: %s < %s): %s", url_label, listing_ymd, min_listing_date, lst.title[:40])
                         if not listing_exists(conn, lst.id):
                             save_listing(conn, lst)
                         continue
