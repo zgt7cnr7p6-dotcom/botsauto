@@ -1067,6 +1067,16 @@ def send_telegram(listing: Listing):
         if "glc" in title_lower:
             model_tag = f"Mercedes GLC{engine_suffix}"
             model_key = "glc"
+        elif "cla" in title_lower:
+            model_tag = f"Mercedes CLA{engine_suffix}"
+            model_key = "cla"
+        elif "e " in title_lower or "e-klasse" in title_lower or re.search(r"\be\s?\d{3}", title_lower):
+            if is_touring:
+                model_tag = f"Mercedes E Estate{engine_suffix}"
+                model_key = "e_klasse_touring"
+            else:
+                model_tag = f"Mercedes E{engine_suffix}"
+                model_key = "e_klasse_sedan"
         elif is_touring:
             model_tag = f"Mercedes C Estate{engine_suffix}"
             model_key = "c_klasse_touring"
@@ -1082,6 +1092,31 @@ def send_telegram(listing: Listing):
             model_tag = f"BMW{engine_suffix}" if engine else "BMW 330e"
             model_key = "330e_sedan"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_BMW}
+    elif "q8" in title_lower:
+        if is_sportback:
+            model_tag = f"Audi Q8 Sportback{engine_suffix}"
+            model_key = "q8_sportback"
+        else:
+            model_tag = f"Audi Q8{engine_suffix}"
+            model_key = "q8"
+        display_names = FEATURE_DISPLAY_NAMES
+    elif "q5" in title_lower:
+        if is_sportback:
+            model_tag = f"Audi Q5 Sportback{engine_suffix}"
+            model_key = "q5_sportback"
+        else:
+            model_tag = f"Audi Q5{engine_suffix}"
+            model_key = "q5"
+        display_names = FEATURE_DISPLAY_NAMES
+    elif "a4" in title_lower or "a 4" in title_lower:
+        is_avant = any(w in title_lower for w in ["avant", "estate", "kombi"])
+        if is_avant:
+            model_tag = f"Audi A4 Avant{engine_suffix}"
+            model_key = "a4_avant"
+        else:
+            model_tag = f"Audi A4{engine_suffix}"
+            model_key = "a4"
+        display_names = FEATURE_DISPLAY_NAMES
     elif "a3" in title_lower or "a 3" in title_lower:
         if is_sportback:
             model_tag = f"Audi A3 Sportback{engine_suffix}"
@@ -1093,14 +1128,6 @@ def send_telegram(listing: Listing):
         model_tag = f"Cupra Formentor{engine_suffix}"
         model_key = "formentor"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_CUPRA}
-    elif "q5" in title_lower:
-        if is_sportback:
-            model_tag = f"Audi Q5 Sportback{engine_suffix}"
-            model_key = "q5_sportback"
-        else:
-            model_tag = f"Audi Q5{engine_suffix}"
-            model_key = "q5"
-        display_names = FEATURE_DISPLAY_NAMES
     elif is_sportback:
         model_tag = f"Audi Q3 Sportback{engine_suffix}"
         model_key = "q3_sportback"
