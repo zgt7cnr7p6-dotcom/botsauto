@@ -5,9 +5,16 @@
 
 ## Wat is dit project?
 
-Een geautomatiseerde scraper die mobile.de monitort op **Audi Q3/A3,
-Mercedes C-Klasse/GLC, en BMW 330e** (hybrid, met panoramadak) en
-Telegram alerts stuurt bij goede matches. Eigenaar: Djari.
+Een geautomatiseerde scraper die mobile.de monitort op premium **plug-in
+hybrides met panoramadak** (2021+, binnen budget) en Telegram alerts stuurt
+bij goede matches. Per listing wordt de import-marge t.o.v. de NL-markt
+getoond. Eigenaar: Djari.
+
+Gezochte modellen:
+- **Audi**: Q3 (Sportback), Q5 (Sportback), A3, A4 Avant, Q8
+- **Mercedes**: C-Klasse (sedan/Estate), GLC, CLA, E-Klasse
+- **BMW**: 3-serie / 330e (sedan/Touring)
+- **Cupra**: Formentor
 
 ## Repo structuur
 
@@ -16,22 +23,26 @@ botsauto/
 ├── CLAUDE.md                          # ← dit bestand (root briefing)
 ├── auto-alert/
 │   ├── CLAUDE.md                      # gedetailleerde technische briefing
-│   ├── scraper.py                     # de scraper (~1385 regels, alles-in-één)
+│   ├── scraper.py                     # de scraper (~1955 regels, alles-in-één)
 │   ├── requirements.txt               # requests, beautifulsoup4, anthropic
 │   ├── test_ai_scoring.py             # AI scoring tests
 │   ├── test_url.py                    # losse URL test
 │   └── .env                           # LOKAAL ONLY, nooit committen
 └── .github/workflows/
-    ├── alert.yml                      # ACTIEVE workflow (cron */5 7-18 UTC)
+    ├── alert.yml                      # ACTIEVE workflow (workflow_dispatch)
+    ├── research-prices.yml            # NL-marktprijzen research
     ├── test-ai.yml
     └── test-url.yml
 ```
 
 ## Hoe het draait
 
-- **GitHub Actions** cron elke 5 min, 07-18 UTC (08-19 CET)
-- **Scrape.do** voor mobile.de (DataDome bypass, super mode)
-- **Claude Haiku 4.5** voor feature-scoring (24 opties + kleur)
+- **GitHub Actions**, getriggerd door **cron-job.org** (elke 3 min) via
+  `workflow_dispatch` — GitHub-cron is uit (kan niet onder 5 min)
+- 13 mobile.de zoek-URL's, parallel opgehaald
+- **Scrape.do** voor mobile.de (DataDome bypass, super mode + GDPR cookie)
+- **Claude Haiku 4.5** voor feature-scoring (27 opties + kleur, merk-bewust)
+- **NL-marktprijs vergelijking** voor de import-marge in de alert
 - **Telegram Bot** voor alerts
 - **SQLite** (`listings.db`) als database, gecached via Actions cache
 
@@ -46,10 +57,9 @@ botsauto/
 
 ## Scrape.do budget
 
-Custom plan: **1.250.000 credits/maand**. Huidig verbruik: ~8%.
-Elke scraper-run kost ~30 credits (zoekpagina's) + ~25 per nieuwe listing
-(detail page). Er is ruimte genoeg voor hogere frequentie, maar GitHub
-Actions cron gaat niet sneller dan elke 5 minuten.
+Custom plan: **1.250.000 credits/maand**. Elke run kost credits voor de 13
+zoekpagina's (super mode) + per nieuwe listing een detail-page fetch. Ruimte
+genoeg; cron-job.org pingt de workflow elke 3 min.
 
 ## Wat Claude moet doen
 

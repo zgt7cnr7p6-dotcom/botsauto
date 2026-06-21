@@ -1,194 +1,210 @@
 # CLAUDE.md — Auto-Alert Scraper
 
-> Lees dit eerst voordat je iets aan dit project verandert. Dit bestand is de
-> volledige briefing voor een nieuwe Claude-sessie.
+> Lees dit eerst voordat je iets aan dit project verandert. Dit is de
+> volledige technische briefing. Het hoort bij de root `CLAUDE.md`.
 
 ## TL;DR
 
-Dit is een Python-scraper die elke paar minuten **mobile.de** afzoekt naar
-**Audi Q3 (Sportback) 45 TFSI e** plug-in hybrides. Gevonden auto's worden
-gescored op opties via **Claude Haiku** en bij een match wordt een
-**Telegram-alert** gestuurd.
+Python-scraper die elke paar minuten **mobile.de** afzoekt naar premium
+plug-in hybrides met panoramadak en alerts stuurt via **Telegram**. Per
+listing wordt de detail-pagina opgehaald, met **Claude Haiku** gescoord op
+27 opties + kleur, en vergeleken met **NL-marktprijzen** om de import-marge
+te bepalen.
 
-De scraper draait op **GitHub Actions** (cron `*/5 7-18 * * *`) en blijft
-daar draaien — Actions is betrouwbaar genoeg voor deze workload. **Geen
-Hetzner-verhuizing**.
+Draait op **GitHub Actions**, getriggerd door **cron-job.org** (elke 3 min)
+via `workflow_dispatch` — GitHub's eigen cron is uitgeschakeld omdat die
+niet onder 5 min kan en minder betrouwbaar is.
 
-Wat we wél willen verbeteren: de **dev-loop in VS Code** zodat Claude
-snel logs kan lezen, bugs kan reproduceren en fixes kan pushen. Dat
-gebeurt via `gh` CLI (logs + artifacts) en lokale dry-runs.
+Alles zit in één bestand: **`scraper.py`** (~1955 regels).
+
+## Welke auto's worden gezocht?
+
+Meerdere merken/modellen, allemaal **HYBRID (PHEV)**, 2021+, met
+panoramadak, binnen budget:
+
+| Merk | Modellen |
+|------|----------|
+| **Audi** | Q3 (Sportback), Q5 (Sportback), A3, A4 Avant, Q8 |
+| **Mercedes** | C-Klasse (sedan/Estate), GLC, CLA, E-Klasse |
+| **BMW** | 3-serie / 330e (sedan/Touring) |
+| **Cupra** | Formentor |
 
 ## Repository layout
 
 ```
 botsauto/
 ├── auto-alert/
-│   ├── scraper.py            # ENIGE echte scraper. Alles staat hierin (~1385 regels).
+│   ├── scraper.py            # DE scraper. Alles-in-één (~1955 regels).
 │   ├── requirements.txt      # requests, beautifulsoup4, anthropic
-│   ├── README.md             # Korte beschrijving
 │   ├── CLAUDE.md             # ← dit bestand
-│   ├── test_ai_scoring.py    # Unit tests voor AI scoring met opgeslagen HTML
-│   ├── test_url.py           # Test losse mobile.de URL handmatig
-│   ├── setup-repo.sh         # OUDE setup voor GitHub repo (legacy)
-│   ├── .gitignore            # negeert listings.db, __pycache__, .env
-│   └── .github/workflows/alert.yml  # (legacy locatie)
+│   ├── test_ai_scoring.py    # AI scoring tests tegen opgeslagen HTML
+│   ├── test_url.py           # losse mobile.de URL test
+│   ├── .gitignore            # negeert listings.db, __pycache__, .env, debug_*.html
+│   └── .github/workflows/alert.yml  # LEGACY (oude cron */5), niet actief
 └── .github/workflows/
-    ├── alert.yml             # ACTIEVE GitHub Actions workflow (cron */5)
+    ├── alert.yml             # ACTIEVE workflow (workflow_dispatch via cron-job.org)
+    ├── research-prices.yml   # NL-marktprijzen research workflow
     ├── test-ai.yml
     └── test-url.yml
 ```
 
 > Let op: er staan twee `alert.yml` bestanden. De **actieve** is
-> `botsauto/.github/workflows/alert.yml`. De andere is legacy.
+> `botsauto/.github/workflows/alert.yml`. Die in `auto-alert/.github/` is legacy.
 
 ## Wat de scraper precies doet
 
-### Zoekcriteria (in `scraper.py`)
+### Zoekcriteria (`scraper.py:49`)
 
 ```python
 SEARCH_CRITERIA = {
-    "model": "Audi Q3 45 TFSI e",
-    "fuel": "hybrid",
-    "year_min": 2021,
-    "km_max": 80_000,
-    "price_max": 40_000,
-    "country": "DE",
+    "model": "Audi Q3 45 TFSI e",  # legacy label, scraper zoekt veel breder
+    "fuel": "hybrid", "year_min": 2021,
+    "km_max": 80_000, "price_max": 40_000, "country": "DE",
 }
 ```
 
-### Vier zoek-URL's op mobile.de
+### Zoek-URL's (`MOBILE_DE_SEARCH_URLS`, `scraper.py:63`)
 
-`MOBILE_DE_SEARCH_URLS` (in `scraper.py:63`) bevat vier varianten:
+13 mobile.de zoek-URL's. Twee soorten pano-filtering:
 
-| # | Label | Doel | Pano-check? |
-|---|-------|------|-------------|
-| 1 | Q3 pano | freetext "pano" — alles doorsturen | nee |
-| 2 | Q3 Sportback (pano check) | freetext "sportback" | ja, via AI |
-| 3 | Q3 Sportback catch-all | alle Q3 hybrids, filter op "sportback" | ja, via AI |
-| 4 | Multi-brand pano (C/GLC/330/A3) | Mercedes C+GLC, BMW 330, Audi A3 met "pano" | nee |
+1. **Freetext** (`ms=...;pano`/`sportback`/etc.) — oudere Q3-URL's.
+2. **Feature-filter** (`fe=PANORAMIC_GLASS_ROOF`) — nieuwere "dealer-inkoop"
+   URL's; mobile.de's eigen pano-filter, betrouwbaarder dan freetext.
 
-URL 2 en 3 hebben een extra check: alleen doorsturen als het AI-model
-"panoramadak" detecteert in de detail-pagina.
+Elke URL-config heeft velden:
+- `label` — naam in de logs
+- `require_pano_in_desc` — `True` → alleen alerten als AI panoramadak detecteert
+- `require_text` — optioneel: alleen doorsturen als deze tekst in titel/desc staat
+- `min_listing_date` — optioneel `YYYY-MM-DD`: oudere listings opslaan zonder alert
+  (voorkomt alert-spam bij toevoegen van een nieuwe URL voor bestaande voorraad)
 
-URL 4 bevat meerdere merken. De AI scoring prompt is merkbewust:
-- **Audi**: S line, Optikpaket Schwarz, B&O/Sonos, Komfortschlüssel
-- **Mercedes**: AMG Line, Night-Paket, Burmester, KEYLESS-GO, DISTRONIC, DIGITAL LIGHT
-- **BMW**: M Sportpaket, Shadow Line, Harman Kardon, Comfort Access, Driving Assistant Professional
+URL-overzicht (labels): Q3 pano · Q3 Sportback (pano check) ·
+Multi-brand pano (C/GLC/330/Q5) · GLC pano 2023-2025 · Mercedes CLA pano ·
+Mercedes E-Klasse pano · Mercedes C pano 2022+ · GLC AMG pano 2023+ ·
+Q5 pano 2021+ · A3 pano 2023+ · A4 Avant pano 2022+ · Q8 pano 2021+.
 
-### Pipeline per run
+### Pipeline per run (`_run_scrape`, `scraper.py:1742`)
 
-1. **Loop over de 4 zoek-URL's**
-   - Haal zoekpagina op via **Scrape.do** (`super=true`, `geoCode=de`).
-     Zonder Scrape.do krijg je 502 / DataDome block.
-   - Parse listings met BeautifulSoup (titel, prijs, km, jaar, listing date,
-     locatie). Gesponsorde advertenties worden overgeslagen.
-   - Filter listings die we al kennen (`listings.db`) of niet aan
-     `require_text` voldoen.
-2. **Detail pages parallel ophalen** (`ThreadPoolExecutor`, 8 workers)
-   - Via Scrape.do met `render=true` (headless Chromium).
-   - GDPR-bypass via `setCookies=usercentrics-cmp-consent=true`.
-   - Fallback: `playWithBrowser` clickt de Usercentrics shadow-DOM accept-knop.
-   - HTML wordt opgeschoond (`clean_detail_html`) — cookie banners, nav,
-     footer en bekende GDPR-tekstblokken worden gestript.
-3. **AI scoring** (`ThreadPoolExecutor`, 5 workers)
-   - Per listing → Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) met
-     `AI_SCORING_PROMPT` (`scraper.py:338`). Geeft JSON terug met 24 features
-     + kleur.
-   - Implicaties worden afgedwongen in code: `camera_360 → camera_achteruit`,
-     `acc + lane_assist → travel_assist`, `S line Paket → s_line + s_line_exterieur`.
-   - Bij failure → 3x retry; daarna `score = -1` en **niet** opslaan zodat
-     volgende run het opnieuw probeert.
-4. **Pano-filter** (alleen URL 2 + 3): listing zonder `panoramadak` →
-   wel opslaan, géén alert.
-5. **Telegram alert** voor nieuwe listings:
-   - HTML format met titel, prijs, km, jaar, koopadvies (`_buy_advice`),
-     verdict, gevonden + missende features (must-haves krijgen ⭐).
-   - Pas **ná** succesvolle Telegram send wordt de listing in de DB gezet.
-6. **Failure path**: hele `_run_scrape()` zit in een retry-loop
-   (`MAX_RETRIES=3`, backoff `[10, 30, 60]s`). Bij volledige fail → Telegram
-   `🚨 SCRAPER GEFAALD` alert.
+1. **Alle zoekpagina's parallel** (`ThreadPoolExecutor`, 4 workers) via
+   **Scrape.do** (`super=true`, `geoCode=de`). Zonder Scrape.do → 502/DataDome.
+2. **Parse + dedup** (`scrape_mobile_de`, `scraper.py:1431`): titel, prijs, km,
+   jaar, locatie, listing-datum. Gesponsorde ads worden overgeslagen. Listings
+   die al in `listings.db` staan of niet aan `require_text`/`min_listing_date`
+   voldoen worden gefilterd (en zo nodig opgeslagen zonder alert).
+3. **Detail pages parallel** (`_fetch_detail_pages`, `scraper.py:1662`, 8 workers):
+   Scrape.do `super=true` + `setCookies=usercentrics-cmp-consent=true` voor
+   GDPR. HTML wordt opgeschoond (`clean_detail_html`, `scraper.py:412`):
+   cookie banners, nav, footer, GDPR-tekst eruit. Mislukt de detail-fetch →
+   `detail_incomplete=True` (score onbetrouwbaar, NIET opslaan zodat retry volgt).
+4. **AI scoring parallel** (`score_listing`, 5 workers): Claude Haiku 4.5
+   (`claude-haiku-4-5-20251001`) met `AI_SCORING_PROMPT` (`scraper.py:479`).
+   Geeft JSON met **27 features + kleur**. 3x retry; daarna `score=-1` en
+   **niet** opslaan zodat de volgende run het opnieuw probeert.
+5. **Pano-filter**: bij `require_pano_in_desc` URL's zonder `panoramadak` in
+   features → opslaan, géén alert.
+6. **Telegram alert** (`send_telegram`, `scraper.py:1058`): merk-detectie uit
+   titel, NL-marktprijs vergelijking, koopadvies (`_buy_advice`), verdict,
+   feature-checklist (must-haves met ⭐). Pas **ná** succesvolle send wordt de
+   listing in de DB gezet.
+7. **Seed mode**: als de DB leeg is (eerste run / cache verloren) en er >5
+   listings zijn → alles opslaan zónder alerts. Voorkomt 70+ alerts tegelijk.
+8. **Failure path**: `_run_scrape` zit in retry-loop (`MAX_RETRIES=3`, backoff
+   `[10,30,60]s`). Volledige fail → Telegram `🚨 SCRAPER GEFAALD`.
+
+### AI scoring: features (`scraper.py:207`, `FULL_OPTION_FEATURES`)
+
+24 features in `FULL_OPTION_FEATURES` (panoramadak, keyless, camera's, s_line
+(int/ext), matrix_led, velgen, audio_premium, stoelen, ACC, lane/travel assist,
+drive_select, onderstel, assists, ambient, achterklep, optik zwart, dyn.
+knipperlicht, head_up, luchtvering). Plus `stoelen_memory` en `sportback` voor
+display. Kleur wordt apart teruggegeven.
+
+**Merk-bewuste prompt** — de prompt mapt pakketten per merk naar features:
+- **Audi** (Q3/Q5/A3): S line, Assistenzpaket Tour/Stadt, Komfortschlüssel,
+  B&O/Sonos, Matrix LED, Optikpaket Schwarz, drive select, luchtvering (Q5)
+- **Mercedes** (C/GLC): AMG Line, Night-Paket, DISTRONIC, Fahrassistenz-Paket,
+  KEYLESS-GO, Burmester, DIGITAL LIGHT, AIRMATIC, pakket-tiers (Advanced/Premium)
+- **BMW** (3er/330e): M Sportpaket, Shadow Line, Harman Kardon, Comfort Access,
+  Driving Assistant Professional, Adaptive LED
+- **Cupra** (Formentor): VZ-pakket, Beats, KESSY, Travel Assist, Drive Profile
+
+**Implicaties afgedwongen in code** (`scraper.py:757`):
+- `camera_360 → camera_achteruit`
+- `luchtvering → adaptief_onderstel`
+- `acc + lane_assist → travel_assist` (en omgekeerd impliceert travel_assist beide)
+
+Display-namen per merk: `FEATURE_DISPLAY_NAMES` + `_MERCEDES`/`_BMW`/`_CUPRA`
+overrides (`scraper.py:235`).
+
+### NL-marktprijs vergelijking (`scraper.py:939`)
+
+`NL_MARKET_PRICES` is een lookup-tabel met goedkoopste NL-prijzen per
+`(jaar, km-bracket, tier)` per model (bron: Gaspedaal.nl research). `tier` =
+`sport` (S-line/AMG/M-sport) of `std`. `_nl_market_price` (`scraper.py:994`)
+zoekt exact → andere tier → dichtstbijzijnde km → dichtstbijzijnde jaar.
+In de alert: `🇳🇱 NL vanaf: €X → +marge`. Geeft Djari direct de import-marge.
+
+`FEATURES_NOT_AVAILABLE` (`scraper.py:924`) sluit features uit per model voor
+de max-score berekening (bijv. Q3/A3 hebben geen luchtvering, Q3 geen head-up).
 
 ### Database
 
-SQLite (`listings.db`), één tabel `listings` met `id` (PK),
-`source`, `title`, `price`, `year`, `km`, `url`, `score`, `features` (JSON),
-`first_seen`, `last_seen`. Functies: `init_db`, `listing_exists`, `save_listing`.
+SQLite (`listings.db`), tabel `listings`: `id` (PK), `source`, `title`,
+`price`, `year`, `km`, `url`, `score`, `features` (JSON), `first_seen`,
+`last_seen`. Functies: `init_db`, `listing_exists`, `save_listing`.
 
-### Quiet hours
+### Quiet hours (`main`, `scraper.py:1909`)
 
-Standaard draait de scraper alleen 08:00–20:00 CET, met één extra "nachtscan"
-om 00:30. Override via `--force` of GitHub `workflow_dispatch`.
+Draait alleen 08:00–20:00 CET, met één nachtscan rond 00:30. Override via
+`--force` of GitHub `workflow_dispatch`.
 
 ### Externe diensten / secrets
 
 | Env var | Doel | Verplicht |
 |---------|------|-----------|
-| `SCRAPE_DO_TOKEN` | Scrape.do API — DataDome bypass voor mobile.de | ja |
-| `ANTHROPIC_API_KEY` | Claude Haiku voor feature-scoring | ja |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot voor alerts | ja (anders DRY_RUN) |
-| `TELEGRAM_CHAT_ID` | Doel chat van de alerts | ja |
+| `SCRAPE_DO_TOKEN` | Scrape.do — DataDome bypass voor mobile.de | ja |
+| `ANTHROPIC_API_KEY` | Claude Haiku feature-scoring | ja |
+| `TELEGRAM_BOT_TOKEN` | Telegram alerts | ja (anders DRY_RUN) |
+| `TELEGRAM_CHAT_ID` | Doel chat | ja |
 
-Zonder `TELEGRAM_BOT_TOKEN` zet de scraper zichzelf in `DRY_RUN` mode
-(geen Telegram, alleen logs).
+Zonder `TELEGRAM_BOT_TOKEN` → `DRY_RUN` (geen Telegram, alleen logs).
 
 ### Belangrijke functies (file:line)
 
-- `scraper.py:1340` `main` — entrypoint, quiet hours + retry loop
-- `scraper.py:1221` `_run_scrape` — kern: scrape → score → alert
-- `scraper.py:937` `scrape_mobile_de` — zoekpagina parser
-- `scraper.py:1154` `_fetch_detail_pages` — parallel detail fetcher
-- `scraper.py:1122` `_fetch_single_detail` — single detail + GDPR fallback
-- `scraper.py:804` `scrape_do_fetch` — Scrape.do client met retry
-- `scraper.py:458` `score_listing_ai` — Claude AI scoring
-- `scraper.py:271` `clean_detail_html` — HTML opschonen
-- `scraper.py:600` `_buy_advice` — koopadvies-tekst
-- `scraper.py:667` `send_telegram` — alert opmaak + verzenden
+- `scraper.py:1909` `main` — entrypoint, quiet hours + retry loop
+- `scraper.py:1742` `_run_scrape` — kern: scrape → score → alert
+- `scraper.py:1431` `scrape_mobile_de` — zoekpagina parser
+- `scraper.py:1662` `_fetch_detail_pages` — parallel detail fetcher
+- `scraper.py:1645` `_fetch_single_detail` — single detail + GDPR cookie
+- `scraper.py:1289` `scrape_do_fetch` — Scrape.do client met retry
+- `scraper.py:717` `score_listing_ai` / `:807` `score_listing` — Claude AI scoring
+- `scraper.py:479` `AI_SCORING_PROMPT` — de merk-bewuste prompt
+- `scraper.py:412` `clean_detail_html` — HTML opschonen
+- `scraper.py:994` `_nl_market_price` — NL marktprijs lookup
+- `scraper.py:857` `_buy_advice` — koopadvies-tekst
+- `scraper.py:1058` `send_telegram` — merk-detectie + alert opmaak
 
 ## Hosting (GitHub Actions)
 
-`.github/workflows/alert.yml` is de actieve workflow:
+`.github/workflows/alert.yml`:
+- Trigger: `workflow_dispatch` (cron-job.org pingt elke 3 min). GitHub-cron uit.
+- `clear_db` input: wist de DB-cache → volledige nieuwe scan (let op: alert-spam).
+- Stappen: checkout → Python 3.12 → `pip install` → cache restore `listings.db`
+  → `python scraper.py | tee scraper_output.log` → log als commit-comment →
+  cache save → upload `debug_*.html` + log als artifact.
+- `concurrency: scraper-run` (geen overlappende runs), `timeout-minutes: 8`.
 
-```yaml
-on:
-  schedule:
-    - cron: '*/5 7-18 * * *'   # elke 5 min, 07-18 UTC = 08-19 CET
-```
-
-Stappen: checkout → Python 3.12 → `pip install` → `actions/cache/restore`
-voor `listings.db` → `python scraper.py` → `actions/cache/save` → upload
-`debug_*.html` als artifact.
-
-Werkt prima en is betrouwbaar genoeg. **Niet verhuizen** tenzij er een
-concrete reden komt.
-
-## Dev-loop in VS Code
-
-Het belangrijkste doel: Claude Code in VS Code moet snel logs kunnen lezen,
-bugs reproduceren en fixes pushen.
-
-### Logs lezen via `gh` CLI
-
-Vanuit Claude (Bash tool) of in een VS Code terminal:
+## Dev-loop & logs
 
 ```bash
-# Laatste 10 runs van de scraper workflow
+# Laatste runs / logs (gebruik --json voor structured output)
 gh run list --workflow=alert.yml --limit 10
-
-# Volledige log van een specifieke run
 gh run view <run-id> --log
-
-# Alleen failed steps
 gh run view <run-id> --log-failed
-
-# Logs van de meest recente run
-gh run view --log $(gh run list --workflow=alert.yml --limit 1 --json databaseId -q '.[0].databaseId')
-
-# Debug HTML artifact downloaden naar ./debug/
 gh run download <run-id> --name debug-html --dir debug/
-```
 
-> Tip voor Claude: gebruik `--json` flags zodat je structured output krijgt
-> in plaats van te moeten parsen. Bv. `gh run list --json status,conclusion,createdAt,databaseId`.
+# Run-logs staan ook als commit-comment op de SHA (Post log summary step)
+```
 
 ### Lokaal reproduceren
 
@@ -196,82 +212,31 @@ gh run download <run-id> --name debug-html --dir debug/
 cd auto-alert
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-# secrets uit .env (lokaal, NIET committen)
-export $(grep -v '^#' .env | xargs)
+export $(grep -v '^#' .env | xargs)   # .env lokaal, NOOIT committen
 
 python scraper.py --dry-run --force   # geen Telegram, geen quiet hours
 python test_url.py                    # losse URL test
 python test_ai_scoring.py             # AI scoring tegen opgeslagen HTML
 ```
 
-`.env` lokaal moet bevatten:
-```
-SCRAPE_DO_TOKEN=...
-ANTHROPIC_API_KEY=...
-TELEGRAM_BOT_TOKEN=...   # optioneel — zonder = DRY_RUN
-TELEGRAM_CHAT_ID=...
-```
-
-### Bug-fix workflow
-
-1. User stuurt error / log snippet of een `gh run view` output
-2. Claude leest `auto-alert/CLAUDE.md` (dit bestand) voor context
-3. Claude zoekt het probleem in `scraper.py` (zie file:line refs hieronder)
-4. Reproductie lokaal als mogelijk (`--dry-run --force`)
-5. Fix → commit → push naar `claude/deploy-auto-alert-scraper-ZsKua`
-6. Volgende scheduled run op Actions valideert de fix
-
 ## Wat er NIET moet gebeuren
 
 - **Geen secrets committen** — `.env`, `*.db`, `debug_*.html` blijven gitignored
-- **Geen refactor van de scoring logic** of de scraping URL's tenzij dat
-  expliciet gevraagd wordt — die zijn empirisch afgesteld
-- **Geen `git push --force`**, en **geen** push naar `master` — alles op
-  branch `claude/deploy-auto-alert-scraper-ZsKua`
-- **Geen Playwright of headless Chrome lokaal** — alles loopt via Scrape.do
-- **Geen feature creep** bij bug-fixes — alleen het gerapporteerde fixen,
-  niets eromheen "verbeteren"
+- **Geen refactor van scoring-prompt of zoek-URL's** tenzij expliciet gevraagd
+  — die zijn empirisch afgesteld
+- **Geen `git push --force`**, **geen push naar `master`**
+- **Geen Playwright/headless Chrome lokaal** — alles via Scrape.do
+- **Geen feature creep** bij bug-fixes — alleen het gerapporteerde fixen
 
-## Verbeterpunten (lijst, los van bug-fixes)
+## Verbeterpunten (backlog)
 
-Geen vaste prioriteit — pak op wanneer relevant:
-
-1. **Lockfile** in scraper voor het geval twee runs overlappen
-2. **Heartbeat** naar Telegram of healthchecks.io zodat crashes opvallen
+1. **Lockfile** voor het geval twee runs overlappen (deels gedekt door `concurrency`)
+2. **Heartbeat** naar Telegram/healthchecks.io
 3. **Kosten-logging** voor Scrape.do en Anthropic credits per run
 4. **Telegram bot commands** (`/status`, `/lastrun`) via long-polling
 
-Als de Actions setup ooit wel pijn gaat doen (cron drift, cache loss, te
-trage cold starts) staat het Hetzner-plan in de git history van deze branch
-— commit `535afe5` had de volledige systemd-deploy uitgewerkt.
+## Git / branch policy
 
-## Workflows / branch policy
-
-- Hoofdbranch: `master` (legacy GitHub Actions)
-- Deze taak werkt op: **`claude/deploy-auto-alert-scraper-ZsKua`**
-- Push: `git push -u origin claude/deploy-auto-alert-scraper-ZsKua`
-- Branch naam moet beginnen met `claude/` en eindigen op de session-id,
-  anders weigert de remote met 403
-
-## Hoe je deze sessie opstart in VS Code
-
-1. Open de `botsauto` repo in VS Code
-2. Checkout de branch:
-   `git checkout claude/deploy-auto-alert-scraper-ZsKua`
-   (of `git fetch origin claude/deploy-auto-alert-scraper-ZsKua && git checkout ...`)
-3. Start Claude Code in de workspace
-4. Verwijs Claude naar dit bestand: "Lees `auto-alert/CLAUDE.md` eerst"
-5. Geef de specifieke taak (bijv. "implementeer de Hetzner deploy uit het plan")
-
-## Tests handmatig draaien
-
-```bash
-cd auto-alert
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-export SCRAPE_DO_TOKEN=... ANTHROPIC_API_KEY=...
-python test_url.py            # test losse mobile.de URL
-python test_ai_scoring.py     # test AI scoring tegen opgeslagen HTML
-python scraper.py --dry-run --force  # full run zonder Telegram, zonder quiet hours
-```
+- Hoofdbranch: `master`
+- Branch moet beginnen met `claude/` en eindigen op het session-id
+- Push: `git push -u origin <branch>`
