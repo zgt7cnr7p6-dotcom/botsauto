@@ -1133,13 +1133,18 @@ def send_telegram(listing: Listing):
         model_tag = f"Cupra Formentor{engine_suffix}"
         model_key = "formentor"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_CUPRA}
-    elif is_sportback:
-        model_tag = f"Audi Q3 Sportback{engine_suffix}"
-        model_key = "q3_sportback"
+    elif "q3" in title_lower:
+        if is_sportback:
+            model_tag = f"Audi Q3 Sportback{engine_suffix}"
+            model_key = "q3_sportback"
+        else:
+            model_tag = f"Audi Q3{engine_suffix}"
+            model_key = "q3"
         display_names = FEATURE_DISPLAY_NAMES
     else:
-        model_tag = f"Audi Q3{engine_suffix}"
-        model_key = "q3"
+        # Niet-herkend model: lees de echte titel uit i.p.v. "Audi Q3" te gokken.
+        model_tag = listing.title.strip()[:70] or "Onbekend model"
+        model_key = "unknown"  # geen NL-prijs lookup; alle opties tellen mee
         display_names = FEATURE_DISPLAY_NAMES
 
     base_model = model_key.replace("_sportback", "").replace("_touring", "").replace("_sedan", "")
