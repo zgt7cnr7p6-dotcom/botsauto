@@ -102,6 +102,11 @@ Q5 pano 2021+ · A3 pano 2023+ · A4 Avant pano 2022+ · Q8 pano 2021+.
    **niet** opslaan zodat de volgende run het opnieuw probeert.
 5. **Pano-filter**: bij `require_pano_in_desc` URL's zonder `panoramadak` in
    features → opslaan, géén alert.
+   **Sportpakket-filter** (`SPORT_PACKAGE_FEATURES`, `scraper.py`): listing
+   zonder `s_line`/`s_line_exterieur` (= S line / AMG Line / M Sportpaket / VZ)
+   → opslaan, géén alert. Werkt op de al-gescoorde features, dus geen extra
+   AI-calls. Bij `detail_incomplete` → niet opslaan zodat de volgende run het
+   opnieuw probeert.
 6. **Telegram alert** (`send_telegram`, `scraper.py:1058`): merk-detectie uit
    titel, NL-marktprijs vergelijking, koopadvies (`_buy_advice`), verdict,
    feature-checklist (must-haves met ⭐). Pas **ná** succesvolle send wordt de

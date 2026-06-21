@@ -853,6 +853,11 @@ MUST_HAVE_FEATURES = [
     "keyless",
 ]
 
+# Sportpakket-features. Geen sportpakket (interieur OF exterieur) → geen alert.
+# Dekt alle merken: Audi S line | Mercedes AMG Line | BMW M Sportpaket | Cupra VZ
+# (de merk-specifieke termen worden door de AI naar s_line/s_line_exterieur gemapt).
+SPORT_PACKAGE_FEATURES = ("s_line", "s_line_exterieur")
+
 
 def _buy_advice(price: int, score: int, max_score: int, features: list, km: int) -> str:
     """Genereer koopadvies op basis van prijs + must-haves + km-stand."""
@@ -1863,6 +1868,16 @@ def _run_scrape():
                 log.warning("[pano-AI] Detail page incompleet, NIET opslaan (retry volgende run): %s", listing.title[:40])
                 continue
             log.info("[pano-AI] Overgeslagen (AI zegt geen pano): %s | features=%s",
+                     listing.title[:40], listing.features)
+            save_listing(conn, listing)
+            continue
+
+        # Sportpakket-filter: geen S line / AMG Line / M Sportpaket / VZ → geen alert
+        if not any(f in listing.features for f in SPORT_PACKAGE_FEATURES):
+            if getattr(listing, 'detail_incomplete', False):
+                log.warning("[sport-filter] Detail page incompleet, NIET opslaan (retry volgende run): %s", listing.title[:40])
+                continue
+            log.info("[sport-filter] Overgeslagen (geen sportpakket): %s | features=%s",
                      listing.title[:40], listing.features)
             save_listing(conn, listing)
             continue
