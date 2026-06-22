@@ -1075,7 +1075,7 @@ def send_telegram(listing: Listing):
         elif "cla" in title_lower:
             model_tag = f"Mercedes CLA{engine_suffix}"
             model_key = "cla"
-        elif "e " in title_lower or "e-klasse" in title_lower or re.search(r"\be\s?\d{3}", title_lower):
+        elif "e-klasse" in title_lower or "e klasse" in title_lower or "e-class" in title_lower or re.search(r"\be[\s-]?\d{3}\b", title_lower):
             if is_touring:
                 model_tag = f"Mercedes E Estate{engine_suffix}"
                 model_key = "e_klasse_touring"
@@ -1146,6 +1146,11 @@ def send_telegram(listing: Listing):
         model_tag = listing.title.strip()[:70] or "Onbekend model"
         model_key = "unknown"  # geen NL-prijs lookup; alle opties tellen mee
         display_names = FEATURE_DISPLAY_NAMES
+
+    # Kop = ALTIJD de exacte advertentietitel. De model-detectie hierboven dient
+    # enkel voor de NL-prijs lookup + merk-specifieke feature-labels, NIET voor wat
+    # er als titel getoond wordt (voorkomt "C als E" of "A6 als Q3" gokfouten).
+    model_tag = listing.title.strip()[:80] or model_tag
 
     base_model = model_key.replace("_sportback", "").replace("_touring", "").replace("_sedan", "")
     excluded = FEATURES_NOT_AVAILABLE.get(base_model, set())
