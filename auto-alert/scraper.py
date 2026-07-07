@@ -1460,7 +1460,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
 
     # Direct super mode — standaard modus geeft altijd 502 op mobile.de
     log.info("mobile.de: zoekpagina ophalen ...")
-    html = scrape_do_fetch(search_url, super_mode=True, retries=1, geo_code="de")
+    html = scrape_do_fetch(search_url, super_mode=True, retries=1, geo_code="de", timeout=75)
 
     if not html:
         log.error("mobile.de: geen HTML ontvangen")
