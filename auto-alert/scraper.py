@@ -406,6 +406,48 @@ def is_q3_hybrid(title: str, description: str = "", fuel_type: str = "") -> bool
     return any(re.search(p, desc_lower) for p in desc_hybrid_patterns)
 
 
+# ── Model-whitelist ────────────────────────────────────────────────────────
+
+
+def is_wanted_model(title: str) -> bool:
+    """True alleen als de titel een GEZOCHT model is.
+
+    mobile.de negeert soms het merk/model-filter (Scrape.do verminkt de &-
+    scheidingstekens) en geeft dan willekeurige hybrides terug. Deze whitelist
+    houdt alleen de echt gezochte modellen over:
+      Audi Q3, Q5, A3, A4, Q8 | Mercedes C-Klasse, GLC, CLA, E-Klasse |
+      BMW 3-serie/330e | Cupra Formentor
+    """
+    t = title.lower()
+
+    # Cupra Formentor
+    if "formentor" in t:
+        return True
+    if "cupra" in t:
+        return False  # andere Cupra (Leon, Born, ...) niet gezocht
+
+    # Audi: alleen Q3, Q5, Q8, A3, A4
+    if "audi" in t:
+        return bool(re.search(r"\b(q3|q5|q8|a3|a4)\b", t))
+
+    # Mercedes: C-Klasse, GLC, CLA, E-Klasse (NIET A/B-Klasse, GLA, GLB, ...)
+    if "mercedes" in t or "benz" in t:
+        if re.search(r"\b(glc|cla)\b", t):
+            return True
+        if "c-klasse" in t or "c klasse" in t or re.search(r"\bc[\s-]?\d{3}\b", t):
+            return True
+        if "e-klasse" in t or "e klasse" in t or re.search(r"\be[\s-]?\d{3}\b", t):
+            return True
+        return False
+
+    # BMW: alleen 3-serie / 330e-achtige PHEV (NIET X1, X2, 545e, ...)
+    if "bmw" in t:
+        return bool(re.search(r"\b3\d0e\b", t) or "3er" in t or re.search(r"\b3\s*-?\s*series\b", t))
+
+    # Onbekend merk (VW, Alfa, Volvo, Toyota, Hyundai, Ford, ...) -> niet gezocht
+    return False
+
+
 # ── HTML cleaning ─────────────────────────────────────────────────────────
 
 
@@ -1817,6 +1859,13 @@ def _run_scrape():
         for lst in mobile_listings:
             if lst.id in seen_ids:
                 log.info("[%s] Overgeslagen (al in andere URL): %s", url_label, lst.title[:40])
+                continue
+            # Model-whitelist: mobile.de geeft soms willekeurige merken terug
+            # (merk-filter genegeerd). Alleen gezochte modellen doorlaten.
+            if not is_wanted_model(lst.title):
+                log.info("[%s] Overgeslagen (niet-gezocht model): %s", url_label, lst.title[:40])
+                if not listing_exists(conn, lst.id):
+                    save_listing(conn, lst)
                 continue
             # Filter op vereiste tekst in titel (card-tekst bevat description=card_text[:500])
             if require_text and require_text.lower() not in (lst.title + " " + lst.description).lower():
