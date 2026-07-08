@@ -1429,9 +1429,14 @@ def extract_listing_id(href: str, source: str, fallback: str = "") -> str:
     parsed = urlparse(href)
 
     if source == "mobile":
-        params = parse_qs(parsed.query)
-        if "id" in params:
-            return f"mobile_{params['id'][0]}"
+        # Pak ALLEEN het numerieke mobile.de id (\d+ stopt bij het eerste
+        # niet-cijfer). De href-query raakt soms gecorrumpeerd (de & separators
+        # verdwijnen), waardoor de oude parse_qs de hele URL-staart aan het id
+        # plakte -> per run/URL een andere sleutel -> dezelfde auto telkens als
+        # 'nieuw' -> dubbele Telegram-alerts. Deze regex blijft stabiel.
+        m = re.search(r"[?&]id=(\d+)", href)
+        if m:
+            return f"mobile_{m.group(1)}"
         nums = re.findall(r"(\d{6,})", parsed.path)
         if nums:
             return f"mobile_{nums[-1]}"
