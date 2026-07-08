@@ -1542,6 +1542,12 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
 
             listing_id = extract_listing_id(href, "mobile", fallback=str(abs(hash(title))))
 
+            # Schone, klikbare detail-URL uit het numerieke id. De rauwe href van
+            # mobile.de mist soms de &-scheidingstekens (id=123dam=false...) waardoor
+            # de link in de Telegram-melding niet opent. Alleen het id volstaat.
+            _idm = re.search(r"[?&]id=(\d+)", href)
+            clean_href = f"https://suchen.mobile.de/fahrzeuge/details.html?id={_idm.group(1)}" if _idm else href
+
             if listing_exists(conn, listing_id):
                 log.info("Bekende listing overgeslagen: %s", title[:50])
                 continue
@@ -1586,7 +1592,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
                 price=price,
                 year=year,
                 km=km,
-                url=href,
+                url=clean_href,
                 description=card_text[:500],
                 location=location,
                 listing_date=listing_date,
