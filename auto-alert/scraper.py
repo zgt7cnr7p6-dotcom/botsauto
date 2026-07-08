@@ -1367,7 +1367,7 @@ def scrape_do_fetch(url: str, render: bool = False, retries: int = 1, super_mode
                     time.sleep(wait)
                     continue
             else:
-                log.warning("Scrape.do: fout status %d — %s", resp.status_code, resp.text[:200])
+                log.warning("Scrape.do: fout status %d — %s", resp.status_code, resp.text[:1200])
 
             if attempt < retries and resp.status_code != 200:
                 wait = 2 ** (attempt + 1)
