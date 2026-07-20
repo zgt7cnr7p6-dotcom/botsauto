@@ -420,29 +420,33 @@ def is_wanted_model(title: str) -> bool:
     """
     t = title.lower()
 
+    # LET OP: de scraper-titels missen soms spaties (Scrape.do-mangling), dus
+    # "Q3 45" komt binnen als "Q345". Daarom GEEN afsluitende \b eisen — de
+    # trim-cijfers mogen aan het modelcode plakken.
+
     # Cupra Formentor
     if "formentor" in t:
         return True
     if "cupra" in t:
         return False  # andere Cupra (Leon, Born, ...) niet gezocht
 
-    # Audi: alleen Q3, Q5, Q8, A3, A4
+    # Audi: alleen Q3, Q5, Q8, A3, A4 (evt. met vastgeplakte trim: q345, a445)
     if "audi" in t:
-        return bool(re.search(r"\b(q3|q5|q8|a3|a4)\b", t))
+        return bool(re.search(r"\b(q3|q5|q8|a3|a4)\d*", t))
 
-    # Mercedes: C-Klasse, GLC, CLA, E-Klasse (NIET A/B-Klasse, GLA, GLB, ...)
+    # Mercedes: C-Klasse, GLC, CLA, E-Klasse (NIET A/B-Klasse, GLA, GLB, GLE, ...)
     if "mercedes" in t or "benz" in t:
-        if re.search(r"\b(glc|cla)\b", t):
+        if re.search(r"\b(glc|cla)", t):
             return True
-        if "c-klasse" in t or "c klasse" in t or re.search(r"\bc[\s-]?\d{3}\b", t):
+        if "c-klasse" in t or "c klasse" in t or re.search(r"\bc[\s-]?\d{3}", t):
             return True
-        if "e-klasse" in t or "e klasse" in t or re.search(r"\be[\s-]?\d{3}\b", t):
+        if "e-klasse" in t or "e klasse" in t or re.search(r"\be[\s-]?\d{3}", t):
             return True
         return False
 
-    # BMW: alleen 3-serie / 330e-achtige PHEV (NIET X1, X2, 545e, ...)
+    # BMW: alleen 3-serie / 330e-achtige PHEV (NIET X1, X2, 545e, 530e, ...)
     if "bmw" in t:
-        return bool(re.search(r"\b3\d0e\b", t) or "3er" in t or re.search(r"\b3\s*-?\s*series\b", t))
+        return bool(re.search(r"\b3\d0e", t) or "3er" in t or re.search(r"\b3\s*-?\s*series\b", t))
 
     # Onbekend merk (VW, Alfa, Volvo, Toyota, Hyundai, Ford, ...) -> niet gezocht
     return False
