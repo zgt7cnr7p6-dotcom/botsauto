@@ -28,6 +28,8 @@ try:
 except ImportError:
     HAS_ANTHROPIC = False
 
+import nl_prices  # NL-marktprijzen via Gaspedaal (live DB + zoeklink)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -1226,10 +1228,21 @@ def send_telegram(listing: Listing):
         info_parts.append(str(listing.year))
     info_line = " · ".join(info_parts)
 
-    # NL marktprijs vergelijking (bracket: jaar × km × sport/std)
+    # NL-marktprijs vergelijking — verse Gaspedaal-database, val terug op statische tabel
     nl_price_line = ""
+    nl_link_line = ""
     if listing.price and listing.year:
-        nl_price, nl_tier = _nl_market_price(model_key, listing.year, listing.km or 0, listing.features)
+        nl_price = 0
+        try:
+            _nl_conn = sqlite3.connect(DB_PATH)
+            nl_price, _nl_count, _nl_url = nl_prices.nl_price_for(
+                _nl_conn, model_key, listing.year, listing.km or 0)
+            _nl_conn.close()
+        except Exception as e:
+            log.warning("NL-prijs lookup faalde: %s", e)
+        # Fallback op de oude statische tabel als de DB (nog) niks heeft
+        if not nl_price:
+            nl_price, _ = _nl_market_price(model_key, listing.year, listing.km or 0, listing.features)
         if nl_price:
             margin = nl_price - listing.price
             nl_str = f"€{nl_price:,.0f}".replace(",", ".")
@@ -1238,6 +1251,11 @@ def send_telegram(listing: Listing):
                 nl_price_line = f"🇳🇱 NL vanaf: {nl_str} → +{margin_str} marge\n"
             else:
                 nl_price_line = f"🇳🇱 NL vanaf: {nl_str} (geen marge)\n"
+
+    # Klikbare Gaspedaal-zoeklink met exact deze filters (jaar + km+20k + pano + automaat)
+    gp_url = nl_prices.gaspedaal_link(model_key, listing.year or 0, listing.km or 0)
+    if gp_url:
+        nl_link_line = f'🔗 <a href="{gp_url}">Vergelijk op Gaspedaal</a>\n'
 
     # Koopadvies
     advice = _buy_advice(listing.price, listing.score, max_score, listing.features, listing.km)
@@ -1284,6 +1302,9 @@ def send_telegram(listing: Listing):
 
     if nl_price_line:
         text += nl_price_line
+
+    if nl_link_line:
+        text += nl_link_line
 
     if advice:
         text += f"\n<b>{advice}</b>\n"
@@ -1820,6 +1841,14 @@ def _run_scrape():
     log.info("Methode: Scrape.do API (super=true, DataDome bypass, setCookies GDPR)")
 
     conn = init_db()
+
+    # NL-marktprijzen 1x per dag verversen (Gaspedaal). Gated op 24u, dus de
+    # meeste 3-min runs slaan dit over. debug_dir="." -> debug_gaspedaal_*.html
+    # komt mee als artifact voor parser-verfijning.
+    try:
+        nl_prices.refresh_nl_prices(conn, scrape_do_fetch, debug_dir=".")
+    except Exception as e:
+        log.error("NL-prijs refresh faalde (niet-fataal): %s", e)
 
     all_listings: list[Listing] = []
     seen_ids: set[str] = set()
