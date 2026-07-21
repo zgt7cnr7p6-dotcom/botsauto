@@ -1367,7 +1367,9 @@ def send_telegram(listing: Listing):
             "chat_id": TELEGRAM_CHAT_ID,
             "text": text,
             "parse_mode": "HTML",
-            "disable_web_page_preview": False,
+            # Preview expliciet van de auto-advertentie (mobile.de), niet van de
+            # Gaspedaal-link die eerder in het bericht staat.
+            "link_preview_options": {"url": listing.url},
         },
         timeout=30,
     )
