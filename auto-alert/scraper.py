@@ -1271,9 +1271,6 @@ def send_telegram(listing: Listing):
     if gp_url:
         nl_link_line = f'🔗 <a href="{gp_url}">Vergelijk op Gaspedaal</a>\n'
 
-    # Koopadvies
-    advice = _buy_advice(listing.price, listing.score, max_score, listing.features, listing.km)
-
     # Feature check — groepeer in aanwezig / afwezig
     # Must-haves krijgen een ⭐ markering
     # ⭐ items worden bovenaan gesorteerd
@@ -1319,9 +1316,6 @@ def send_telegram(listing: Listing):
 
     if nl_link_line:
         text += nl_link_line
-
-    if advice:
-        text += f"\n<b>{advice}</b>\n"
 
     if listing.detail_incomplete:
         text += (
