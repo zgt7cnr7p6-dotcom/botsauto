@@ -318,7 +318,6 @@ def init_db():
             color TEXT,
             listing_date TEXT,
             location TEXT,
-            vin TEXT,
             first_seen TEXT,
             last_seen TEXT
         )
@@ -326,10 +325,23 @@ def init_db():
     )
     # Migratie: nieuwe kolommen toevoegen aan bestaande (gecachte) DB's
     existing = {r[1] for r in conn.execute("PRAGMA table_info(listings)")}
-    for col in ("model_key", "brand", "color", "listing_date", "location", "vin"):
+    for col in ("model_key", "brand", "color", "listing_date", "location"):
         if col not in existing:
             conn.execute(f"ALTER TABLE listings ADD COLUMN {col} TEXT")
     conn.commit()
+
+    # Eenmalige backfill: model_key/brand voor bestaande rijen uit de opgeslagen titel
+    # (zodat de markt-relatieve score meteen data heeft). Idempotent: alleen NULL-rijen.
+    todo = conn.execute(
+        "SELECT id, title FROM listings WHERE model_key IS NULL AND title IS NOT NULL"
+    ).fetchall()
+    for rid, rtitle in todo:
+        brand, model_key, _, _ = detect_model(rtitle or "")
+        conn.execute("UPDATE listings SET model_key = ?, brand = ? WHERE id = ?",
+                     (model_key, brand, rid))
+    if todo:
+        conn.commit()
+        log.info("DB-migratie: %d bestaande listings gebackfilld met model_key/brand", len(todo))
     return conn
 
 
@@ -340,41 +352,25 @@ def listing_exists(conn, listing_id: str) -> bool:
     return row is not None
 
 
-def _extract_vin(text: str) -> str:
-    """Haal VIN/Fahrgestellnummer uit de tekst — alleen als expliciet gelabeld,
-    zodat willekeurige 17-tekens (hashes) geen valse VIN opleveren.
-    mobile.de verbergt het VIN meestal, dus dit is meestal leeg (opportunistisch)."""
-    if not text:
-        return ""
-    m = re.search(
-        r"(?:fahrgestellnummer|fahrzeug-?identifizierungsnummer|\bFIN\b|\bVIN\b)"
-        r"[\s:>#-]*([A-HJ-NPR-Z0-9]{17})",
-        text, re.IGNORECASE,
-    )
-    return m.group(1).upper() if m else ""
-
-
 def save_listing(conn, listing: "Listing"):
     now = datetime.now(timezone.utc).isoformat()
     # Verrijk met dataset-velden (fundament voor markt-relatieve score later)
     brand, model_key, _, _ = detect_model(listing.title)
-    vin = _extract_vin(listing.description)
     if listing_exists(conn, listing.id):
         conn.execute(
             """UPDATE listings SET last_seen = ?, price = ?, score = ?,
-                   model_key = ?, brand = ?, color = ?, listing_date = ?, location = ?,
-                   vin = CASE WHEN ? != '' THEN ? ELSE vin END
+                   model_key = ?, brand = ?, color = ?, listing_date = ?, location = ?
                WHERE id = ?""",
             (now, listing.price, listing.score, model_key, brand, listing.color,
-             listing.listing_date, listing.location, vin, vin, listing.id),
+             listing.listing_date, listing.location, listing.id),
         )
     else:
         conn.execute(
             """INSERT INTO listings
                  (id, source, title, price, year, km, url, score, features,
-                  model_key, brand, color, listing_date, location, vin,
+                  model_key, brand, color, listing_date, location,
                   first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing.id,
                 listing.source,
@@ -390,7 +386,6 @@ def save_listing(conn, listing: "Listing"):
                 listing.color,
                 listing.listing_date,
                 listing.location,
-                vin,
                 now,
                 now,
             ),
