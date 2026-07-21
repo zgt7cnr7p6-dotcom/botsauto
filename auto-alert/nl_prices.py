@@ -57,12 +57,12 @@ GASPEDAAL_BY_MODEL = {
     "a4_avant":        ("audi/a4",               "touring"),   # (?) avant ~ touring
     "c_klasse_sedan":  ("mercedes-benz/c-klasse", "sedan"),
     "c_klasse_touring":("mercedes-benz/c-klasse", "touring"),
-    "glc":             ("mercedes-benz/glc",     ""),
+    "glc":             ("mercedes-benz/glc-klasse", ""),      # glc (niet /glc) = juiste slug
     "cla":             ("mercedes-benz/cla-klasse", ""),
-    "e_klasse_sedan":  ("mercedes-benz/e-klasse", "sedan"),    # (?)
-    "e_klasse_touring":("mercedes-benz/e-klasse", "touring"),  # (?)
-    "330e_sedan":      ("bmw/3-serie",           ""),
-    "330e_touring":    ("bmw/3-serie-touring",   ""),
+    "e_klasse_sedan":  ("mercedes-benz/e-klasse", "sedan"),
+    "e_klasse_touring":("mercedes-benz/e-klasse", "touring"),
+    "330e_sedan":      ("bmw/3-serie",           "sedan"),     # gedeelde slug + bodyfilter
+    "330e_touring":    ("bmw/3-serie",           "touring"),   # (3-serie-touring bestaat niet)
     "formentor":       ("cupra/formentor",       ""),          # (?)
 }
 
@@ -196,8 +196,148 @@ def _detect_source_site(text):
     return ""
 
 
+def _norm_body(body_type, name=""):
+    """Normaliseer Gaspedaal bodyType/naam -> sedan/touring/sportback/suv/''."""
+    t = f"{body_type} {name}".lower()
+    if "sportback" in t:
+        return "sportback"
+    if any(w in t for w in ["station", "combi", "touring", "avant", "estate", "kombi"]):
+        return "touring"
+    if any(w in t for w in ["sedan", "limousine", "berline"]):
+        return "sedan"
+    if any(w in t for w in ["suv", "terreinwagen", "terrein"]):
+        return "suv"
+    return ""
+
+
+def _source_from_image(image_url):
+    """Haal de bron-site uit de Gaspedaal-image (?source=https://cdn.autowereld.nl/..)."""
+    if not image_url:
+        return ""
+    m = re.search(r"[?&]source=https?://([^/&]+)", image_url)
+    host = m.group(1) if m else ""
+    return host.replace("cdn.", "").replace("www.", "").replace("i.", "")
+
+
+def _first_ld_itemlist(html):
+    """Pak het ItemList JSON-LD blok uit de pagina (de zoekresultaten)."""
+    for m in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL):
+        chunk = m.group(1).strip()
+        if '"ItemList"' not in chunk:
+            continue
+        try:
+            data = json.loads(chunk)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if data.get("@type") == "ItemList":
+            return data
+    return None
+
+
+def _breadcrumb(html):
+    """Namen uit de BreadcrumbList JSON-LD (bijv. ['Gaspedaal.nl','Audi','Q5','Hybride'])."""
+    for m in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL):
+        chunk = m.group(1)
+        if '"BreadcrumbList"' not in chunk:
+            continue
+        try:
+            data = json.loads(chunk.strip())
+        except (json.JSONDecodeError, ValueError):
+            continue
+        return [i.get("item", {}).get("name", "") for i in data.get("itemListElement", [])]
+    return []
+
+
 def parse_gaspedaal(html, model_slug):
     """Parse een Gaspedaal-zoekpagina -> lijst dicts met ALLE info per listing.
+
+    Primair via de JSON-LD `ItemList` (schoon + volledig: prijs, jaar, km,
+    carrosserie, transmissie, kleur, vermogen, foto, bron-site, detail-id).
+    Valt terug op de tekst-parser als de JSON-LD ontbreekt.
+
+    VANGNET: herkent Gaspedaal niet de slug, dan valt hij terug op een
+    merk-brede lijst (breadcrump = alleen 'Gaspedaal.nl'). Die pagina bevat
+    verkeerde modellen -> we slaan hem over i.p.v. rommel op te slaan.
+    """
+    crumbs = _breadcrumb(html)
+    if len(crumbs) < 3:
+        log.warning("NL: slug %s viel terug op merk-breed (breadcrumb=%s) — OVERGESLAGEN. "
+                    "Slug controleren.", model_slug, crumbs or "leeg")
+        return []
+
+    data = _first_ld_itemlist(html)
+    if not data:
+        log.warning("NL: geen JSON-LD ItemList voor %s — val terug op tekst-parser", model_slug)
+        return _parse_gaspedaal_text(html, model_slug)
+
+    merk = model_slug.split("/")[0]
+    model = model_slug.split("/")[-1]
+    results = []
+    for el in data.get("itemListElement", []):
+        it = el.get("item", {})
+        if not isinstance(it, dict):
+            continue
+
+        offers = it.get("offers") or {}
+        try:
+            price = int(offers.get("price") or 0)
+        except (TypeError, ValueError):
+            price = 0
+        if price <= 0:
+            continue
+
+        try:
+            year = int(it.get("productionDate") or it.get("vehicleModelDate") or 0)
+        except (TypeError, ValueError):
+            year = 0
+
+        km = 0
+        mo = it.get("mileageFromOdometer") or {}
+        if isinstance(mo, dict):
+            try:
+                km = int(mo.get("value") or 0)
+            except (TypeError, ValueError):
+                km = 0
+
+        name = it.get("name") or ""
+        atid = it.get("@id") or ""
+        # detail-id = fragment na '#'
+        detail_id = atid.split("#")[-1] if "#" in atid else ""
+        config = it.get("vehicleConfiguration") or ""
+
+        results.append({
+            "model_slug": model_slug,
+            "merk": merk,
+            "model": model,
+            "title": name[:180],
+            "price": price,
+            "year": year,
+            "km": km,
+            "transmissie": (it.get("vehicleTransmission") or "automatisch").lower(),
+            "brandstof": (it.get("fuelType") or "hybride").lower(),
+            "body_type": _norm_body(it.get("bodyType") or "", name),
+            "pano": 1,                       # gegarandeerd door opt=361 filter
+            "options": _detect_options(f"{name} {config}"),
+            "source_site": _source_from_image(it.get("image") or ""),
+            "url": atid,                     # zoek-URL geankerd op #detail_id
+            "raw": json.dumps({
+                "detail_id": detail_id,
+                "brand": it.get("brand"), "model": it.get("model"),
+                "bodyType": it.get("bodyType"), "fuelType": it.get("fuelType"),
+                "transmission": it.get("vehicleTransmission"),
+                "color": it.get("color"), "doors": it.get("numberOfDoors"),
+                "config": config, "image": it.get("image"),
+            }, ensure_ascii=False)[:2000],
+        })
+
+    log.info("NL: JSON-LD %s -> %d/%d items (totaal in NL: %s)",
+             model_slug, len(results), len(data.get("itemListElement", [])),
+             data.get("numberOfItems"))
+    return results
+
+
+def _parse_gaspedaal_text(html, model_slug):
+    """FALLBACK-parser op platte tekst (als de JSON-LD ontbreekt).
 
     Gaspedaal rendert per listing een tekstblok:
         <prijs>
