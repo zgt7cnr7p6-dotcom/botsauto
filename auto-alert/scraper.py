@@ -1146,6 +1146,75 @@ def _extract_engine(title: str) -> str:
     return ""
 
 
+# Markt-relatieve score: vergelijk een auto met opgeslagen soortgenoten i.p.v.
+# een vaste "max opties". Zelfverbeterend — hoe voller de DB, hoe scherper het oordeel.
+MARKET_MIN_PEERS = 10  # minimaal aantal soortgenoten; anders terugval op de vaste lijst
+
+
+def market_spec_verdict(model_key: str, features: list):
+    """Rariteit-gewogen percentiel-oordeel t.o.v. soortgenoten uit de database.
+
+    Returns dict {verdict, pct, peers} of None bij te weinig data (val dan terug op
+    de vaste drempels). Peer-groep = alle opgeslagen listings met hetzelfde basismodel
+    (sedan/touring/sportback samen — zelfde opties-catalogus) die AI-gescoord zijn.
+    Zeldzame opties wegen zwaarder dan opties die bijna iedereen heeft.
+    """
+    base = model_key.replace("_sportback", "").replace("_touring", "").replace("_sedan", "")
+    excluded = FEATURES_NOT_AVAILABLE.get(base, set())
+    relevant = [f for f in FULL_OPTION_FEATURES if f not in excluded]
+    if not relevant:
+        return None
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            "SELECT features FROM listings "
+            "WHERE model_key LIKE ? AND features IS NOT NULL "
+            "AND features != '' AND features != '[]'",
+            (base + "%",),
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        log.warning("Markt-score query faalde: %s", e)
+        return None
+
+    peer_sets = []
+    for (fjson,) in rows:
+        try:
+            fl = json.loads(fjson)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if fl:
+            peer_sets.append({f for f in fl if f in relevant})
+
+    n = len(peer_sets)
+    if n < MARKET_MIN_PEERS:
+        return None
+
+    # Zeldzaamheid-weging: hoe minder vaak een optie voorkomt, hoe zwaarder hij telt
+    freq = {f: sum(1 for pf in peer_sets if f in pf) / n for f in relevant}
+
+    def wscore(fset):
+        return sum(1.0 - freq[f] for f in fset if f in freq)
+
+    car_score = wscore({f for f in features if f in relevant})
+    peer_scores = [wscore(pf) for pf in peer_sets]
+    below = sum(1 for s in peer_scores if s <= car_score)
+    pct = below / n
+
+    if pct >= 0.85:
+        verdict = "🟢 TOPPER — top van de markt!"
+    elif pct >= 0.70:
+        verdict = "🟢 High spec"
+    elif pct >= 0.50:
+        verdict = "🟡 Bovengemiddeld uitgerust"
+    elif pct >= 0.30:
+        verdict = "🟠 Gemiddeld uitgerust"
+    else:
+        verdict = "🔴 Onder gemiddeld"
+    return {"verdict": verdict, "pct": pct, "peers": n}
+
+
 def detect_model(title: str):
     """Herken merk + model uit de advertentietitel.
 
@@ -1265,17 +1334,26 @@ def send_telegram(listing: Listing):
     model_features = [f for f in FULL_OPTION_FEATURES if f not in excluded]
     max_score = len(model_features)
 
-    pct = listing.score / max_score if max_score else 0
-    if pct >= 0.85:
-        verdict_line = "🟢 TOPPER — bijna full option!"
-    elif pct >= 0.70:
-        verdict_line = "🟢 High spec"
-    elif pct >= 0.50:
-        verdict_line = "🟡 Redelijk uitgerust"
-    elif pct >= 0.35:
-        verdict_line = "🟠 Basis uitvoering"
+    # Markt-relatief oordeel (zelfverbeterend). Val terug op vaste drempels als er
+    # nog te weinig soortgenoten in de database zitten.
+    market = market_spec_verdict(model_key, listing.features)
+    market_line = ""
+    if market:
+        verdict_line = market["verdict"]
+        market_line = (f"📈 Beter uitgerust dan {market['pct'] * 100:.0f}% van "
+                       f"vergelijkbare ({market['peers']} vergeleken)\n")
     else:
-        verdict_line = "🔴 Kaal"
+        pct = listing.score / max_score if max_score else 0
+        if pct >= 0.85:
+            verdict_line = "🟢 TOPPER — bijna full option!"
+        elif pct >= 0.70:
+            verdict_line = "🟢 High spec"
+        elif pct >= 0.50:
+            verdict_line = "🟡 Redelijk uitgerust"
+        elif pct >= 0.35:
+            verdict_line = "🟠 Basis uitvoering"
+        else:
+            verdict_line = "🔴 Kaal"
 
     # Prijs formatting
     price_str = f"€{listing.price:,.0f}".replace(",", ".") if listing.price else "Prijs onbekend"
@@ -1387,8 +1465,10 @@ def send_telegram(listing: Listing):
         f"\n"
         f"{verdict_line}\n"
         f"<b>{listing.score}/{max_score}</b> opties gevonden\n"
-        f"\n"
     )
+    if market_line:
+        text += market_line
+    text += "\n"
 
     if found_lines:
         text += "\n".join(found_lines) + "\n"
