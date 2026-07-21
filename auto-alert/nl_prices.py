@@ -321,7 +321,16 @@ def gaspedaal_link(model_key, year=0, km=0):
 
 
 def refresh_due(conn, max_age_hours=24):
-    """True als er >max_age_hours geleden (of nooit) is ververst."""
+    """True als er >max_age_hours geleden (of nooit) is ververst, of als de
+    NL-tabel nog leeg is (self-healing na een mislukte eerdere refresh)."""
+    # Lege tabel -> altijd proberen (bv. na eerdere fail met kapot token)
+    try:
+        row = conn.execute("SELECT 1 FROM nl_listings LIMIT 1").fetchone()
+        if row is None:
+            return True
+    except sqlite3.OperationalError:
+        return True  # tabel bestaat nog niet
+
     last = _get_meta(conn, "last_refresh")
     if not last:
         return True
@@ -348,6 +357,7 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
 
     now = datetime.now(timezone.utc).isoformat()
     total_saved = 0
+    html_ok = 0          # hoeveel modellen gaven bruikbare HTML terug
     per_model = {}
 
     for slug in unique_slugs:
@@ -357,6 +367,7 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
             log.warning("NL-refresh: geen HTML voor %s", slug)
             per_model[slug] = 0
             continue
+        html_ok += 1
 
         if debug_dir:
             safe = slug.replace("/", "_")
@@ -393,9 +404,18 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
         total_saved += len(listings)
         log.info("NL-refresh: %-28s -> %d listings", slug, len(listings))
 
+    # Alleen als vandaag-verse markeren wanneer minstens één model bruikbare HTML
+    # gaf. Faalt alles (bv. ongeldig Scrape.do-token), dan last_refresh NIET zetten
+    # zodat de volgende run het opnieuw probeert (self-healing).
+    if html_ok == 0:
+        log.error("NL-refresh MISLUKT: geen enkele Gaspedaal-pagina opgehaald "
+                  "(check SCRAPE_DO_TOKEN). last_refresh niet gezet — retry volgende run.")
+        return {"skipped": False, "failed": True, "total": 0, "per_model": per_model}
+
     _set_meta(conn, "last_refresh", now)
-    log.info("NL-refresh klaar: %d listings over %d modellen", total_saved, len(unique_slugs))
-    return {"skipped": False, "total": total_saved, "per_model": per_model}
+    log.info("NL-refresh klaar: %d listings over %d modellen (%d/%d modellen met HTML)",
+             total_saved, len(unique_slugs), html_ok, len(unique_slugs))
+    return {"skipped": False, "total": total_saved, "html_ok": html_ok, "per_model": per_model}
 
 
 # ── Query: goedkoopste vergelijkbare NL-auto ────────────────────────────────
