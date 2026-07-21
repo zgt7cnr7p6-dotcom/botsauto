@@ -219,14 +219,17 @@ FULL_OPTION_FEATURES = [
     "velgen_19_20",
     "audio_premium",
     "elektrische_stoelen",
+    "stoelen_memory",
     "stoelverwarming",
     "stuurverwarming",
+    "stoelventilatie",
+    "massagestoelen",
+    "premium_bekleding",
+    "sportstoelen",
     "acc",
     "lane_assist",
     "travel_assist",
-    "drive_select",
     "adaptief_onderstel",
-    "emergency_assist",
     "side_assist",
     "ambient_lighting",
     "elektrische_achterklep",
@@ -234,6 +237,13 @@ FULL_OPTION_FEATURES = [
     "dynamisch_knipperlicht",
     "head_up",
     "luchtvering",
+    "achterasbesturing",
+    "leder_dashboard",
+    "softclose",
+    "sportuitlaat",
+    "alcantara_hemel",
+    "trekhaak",
+    "standverwarming",
 ]
 
 FEATURE_DISPLAY_NAMES = {
@@ -247,14 +257,17 @@ FEATURE_DISPLAY_NAMES = {
     "velgen_19_20": "19/20 inch velgen",
     "audio_premium": "Premium Audio (SONOS/B&O)",
     "elektrische_stoelen": "Elektrische stoelen",
+    "stoelen_memory": "Memory-stoelen",
     "stoelverwarming": "Stoelverwarming",
     "stuurverwarming": "Stuurverwarming",
+    "stoelventilatie": "Stoelventilatie (koeling)",
+    "massagestoelen": "Massagestoelen",
+    "premium_bekleding": "Volledig leder / Nappa",
+    "sportstoelen": "Sportstoelen",
     "acc": "ACC",
     "lane_assist": "Lane Assist",
     "travel_assist": "Travel Assist",
-    "drive_select": "Drive Select",
     "adaptief_onderstel": "Adaptief onderstel",
-    "emergency_assist": "Noodrem-assistent",
     "side_assist": "Dodehoek-assistent",
     "ambient_lighting": "Sfeerverlichting",
     "elektrische_achterklep": "Elektrische achterklep",
@@ -262,6 +275,13 @@ FEATURE_DISPLAY_NAMES = {
     "dynamisch_knipperlicht": "Dynamisch knipperlicht",
     "head_up": "Head-Up Display",
     "luchtvering": "Luchtvering",
+    "achterasbesturing": "Achterasbesturing",
+    "leder_dashboard": "Lederen dashboard",
+    "softclose": "Soft-close deuren",
+    "sportuitlaat": "Sportuitlaat",
+    "alcantara_hemel": "Alcantara hemel",
+    "trekhaak": "Trekhaak",
+    "standverwarming": "Standverwarming",
     "sportback": "Sportback",
 }
 
@@ -565,7 +585,7 @@ def clean_detail_html(soup: BeautifulSoup) -> str:
 AI_SCORING_PROMPT = """\
 Je bent een auto-expert. Lees de advertentietekst en bepaal welke opties aanwezig zijn.
 
-Dit kan een Audi (Q3/Q5/A3), Mercedes-Benz (C-Klasse/GLC), BMW (3er/330e) of Cupra (Formentor) zijn. Detecteer het merk uit de tekst en gebruik de juiste terminologie.
+Dit kan ELK automerk/model zijn (Audi, Mercedes-Benz, BMW, Cupra, Volkswagen, Volvo, Porsche, Skoda, enz.). Detecteer zelf merk en model uit de tekst en gebruik de terminologie van DAT merk. Hieronder staan gedetailleerde voorbeelden per merk voor Audi, Mercedes, BMW en Cupra. Voor ELK ander merk pas je exact dezelfde logica toe: herken het sportpakket, de premium audio, de assistentie-pakketten, de speciale stoelen enz. van dat merk en map ze naar de juiste optie hieronder. Voorbeelden: Volvo "R-Design" → s_line, "Bowers & Wilkins" → audio_premium; VW/Skoda/Seat "R-Line" → s_line; Porsche "Sport Chrono", "BOSE"/"Burmester" → audio_premium; Tesla enz. — gebruik je kennis van dat merk.
 
 BELANGRIJK: Wees NAUWKEURIG. Markeer een feature ALLEEN als true als het DUIDELIJK en EXPLICIET vermeld staat in de tekst (als optie, Sonderausstattung, of pakket). Bij twijfel: false.
 LET OP: Een auto kan "sportief" of "sport" in de beschrijving hebben zonder dat het een sport-pakket (S line / AMG Line / M Sport) betreft. Markeer sport-pakketten alleen als ze LETTERLIJK als optie/uitrusting genoemd worden.
@@ -735,7 +755,7 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
 Bepaal voor elk true of false:
 
 1. panoramadak — Panoramadak/schuifdak/glasdak
-2. keyless — Audi: Komfortschlüssel/KESSY | Mercedes: KEYLESS-GO | BMW: Comfort Access
+2. keyless — Sleutelloze TOEGANG/entry (deur opent bij aanraken van het handvat): Comfort Access / KEYLESS-GO / KESSY / Komfortschlüssel / Keyless Entry. De waardevolle variant is keyless ENTRY. Een losse startknop ("Start/Stop", "Keyless Start") ZONDER sleutelloze toegang telt NIET. Sommige advertenties benoemen entry als "Keyless Go" — dat is prima.
 3. camera_achteruit — Rückfahrkamera (ook als 360° camera aanwezig is)
 4. camera_360 — 360°/Umgebungskameras/Surround View/Top View
 5. s_line — Sportpakket interieur: Audi S-Line | Mercedes AMG Line | BMW M Sportpaket
@@ -753,10 +773,8 @@ Bepaal voor elk true of false:
     a) Audi: "Adaptiver Fahrassistent" | Mercedes: "Fahrassistenz-Paket" + DISTRONIC | BMW: "Driving Assistant Professional"
     b) OF de COMBINATIE van ACC EN actieve stuursturing (lane keeping + steering assist) is aanwezig
     BELANGRIJK: Lane assist alleen ≠ Travel Assist. ACC alleen ≠ Travel Assist. Pas als BEIDE aanwezig zijn = Travel Assist
-17. drive_select — Audi: drive select | Mercedes: DYNAMIC SELECT | BMW: Driving Experience Control
-18. adaptief_onderstel — Adaptives Fahrwerk/Dämpferregelung/AIRMATIC (Sportfahrwerk NIET)
-19. emergency_assist — Audi: pre sense | Mercedes: Aktiver Brems-Assistent/PRE-SAFE | BMW: Frontkollisionswarnung
-20. side_assist — Audi: Side Assist | Mercedes: Totwinkel-Assistent | BMW: Spurwechselwarnung (dodehoek)
+17. adaptief_onderstel — Adaptives Fahrwerk/Dämpferregelung/AIRMATIC (Sportfahrwerk NIET)
+18. side_assist — Audi: Side Assist | Mercedes: Totwinkel-Assistent | BMW: Spurwechselwarnung (dodehoek)
 21. ambient_lighting — Ambientebeleuchtung/sfeerverlichting (alle merken)
 22. elektrische_achterklep — Elektrische Heckklappe / EASY-PACK Heckklappe
 23. optik_pakket_zwart — Audi: Optikpaket Schwarz | Mercedes: Night-Paket | BMW: Shadow Line
@@ -764,8 +782,19 @@ Bepaal voor elk true of false:
 25. head_up — Head-Up Display / HUD (alle merken)
 26. luchtvering — Luftfederung / adaptive Luftfederung / AIRMATIC / air suspension (NIET gewoon adaptief onderstel/Sportfahrwerk)
 27. sportback — true als het een Sportback variant is (Q3 Sportback, Q5 Sportback). Alleen op basis van modelnaam, NIET op uiterlijk
+28. stoelventilatie — Geventileerde/gekoelde stoelen: belüftete Sitze / Sitzbelüftung / Sitzklimatisierung / Klimasitze / aktive Sitzbelüftung / ventilated seats
+29. massagestoelen — Massagestoelen: Massagesitze / Massagefunktion / Aktive Multikontursitze mit Massage
+30. premium_bekleding — Volledig ECHT leder: Voll-Leder / Nappaleder / Feinnappa / Leder Nappa / full leather. NIET kunstleder (Kunstleder/Leatherette/ARTICO/SensoTec/Vernasca is kunstleder → false) en NIET stof/stoffen bekleding
+31. sportstoelen — Sport-/performancestoelen: AMG Performance Sitze / RS-Sitze / RS Look / M Sportsitze / VZ-Sitze / Sportsitze / R-Design sportstoelen
+32. leder_dashboard — Lederen dashboard: Armaturenbrett in Leder / Leder-Instrumententafel / Lederpaket (dashboard) / leather dashboard
+33. softclose — Soft-Close deuren: Türzuziehhilfe / Ansaugautomatik / Soft-Close / Soft Close
+34. sportuitlaat — Sportuitlaat: Sportabgasanlage / Sportauspuff / AMG Performance Abgasanlage / active exhaust / Klappenauspuff
+35. achterasbesturing — Achterasbesturing/vierwielsturing: Hinterachslenkung / Allradlenkung / Integral-Aktivlenkung / rear-axle steering / 4-wheel steering
+36. alcantara_hemel — Alcantara dakhemel: Dachhimmel Alcantara / Alcantara-Dachhimmel / Anthrazit Dachhimmel Alcantara / Alcantara headliner
+37. trekhaak — Trekhaak: Anhängerkupplung / AHK / abnehmbare AHK / schwenkbare AHK / trekhaak
+38. standverwarming — Standverwarming/voorverwarming: Standheizung / Zusatzheizung mit Fernbedienung / auxiliary parking heater. NIET gewone Klimaautomatik of Sitzheizung
 
-28. color — Exterieur kleur van de auto (bijv. "Navarrablau", "Obsidianschwarz", "Alpinweiß"). Zoek naar: Farbe, Außenfarbe, Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
+39. color — Exterieur kleur van de auto (bijv. "Navarrablau", "Obsidianschwarz", "Alpinweiß"). Zoek naar: Farbe, Außenfarbe, Lackierung. Geef de exacte kleur terug als string, of "" als niet gevonden.
 
 Antwoord ALLEEN met JSON, geen uitleg:
 {
@@ -782,12 +811,14 @@ Antwoord ALLEEN met JSON, geen uitleg:
   "stoelen_memory": false,
   "stoelverwarming": false,
   "stuurverwarming": false,
+  "stoelventilatie": false,
+  "massagestoelen": false,
+  "premium_bekleding": false,
+  "sportstoelen": false,
   "acc": false,
   "lane_assist": false,
   "travel_assist": false,
-  "drive_select": false,
   "adaptief_onderstel": false,
-  "emergency_assist": false,
   "side_assist": false,
   "ambient_lighting": false,
   "elektrische_achterklep": false,
@@ -795,6 +826,13 @@ Antwoord ALLEEN met JSON, geen uitleg:
   "dynamisch_knipperlicht": false,
   "head_up": false,
   "luchtvering": false,
+  "achterasbesturing": false,
+  "leder_dashboard": false,
+  "softclose": false,
+  "sportuitlaat": false,
+  "alcantara_hemel": false,
+  "trekhaak": false,
+  "standverwarming": false,
   "sportback": false,
   "color": ""
 }"""
@@ -859,9 +897,7 @@ def score_listing_ai(listing: Listing) -> Listing | None:
             features_dict["lane_assist"] = True
 
         found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
-        # stoelen_memory is niet in FULL_OPTION_FEATURES maar wel relevant voor display
-        if features_dict.get("stoelen_memory", False):
-            found.append("stoelen_memory")
+        # sportback is een carrosserie-vlag (geen uitrusting) — apart voor display
         if features_dict.get("sportback", False):
             found.append("sportback")
         listing.features = found
@@ -1312,10 +1348,13 @@ def detect_model(title: str):
             model_key = "q3"
         display_names = FEATURE_DISPLAY_NAMES
     else:
-        # Niet-herkend model: lees de echte titel uit i.p.v. "Audi Q3" te gokken.
-        brand = ""
+        # Onbekend merk/model: leid generiek af uit de titel zodat de markt-relatieve
+        # score en pooling blijven werken (Volvo pool't met Volvo, Porsche met Porsche).
+        # Geen NL-prijs lookup (GASPEDAAL_BY_MODEL kent deze key niet -> geen link/marge).
+        toks = re.findall(r"[A-Za-z0-9]+", title)
+        brand = toks[0].lower() if toks else ""
+        model_key = "_".join(t.lower() for t in toks[:2]) if toks else "unknown"
         model_tag = title.strip()[:70] or "Onbekend model"
-        model_key = "unknown"  # geen NL-prijs lookup; alle opties tellen mee
         display_names = FEATURE_DISPLAY_NAMES
 
     return brand, model_key, model_tag, display_names
@@ -1418,9 +1457,6 @@ def send_telegram(listing: Listing):
     missing_normal = []
     for f in model_features:
         name = display_names.get(f, f)
-        # Dynamische naam voor elektrische stoelen: + memory als dat gedetecteerd is
-        if f == "elektrische_stoelen" and "stoelen_memory" in listing.features:
-            name = "Elektrische stoelen + memory"
         star = " ⭐" if f in MUST_HAVE_FEATURES else ""
         if f in listing.features:
             if f in MUST_HAVE_FEATURES:
