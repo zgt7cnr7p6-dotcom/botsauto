@@ -579,16 +579,17 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
 def nl_price_for(conn, model_key, year, km):
     """Goedkoopste vergelijkbare NL-auto uit de database.
 
-    Returns (price, count, cheapest_url) of (0, 0, "") als niets gevonden.
+    Returns dict {price, count, url, km, year} of None als niets gevonden.
     Filter: zelfde model_slug, exact bouwjaar, km <= (km + 20.000), pano.
+    count = aantal vergelijkbare NL-auto's; km/year = van de goedkoopste.
     """
     entry = GASPEDAAL_BY_MODEL.get(model_key)
     if not entry:
-        return 0, 0, ""
+        return None
     slug, body = entry
 
     init_nl_db(conn)
-    q = ("SELECT price, url FROM nl_listings "
+    q = ("SELECT price, url, km, year FROM nl_listings "
          "WHERE model_slug = ? AND pano = 1 AND price > 0")
     args = [slug]
     if year:
@@ -604,8 +605,10 @@ def nl_price_for(conn, model_key, year, km):
 
     rows = conn.execute(q, args).fetchall()
     if not rows:
-        return 0, 0, ""
-    return rows[0][0], len(rows), rows[0][1] or ""
+        return None
+    price, url, cheap_km, cheap_year = rows[0]
+    return {"price": price, "count": len(rows), "url": url or "",
+            "km": cheap_km or 0, "year": cheap_year or 0}
 
 
 if __name__ == "__main__":

@@ -1232,25 +1232,39 @@ def send_telegram(listing: Listing):
     nl_price_line = ""
     nl_link_line = ""
     if listing.price and listing.year:
-        nl_price = 0
+        nl_info = None
         try:
             _nl_conn = sqlite3.connect(DB_PATH)
-            nl_price, _nl_count, _nl_url = nl_prices.nl_price_for(
-                _nl_conn, model_key, listing.year, listing.km or 0)
+            nl_info = nl_prices.nl_price_for(_nl_conn, model_key, listing.year, listing.km or 0)
             _nl_conn.close()
         except Exception as e:
             log.warning("NL-prijs lookup faalde: %s", e)
+
+        nl_price = nl_info["price"] if nl_info else 0
         # Fallback op de oude statische tabel als de DB (nog) niks heeft
         if not nl_price:
             nl_price, _ = _nl_market_price(model_key, listing.year, listing.km or 0, listing.features)
+
         if nl_price:
             margin = nl_price - listing.price
             nl_str = f"€{nl_price:,.0f}".replace(",", ".")
             if margin > 0:
                 margin_str = f"€{margin:,.0f}".replace(",", ".")
-                nl_price_line = f"🇳🇱 NL vanaf: {nl_str} → +{margin_str} marge\n"
+                nl_price_line = f"🇳🇱 NL vanaf {nl_str} → +{margin_str} marge\n"
             else:
-                nl_price_line = f"🇳🇱 NL vanaf: {nl_str} (geen marge)\n"
+                nl_price_line = f"🇳🇱 NL vanaf {nl_str} (geen marge)\n"
+            # Extra info uit de verse DB: hoeveel vergelijkbare + km/jaar goedkoopste
+            if nl_info and nl_info.get("count"):
+                n = nl_info["count"]
+                verg = "vergelijkbare" if n != 1 else "vergelijkbaar"
+                bits = []
+                if nl_info.get("km"):
+                    bits.append(f"{nl_info['km']:,} km".replace(",", "."))
+                if nl_info.get("year"):
+                    bits.append(str(nl_info["year"]))
+                cheapest = " · ".join(bits)
+                extra = f" · goedkoopste: {cheapest}" if cheapest else ""
+                nl_price_line += f"📊 {n} {verg} in NL{extra}\n"
 
     # Klikbare Gaspedaal-zoeklink met exact deze filters (jaar + km+20k + pano + automaat)
     gp_url = nl_prices.gaspedaal_link(model_key, listing.year or 0, listing.km or 0)
