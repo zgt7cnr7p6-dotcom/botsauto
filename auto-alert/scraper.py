@@ -1373,15 +1373,20 @@ def send_telegram(listing: Listing):
     model_features = [f for f in FULL_OPTION_FEATURES if f not in excluded]
     max_score = len(model_features)
 
-    # Markt-relatief oordeel (zelfverbeterend). Val terug op vaste drempels als er
-    # nog te weinig soortgenoten in de database zitten.
+    # Oordeel — drie-traps, zelfverbeterend:
+    #  1. genoeg soortgenoten -> markt-relatief percentiel (best)
+    #  2. bekend premium-model (gecalibreerd) -> vaste drempels op /max
+    #  3. onbekend/klein model zonder data -> geen hard oordeel (we kennen het
+    #     optie-plafond niet; een kleine auto kan er weinig hebben)
     market = market_spec_verdict(model_key, listing.features)
     market_line = ""
+    calibrated = model_key in nl_prices.GASPEDAAL_BY_MODEL  # onze gezochte modellen
+    show_max = True
     if market:
         verdict_line = market["verdict"]
         market_line = (f"📈 Beter uitgerust dan {market['pct'] * 100:.0f}% van "
                        f"vergelijkbare ({market['peers']} vergeleken)\n")
-    else:
+    elif calibrated:
         pct = listing.score / max_score if max_score else 0
         if pct >= 0.85:
             verdict_line = "🟢 TOPPER — bijna full option!"
@@ -1393,6 +1398,10 @@ def send_telegram(listing: Listing):
             verdict_line = "🟠 Basis uitvoering"
         else:
             verdict_line = "🔴 Kaal"
+    else:
+        # Nieuw/onbekend model: nog geen vergelijkingsbasis. Geen "kaal" gokken.
+        verdict_line = "🔎 Uitrusting — nog te weinig vergelijkbare auto's voor een oordeel"
+        show_max = False
 
     # Prijs formatting
     price_str = f"€{listing.price:,.0f}".replace(",", ".") if listing.price else "Prijs onbekend"
@@ -1497,10 +1506,11 @@ def send_telegram(listing: Listing):
             f"Score is waarschijnlijk hoger dan hieronder getoond.\n"
         )
 
+    score_display = f"{listing.score}/{max_score}" if show_max else f"{listing.score}"
     text += (
         f"\n"
         f"{verdict_line}\n"
-        f"<b>{listing.score}/{max_score}</b> opties gevonden\n"
+        f"<b>{score_display}</b> opties gevonden\n"
     )
     if market_line:
         text += market_line
