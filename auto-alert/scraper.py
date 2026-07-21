@@ -6,6 +6,8 @@ Stuurt Telegram alerts met feature-checklist en prijsscore.
 Gebruikt Scrape.do als enige scraping provider (DataDome bypass).
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
@@ -311,11 +313,22 @@ def init_db():
             url TEXT,
             score INTEGER,
             features TEXT,
+            model_key TEXT,
+            brand TEXT,
+            color TEXT,
+            listing_date TEXT,
+            location TEXT,
+            vin TEXT,
             first_seen TEXT,
             last_seen TEXT
         )
         """
     )
+    # Migratie: nieuwe kolommen toevoegen aan bestaande (gecachte) DB's
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(listings)")}
+    for col in ("model_key", "brand", "color", "listing_date", "location", "vin"):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE listings ADD COLUMN {col} TEXT")
     conn.commit()
     return conn
 
@@ -327,17 +340,41 @@ def listing_exists(conn, listing_id: str) -> bool:
     return row is not None
 
 
+def _extract_vin(text: str) -> str:
+    """Haal VIN/Fahrgestellnummer uit de tekst — alleen als expliciet gelabeld,
+    zodat willekeurige 17-tekens (hashes) geen valse VIN opleveren.
+    mobile.de verbergt het VIN meestal, dus dit is meestal leeg (opportunistisch)."""
+    if not text:
+        return ""
+    m = re.search(
+        r"(?:fahrgestellnummer|fahrzeug-?identifizierungsnummer|\bFIN\b|\bVIN\b)"
+        r"[\s:>#-]*([A-HJ-NPR-Z0-9]{17})",
+        text, re.IGNORECASE,
+    )
+    return m.group(1).upper() if m else ""
+
+
 def save_listing(conn, listing: "Listing"):
     now = datetime.now(timezone.utc).isoformat()
+    # Verrijk met dataset-velden (fundament voor markt-relatieve score later)
+    brand, model_key, _, _ = detect_model(listing.title)
+    vin = _extract_vin(listing.description)
     if listing_exists(conn, listing.id):
         conn.execute(
-            "UPDATE listings SET last_seen = ?, price = ?, score = ? WHERE id = ?",
-            (now, listing.price, listing.score, listing.id),
+            """UPDATE listings SET last_seen = ?, price = ?, score = ?,
+                   model_key = ?, brand = ?, color = ?, listing_date = ?, location = ?,
+                   vin = CASE WHEN ? != '' THEN ? ELSE vin END
+               WHERE id = ?""",
+            (now, listing.price, listing.score, model_key, brand, listing.color,
+             listing.listing_date, listing.location, vin, vin, listing.id),
         )
     else:
         conn.execute(
-            """INSERT INTO listings (id, source, title, price, year, km, url, score, features, first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO listings
+                 (id, source, title, price, year, km, url, score, features,
+                  model_key, brand, color, listing_date, location, vin,
+                  first_seen, last_seen)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing.id,
                 listing.source,
@@ -348,6 +385,12 @@ def save_listing(conn, listing: "Listing"):
                 listing.url,
                 listing.score,
                 json.dumps(listing.features),
+                model_key,
+                brand,
+                listing.color,
+                listing.listing_date,
+                listing.location,
+                vin,
                 now,
                 now,
             ),
@@ -1108,15 +1151,23 @@ def _extract_engine(title: str) -> str:
     return ""
 
 
-def send_telegram(listing: Listing):
-    title_lower = listing.title.lower()
-    engine = _extract_engine(listing.title)
+def detect_model(title: str):
+    """Herken merk + model uit de advertentietitel.
+
+    Returns (brand, model_key, model_tag, display_names).
+    - brand: 'audi' | 'mercedes' | 'bmw' | 'cupra' | '' (onbekend)
+    - model_key: interne sleutel voor NL-prijs lookup + per-model uitzonderingen
+    Herbruikt door send_telegram (weergave) én save_listing (dataset).
+    """
+    title_lower = title.lower()
+    engine = _extract_engine(title)
     engine_suffix = f" {engine}" if engine else ""
 
     is_touring = any(w in title_lower for w in ["touring", "estate", "kombi", "t-model"])
     is_sportback = "sportback" in title_lower
 
     if "mercedes" in title_lower or "benz" in title_lower:
+        brand = "mercedes"
         if "glc" in title_lower:
             model_tag = f"Mercedes GLC{engine_suffix}"
             model_key = "glc"
@@ -1138,6 +1189,7 @@ def send_telegram(listing: Listing):
             model_key = "c_klasse_sedan"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_MERCEDES}
     elif "bmw" in title_lower or "330e" in title_lower:
+        brand = "bmw"
         if is_touring:
             model_tag = f"BMW Touring{engine_suffix}" if engine else "BMW 330e Touring"
             model_key = "330e_touring"
@@ -1146,6 +1198,7 @@ def send_telegram(listing: Listing):
             model_key = "330e_sedan"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_BMW}
     elif "q8" in title_lower:
+        brand = "audi"
         if is_sportback:
             model_tag = f"Audi Q8 Sportback{engine_suffix}"
             model_key = "q8_sportback"
@@ -1154,6 +1207,7 @@ def send_telegram(listing: Listing):
             model_key = "q8"
         display_names = FEATURE_DISPLAY_NAMES
     elif "q5" in title_lower:
+        brand = "audi"
         if is_sportback:
             model_tag = f"Audi Q5 Sportback{engine_suffix}"
             model_key = "q5_sportback"
@@ -1162,6 +1216,7 @@ def send_telegram(listing: Listing):
             model_key = "q5"
         display_names = FEATURE_DISPLAY_NAMES
     elif "a4" in title_lower or "a 4" in title_lower:
+        brand = "audi"
         is_avant = any(w in title_lower for w in ["avant", "estate", "kombi"])
         if is_avant:
             model_tag = f"Audi A4 Avant{engine_suffix}"
@@ -1171,6 +1226,7 @@ def send_telegram(listing: Listing):
             model_key = "a4"
         display_names = FEATURE_DISPLAY_NAMES
     elif "a3" in title_lower or "a 3" in title_lower:
+        brand = "audi"
         if is_sportback:
             model_tag = f"Audi A3 Sportback{engine_suffix}"
         else:
@@ -1178,10 +1234,12 @@ def send_telegram(listing: Listing):
         model_key = "a3"
         display_names = FEATURE_DISPLAY_NAMES
     elif "cupra" in title_lower or "formentor" in title_lower:
+        brand = "cupra"
         model_tag = f"Cupra Formentor{engine_suffix}"
         model_key = "formentor"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_CUPRA}
     elif "q3" in title_lower:
+        brand = "audi"
         if is_sportback:
             model_tag = f"Audi Q3 Sportback{engine_suffix}"
             model_key = "q3_sportback"
@@ -1191,9 +1249,16 @@ def send_telegram(listing: Listing):
         display_names = FEATURE_DISPLAY_NAMES
     else:
         # Niet-herkend model: lees de echte titel uit i.p.v. "Audi Q3" te gokken.
-        model_tag = listing.title.strip()[:70] or "Onbekend model"
+        brand = ""
+        model_tag = title.strip()[:70] or "Onbekend model"
         model_key = "unknown"  # geen NL-prijs lookup; alle opties tellen mee
         display_names = FEATURE_DISPLAY_NAMES
+
+    return brand, model_key, model_tag, display_names
+
+
+def send_telegram(listing: Listing):
+    brand, model_key, model_tag, display_names = detect_model(listing.title)
 
     # Kop = ALTIJD de exacte advertentietitel. De model-detectie hierboven dient
     # enkel voor de NL-prijs lookup + merk-specifieke feature-labels, NIET voor wat
