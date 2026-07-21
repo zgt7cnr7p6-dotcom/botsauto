@@ -42,6 +42,9 @@ GASPEDAAL_BASE = "https://www.gaspedaal.nl"
 _YEAR_MIN = 2021          # onze zoekondergrens
 _KM_MARGIN = 20_000       # NL-auto mag tot (Duitse km + dit) hebben
 
+# Bump dit bij parser-/slug-wijzigingen -> bot wist nl_listings en scrapet vers.
+NL_DATA_VERSION = "2-jsonld"
+
 # model_key (uit scraper.send_telegram) -> (gaspedaal merk/model-slug, body_type-filter)
 # body_type "" = geen bodyfilter; anders wordt binnen dezelfde slug op body_type gefilterd.
 # Slugs met (?) zijn nog te verifieren tijdens de eerste testrun (0 resultaten = fout).
@@ -463,6 +466,10 @@ def gaspedaal_link(model_key, year=0, km=0):
 def refresh_due(conn, max_age_hours=24):
     """True als er >max_age_hours geleden (of nooit) is ververst, of als de
     NL-tabel nog leeg is (self-healing na een mislukte eerdere refresh)."""
+    # Data-versie gewijzigd (nieuwe parser/slugs) -> opnieuw scrapen
+    if _get_meta(conn, "data_version") != NL_DATA_VERSION:
+        return True
+
     # Lege tabel -> altijd proberen (bv. na eerdere fail met kapot token)
     try:
         row = conn.execute("SELECT 1 FROM nl_listings LIMIT 1").fetchone()
@@ -491,6 +498,13 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
     if not force and not refresh_due(conn):
         log.info("NL-prijzen nog vers (<24u) — refresh overgeslagen")
         return {"skipped": True}
+
+    # Bij een nieuwe data-versie: oude (mogelijk vervuilde) rijen wissen -> schone start
+    if _get_meta(conn, "data_version") != NL_DATA_VERSION:
+        conn.execute("DELETE FROM nl_listings")
+        conn.commit()
+        log.info("NL-refresh: data-versie -> %s, oude listings gewist voor schone herscrape",
+                 NL_DATA_VERSION)
 
     unique_slugs = sorted({slug for slug, _ in GASPEDAAL_BY_MODEL.values()})
     log.info("NL-refresh: %d Gaspedaal-modellen ophalen ...", len(unique_slugs))
@@ -553,6 +567,7 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
         return {"skipped": False, "failed": True, "total": 0, "per_model": per_model}
 
     _set_meta(conn, "last_refresh", now)
+    _set_meta(conn, "data_version", NL_DATA_VERSION)
     log.info("NL-refresh klaar: %d listings over %d modellen (%d/%d modellen met HTML)",
              total_saved, len(unique_slugs), html_ok, len(unique_slugs))
     return {"skipped": False, "total": total_saved, "html_ok": html_ok, "per_model": per_model}
