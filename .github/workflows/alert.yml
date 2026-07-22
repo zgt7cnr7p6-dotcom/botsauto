@@ -40,14 +40,16 @@ jobs:
       - name: Install Python dependencies
         run: pip install requests beautifulsoup4 anthropic
 
-      - name: Restore database from cache
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clear_db == false) }}
-        uses: actions/cache/restore@v4
-        with:
-          path: auto-alert/listings.db
-          key: listings-db-dummy
-          restore-keys: |
-            listings-db-
+      - name: Restore database from data-branch (durable)
+        if: ${{ inputs.clear_db == false }}
+        run: |
+          git fetch origin db-data --depth=1 2>/dev/null || true
+          if git show origin/db-data:auto-alert/listings.db > listings.db 2>/dev/null; then
+            echo "DB hersteld van db-data ($(stat -c%s listings.db 2>/dev/null || echo '?') bytes)"
+          else
+            echo "Geen db-data branch (verse start)"
+            rm -f listings.db
+          fi
 
       - name: Run scraper
         env:
@@ -71,12 +73,21 @@ jobs:
           \`\`\`"
           fi
 
-      - name: Save database to cache
+      - name: Save database to data-branch (durable)
         if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: auto-alert/listings.db
-          key: listings-db-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          if [ ! -f listings.db ]; then echo "geen db, niets op te slaan"; exit 0; fi
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "botsauto-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B db-data
+          git add -f auto-alert/listings.db
+          if git diff --cached --quiet; then
+            echo "geen db-wijziging"
+          else
+            git commit -q -m "db snapshot run ${{ github.run_number }}"
+            git push -f origin db-data && echo "DB opgeslagen naar db-data"
+          fi
 
       - name: Upload debug HTML
         uses: actions/upload-artifact@v4
