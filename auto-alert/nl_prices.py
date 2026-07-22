@@ -43,7 +43,7 @@ _YEAR_MIN = 2021          # onze zoekondergrens
 _KM_MARGIN = 20_000       # NL-auto mag tot (Duitse km + dit) hebben
 
 # Bump dit bij parser-/slug-wijzigingen -> bot wist nl_listings en scrapet vers.
-NL_DATA_VERSION = "2-jsonld"
+NL_DATA_VERSION = "3-panoflag"
 
 # model_key (uit scraper.send_telegram) -> (gaspedaal merk/model-slug, body_type-filter)
 # body_type "" = geen bodyfilter; anders wordt binnen dezelfde slug op body_type gefilterd.
@@ -440,23 +440,29 @@ def _parse_gaspedaal_text(html, model_slug):
 
 
 def _broad_scrape_url(model_slug):
-    """Brede dag-scrape URL: alle km, bouwjaar 2021+, pano + automaat, prijs oplopend."""
+    """Dag-scrape URL: ALLE auto's (geen pano-filter), bouwjaar 2021+, automaat, prijs oplopend."""
+    return (f"{GASPEDAAL_BASE}/{model_slug}/hybride"
+            f"?bmin={_YEAR_MIN}&trns=AUTOMATISCH&srt=pr-a")
+
+
+def _pano_scrape_url(model_slug):
+    """Zelfde als de brede scrape maar alléén de pano-subset (opt=361) — voor de pano-vlag."""
     return (f"{GASPEDAAL_BASE}/{model_slug}/hybride"
             f"?bmin={_YEAR_MIN}&trns=AUTOMATISCH&opt={GASPEDAAL_PANO_OPT}&srt=pr-a")
 
 
-def gaspedaal_link(model_key, year=0, km=0):
-    """Klikbare Gaspedaal-zoeklink voor precies deze auto (exact jaar, km+marge)."""
+def gaspedaal_link(model_key, year=0, km=0, has_pano=False):
+    """Klikbare Gaspedaal-zoeklink voor deze auto. Bouwjaar VANAF (geen max), km + marge.
+    Pano-filter alleen als de auto zelf pano heeft (anders zie je ook goedkopere non-pano)."""
     entry = GASPEDAAL_BY_MODEL.get(model_key)
     if not entry:
         return ""
     slug = entry[0]
-    params = [f"bmin={_YEAR_MIN}", "trns=AUTOMATISCH", f"opt={GASPEDAAL_PANO_OPT}", "srt=pr-a"]
-    if year:
-        params = [f"bmin={year}", f"bmax={year}", "trns=AUTOMATISCH",
-                  f"opt={GASPEDAAL_PANO_OPT}", "srt=pr-a"]
+    params = [f"bmin={year or _YEAR_MIN}", "trns=AUTOMATISCH", "srt=pr-a"]
     if km:
-        params.insert(2, f"kmax={km + _KM_MARGIN}")
+        params.insert(1, f"kmax={km + _KM_MARGIN}")
+    if has_pano:
+        params.append(f"opt={GASPEDAAL_PANO_OPT}")
     return f"{GASPEDAAL_BASE}/{slug}/hybride?" + "&".join(params)
 
 
@@ -514,31 +520,48 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
     html_ok = 0          # hoeveel modellen gaven bruikbare HTML terug
     per_model = {}
 
+    def _idof(l):
+        return _stable_id(l["model_slug"], l["year"], l["km"], l["price"], l["title"])
+
     for slug in unique_slugs:
-        url = _broad_scrape_url(slug)
-        html = fetch(url, render=True, super_mode=False, geo_code="nl")
-        if not html:
+        # 2 scrapes: ALLE auto's (voor de non-pano prijzen) + pano-subset (voor de pano-vlag)
+        all_html = fetch(_broad_scrape_url(slug), render=True, super_mode=False, geo_code="nl")
+        pano_html = fetch(_pano_scrape_url(slug), render=True, super_mode=False, geo_code="nl")
+        if not (all_html or pano_html):
             log.warning("NL-refresh: geen HTML voor %s", slug)
             per_model[slug] = 0
             continue
         html_ok += 1
 
-        if debug_dir:
+        if debug_dir and all_html:
             safe = slug.replace("/", "_")
             try:
                 with open(f"{debug_dir}/debug_gaspedaal_{safe}.html", "w", encoding="utf-8") as f:
-                    f.write(html)
+                    f.write(all_html)
             except OSError:
                 pass
 
-        listings = parse_gaspedaal(html, slug)
-        for lst in listings:
-            lid = _stable_id(lst["model_slug"], lst["year"], lst["km"], lst["price"], lst["title"])
-            exists = conn.execute("SELECT 1 FROM nl_listings WHERE id = ?", (lid,)).fetchone()
-            if exists:
+        pano_listings = parse_gaspedaal(pano_html, slug) if pano_html else []
+        pano_ids = {_idof(l) for l in pano_listings}
+        all_listings = parse_gaspedaal(all_html, slug) if all_html else []
+
+        # Combineer op id; pano-vlag = zit de auto in de pano-subset. Pano-auto's die niet
+        # in de 'alle'-scrape zaten (pano is duurder → soms voorbij pagina 1) toch meenemen.
+        combined = {}
+        for l in all_listings:
+            lid = _idof(l)
+            l["pano"] = 1 if lid in pano_ids else 0
+            combined[lid] = l
+        for l in pano_listings:
+            lid = _idof(l)
+            l["pano"] = 1
+            combined.setdefault(lid, l)
+
+        for lid, lst in combined.items():
+            if conn.execute("SELECT 1 FROM nl_listings WHERE id = ?", (lid,)).fetchone():
                 conn.execute(
-                    "UPDATE nl_listings SET last_seen = ?, price = ? WHERE id = ?",
-                    (now, lst["price"], lid),
+                    "UPDATE nl_listings SET last_seen = ?, price = ?, pano = ? WHERE id = ?",
+                    (now, lst["price"], lst["pano"], lid),
                 )
             else:
                 conn.execute(
@@ -554,9 +577,10 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
                      lst["raw"], now, now),
                 )
         conn.commit()
-        per_model[slug] = len(listings)
-        total_saved += len(listings)
-        log.info("NL-refresh: %-28s -> %d listings", slug, len(listings))
+        n_pano = sum(1 for v in combined.values() if v["pano"])
+        per_model[slug] = len(combined)
+        total_saved += len(combined)
+        log.info("NL-refresh: %-28s -> %d listings (%d pano)", slug, len(combined), n_pano)
 
     # Alleen als vandaag-verse markeren wanneer minstens één model bruikbare HTML
     # gaf. Faalt alles (bv. ongeldig Scrape.do-token), dan last_refresh NIET zetten
@@ -576,11 +600,12 @@ def refresh_nl_prices(conn, fetch, force=False, debug_dir=None):
 # ── Query: goedkoopste vergelijkbare NL-auto ────────────────────────────────
 
 
-def nl_price_for(conn, model_key, year, km):
+def nl_price_for(conn, model_key, year, km, has_pano=False):
     """Goedkoopste vergelijkbare NL-auto uit de database.
 
     Returns dict {price, count, url, km, year} of None als niets gevonden.
-    Filter: zelfde model_slug, exact bouwjaar, km <= (km + 20.000), pano.
+    Filter: zelfde model_slug, bouwjaar VANAF (>=, dus ook jongere), km <= (km+20.000),
+    en pano-match (pano-auto vergelijken met pano, non-pano met non-pano).
     count = aantal vergelijkbare NL-auto's; km/year = van de goedkoopste.
     """
     entry = GASPEDAAL_BY_MODEL.get(model_key)
@@ -590,10 +615,10 @@ def nl_price_for(conn, model_key, year, km):
 
     init_nl_db(conn)
     q = ("SELECT price, url, km, year FROM nl_listings "
-         "WHERE model_slug = ? AND pano = 1 AND price > 0")
-    args = [slug]
+         "WHERE model_slug = ? AND price > 0 AND pano = ?")
+    args = [slug, 1 if has_pano else 0]
     if year:
-        q += " AND year = ?"
+        q += " AND year >= ?"
         args.append(year)
     if km:
         q += " AND (km = 0 OR km <= ?)"

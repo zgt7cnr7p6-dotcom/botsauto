@@ -1371,11 +1371,12 @@ def send_telegram(listing: Listing):
     # NL-marktprijs vergelijking — verse Gaspedaal-database, val terug op statische tabel
     nl_price_line = ""
     nl_link_line = ""
+    has_pano = "panoramadak" in listing.features  # pano-match: vergelijk gelijk met gelijk
     if listing.price and listing.year:
         nl_info = None
         try:
             _nl_conn = sqlite3.connect(DB_PATH)
-            nl_info = nl_prices.nl_price_for(_nl_conn, model_key, listing.year, listing.km or 0)
+            nl_info = nl_prices.nl_price_for(_nl_conn, model_key, listing.year, listing.km or 0, has_pano)
             _nl_conn.close()
         except Exception as e:
             log.warning("NL-prijs lookup faalde: %s", e)
@@ -1407,7 +1408,7 @@ def send_telegram(listing: Listing):
                 nl_price_line += f"📊 {n} {verg} in NL{extra}\n"
 
     # Klikbare Gaspedaal-zoeklink met exact deze filters (jaar + km+20k + pano + automaat)
-    gp_url = nl_prices.gaspedaal_link(model_key, listing.year or 0, listing.km or 0)
+    gp_url = nl_prices.gaspedaal_link(model_key, listing.year or 0, listing.km or 0, has_pano)
     if gp_url:
         nl_link_line = f'🔗 <a href="{gp_url}">Vergelijk op Gaspedaal</a>\n'
 
