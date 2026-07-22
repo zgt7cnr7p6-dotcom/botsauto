@@ -1391,26 +1391,14 @@ def send_telegram(listing: Listing):
             nl_str = f"€{nl_price:,.0f}".replace(",", ".")
             if margin > 0:
                 margin_str = f"€{margin:,.0f}".replace(",", ".")
-                nl_price_line = f"🇳🇱 NL vanaf {nl_str} → +{margin_str} marge\n"
+                nl_price_line = f"🇳🇱 Prijzen in NL vanaf {nl_str} (Winstmarge: {margin_str})\n"
             else:
-                nl_price_line = f"🇳🇱 NL vanaf {nl_str} (geen marge)\n"
-            # Extra info uit de verse DB: hoeveel vergelijkbare + km/jaar goedkoopste
-            if nl_info and nl_info.get("count"):
-                n = nl_info["count"]
-                verg = "vergelijkbare" if n != 1 else "vergelijkbaar"
-                bits = []
-                if nl_info.get("km"):
-                    bits.append(f"{nl_info['km']:,} km".replace(",", "."))
-                if nl_info.get("year"):
-                    bits.append(str(nl_info["year"]))
-                cheapest = " · ".join(bits)
-                extra = f" · goedkoopste: {cheapest}" if cheapest else ""
-                nl_price_line += f"📊 {n} {verg} in NL{extra}\n"
+                nl_price_line = f"🇳🇱 Prijzen in NL vanaf {nl_str} (Geen winstmarge)\n"
 
-    # Klikbare Gaspedaal-zoeklink met exact deze filters (jaar + km+20k + pano + automaat)
+    # Klikbare Gaspedaal-zoeklink met exact deze filters (jaar-vanaf + km+20k + pano)
     gp_url = nl_prices.gaspedaal_link(model_key, listing.year or 0, listing.km or 0, has_pano)
     if gp_url:
-        nl_link_line = f'🔗 <a href="{gp_url}">Vergelijk op Gaspedaal</a>\n'
+        nl_link_line = f'🔗 <a href="{gp_url}">Vergelijk zelf op gaspedaal</a>\n'
 
     # Feature check — groepeer in aanwezig / afwezig
     # Must-haves krijgen een ⭐ markering
@@ -1457,15 +1445,15 @@ def send_telegram(listing: Listing):
     found_time = now_cet.strftime("%d-%m-%Y %H:%M")
 
     text = (
-        f"<b>{model_tag}</b>\n"
-        f"{info_line}\n"
+        f"{model_tag}\n"
+        f"<b>{info_line}</b>\n"
     )
 
     if nl_price_line:
-        text += nl_price_line
+        text += "\n" + nl_price_line
 
     if nl_link_line:
-        text += nl_link_line
+        text += "\n" + nl_link_line
 
     if listing.detail_incomplete:
         text += (
