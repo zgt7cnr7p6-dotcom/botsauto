@@ -1368,35 +1368,28 @@ def send_telegram(listing: Listing):
         info_parts.append(str(listing.year))
     info_line = " · ".join(info_parts)
 
-    # NL-marktprijs vergelijking — verse Gaspedaal-database, val terug op statische tabel
+    # NL-prijs LIVE uit exact de Gaspedaal-zoekpagina die we ook als link meesturen.
+    # De link = het overzicht; de "vanaf"-prijs = de goedkoopste auto op die pagina.
     nl_price_line = ""
     nl_link_line = ""
     has_pano = "panoramadak" in listing.features  # pano-match: vergelijk gelijk met gelijk
-    if listing.price and listing.year:
-        nl_info = None
-        try:
-            _nl_conn = sqlite3.connect(DB_PATH)
-            nl_info = nl_prices.nl_price_for(_nl_conn, model_key, listing.year, listing.km or 0, has_pano)
-            _nl_conn.close()
-        except Exception as e:
-            log.warning("NL-prijs lookup faalde: %s", e)
+    nl_info, gp_url = None, ""
+    try:
+        nl_info, gp_url = nl_prices.cheapest_nl(
+            scrape_do_fetch, listing.title, listing.year or 0, listing.km or 0, has_pano)
+    except Exception as e:
+        log.warning("NL-prijs (live) faalde: %s", e)
 
-        nl_price = nl_info["price"] if nl_info else 0
-        # Fallback op de oude statische tabel als de DB (nog) niks heeft
-        if not nl_price:
-            nl_price, _ = _nl_market_price(model_key, listing.year, listing.km or 0, listing.features)
+    if nl_info and listing.price:
+        nl_price = nl_info["price"]
+        margin = nl_price - listing.price
+        nl_str = f"€{nl_price:,.0f}".replace(",", ".")
+        if margin > 0:
+            margin_str = f"€{margin:,.0f}".replace(",", ".")
+            nl_price_line = f"🇳🇱 Prijzen in NL vanaf {nl_str} (Winstmarge: {margin_str})\n"
+        else:
+            nl_price_line = f"🇳🇱 Prijzen in NL vanaf {nl_str} (Geen winstmarge)\n"
 
-        if nl_price:
-            margin = nl_price - listing.price
-            nl_str = f"€{nl_price:,.0f}".replace(",", ".")
-            if margin > 0:
-                margin_str = f"€{margin:,.0f}".replace(",", ".")
-                nl_price_line = f"🇳🇱 Prijzen in NL vanaf {nl_str} (Winstmarge: {margin_str})\n"
-            else:
-                nl_price_line = f"🇳🇱 Prijzen in NL vanaf {nl_str} (Geen winstmarge)\n"
-
-    # Klikbare Gaspedaal-zoeklink met exact deze filters (jaar-vanaf + km+20k + pano)
-    gp_url = nl_prices.gaspedaal_link(model_key, listing.year or 0, listing.km or 0, has_pano)
     if gp_url:
         nl_link_line = f'🔗 <a href="{gp_url}">Vergelijk zelf op gaspedaal</a>\n'
 
@@ -1999,13 +1992,8 @@ def _run_scrape():
 
     conn = init_db()
 
-    # NL-marktprijzen 1x per dag verversen (Gaspedaal). Gated op 24u, dus de
-    # meeste 3-min runs slaan dit over. debug_dir="." -> debug_gaspedaal_*.html
-    # komt mee als artifact voor parser-verfijning.
-    try:
-        nl_prices.refresh_nl_prices(conn, scrape_do_fetch, debug_dir=".")
-    except Exception as e:
-        log.error("NL-prijs refresh faalde (niet-fataal): %s", e)
+    # (NL-prijs wordt niet meer dagelijks voorgescraped — hij komt nu LIVE per alert
+    #  uit exact de Gaspedaal-zoeklink die we meesturen; zie send_telegram/cheapest_nl.)
 
     all_listings: list[Listing] = []
     seen_ids: set[str] = set()

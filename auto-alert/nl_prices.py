@@ -451,19 +451,83 @@ def _pano_scrape_url(model_slug):
             f"?bmin={_YEAR_MIN}&trns=AUTOMATISCH&opt={GASPEDAAL_PANO_OPT}&srt=pr-a")
 
 
-def gaspedaal_link(model_key, year=0, km=0, has_pano=False):
-    """Klikbare Gaspedaal-zoeklink voor deze auto. Bouwjaar VANAF (geen max), km + marge.
-    Pano-filter alleen als de auto zelf pano heeft (anders zie je ook goedkopere non-pano)."""
-    entry = GASPEDAAL_BY_MODEL.get(model_key)
-    if not entry:
+def gaspedaal_slug(title):
+    """Leid de Gaspedaal merk/model-slug af uit de advertentietitel — voor ELK merk.
+    Returns bijv. 'mercedes-benz/a-klasse' / 'audi/q5' / 'bmw/3-serie', of '' als
+    niet af te leiden (dan tonen we geen NL-prijs i.p.v. een foute)."""
+    t = title.lower()
+
+    if "mercedes" in t or "benz" in t:
+        merk = "mercedes-benz"
+        for cls in ("glc", "gle", "gla", "glb", "gls", "cla", "cls"):  # langere klassen eerst
+            if cls in t:
+                return f"{merk}/{cls}-klasse"
+        m = re.search(r"(?:mercedes-?benz|mercedes)[\s-]+([abcesv])\b", t)
+        if not m:
+            m = re.search(r"\b([abcesv])[\s-]?\d{2,3}\s?[edi]?\b", t)  # "c 300e", "a250e", "s 63"
+        if m and m.group(1) in ("a", "b", "c", "e", "s", "v"):
+            return f"{merk}/{m.group(1)}-klasse"
         return ""
-    slug = entry[0]
+
+    if "audi" in t:
+        m = re.search(r"\b(q[2-8]|a[1-8])\b", t)
+        if m:
+            model = m.group(1)
+            if model.startswith("q") and "sportback" in t:
+                return f"audi/{model}-sportback"
+            return f"audi/{model}"
+        return ""
+
+    if "bmw" in t:
+        m = re.search(r"\b([1-8])[\s-]?(?:serie|er)\b", t) or re.search(r"\b([1-8])\d{2}[edi]\b", t)
+        if m:
+            n = m.group(1)
+            if any(w in t for w in ("touring", "estate", "kombi")):
+                return f"bmw/{n}-serie-touring"
+            return f"bmw/{n}-serie"
+        mx = re.search(r"\b(x[1-7])\b", t)
+        if mx:
+            return f"bmw/{mx.group(1)}"
+        return ""
+
+    if "formentor" in t:
+        return "cupra/formentor"
+
+    # Generiek: merk/model uit de eerste twee woorden (bv. Volvo XC60 -> volvo/xc60)
+    toks = re.findall(r"[a-z0-9]+", t)
+    return f"{toks[0]}/{toks[1]}" if len(toks) >= 2 else ""
+
+
+def gaspedaal_search_url(slug, year=0, km=0, has_pano=False):
+    """Gaspedaal-zoek(overzicht)-URL. Bouwjaar VANAF (geen max), km+marge, pano indien pano."""
+    if not slug:
+        return ""
     params = [f"bmin={year or _YEAR_MIN}", "trns=AUTOMATISCH", "srt=pr-a"]
     if km:
         params.insert(1, f"kmax={km + _KM_MARGIN}")
     if has_pano:
         params.append(f"opt={GASPEDAAL_PANO_OPT}")
     return f"{GASPEDAAL_BASE}/{slug}/hybride?" + "&".join(params)
+
+
+def cheapest_nl(fetch, title, year=0, km=0, has_pano=False):
+    """Haal LIVE de goedkoopste vergelijkbare NL-auto op uit exact de zoekpagina die ook
+    als link wordt meegestuurd. Returns (info_dict|None, url). url is altijd de zoeklink
+    (overzicht), ook als er geen prijs uitkomt.
+    fetch: scraper.scrape_do_fetch. Alleen aanroepen bij een echte alert (kost 1 fetch)."""
+    slug = gaspedaal_slug(title)
+    url = gaspedaal_search_url(slug, year, km, has_pano)
+    if not slug or not url:
+        return None, url
+    html = fetch(url, render=True, super_mode=False, geo_code="nl")
+    if not html:
+        return None, url
+    listings = [l for l in parse_gaspedaal(html, slug) if l.get("price")]  # breadcrumb-vangnet
+    if not listings:
+        return None, url
+    cheap = min(listings, key=lambda l: l["price"])
+    return ({"price": cheap["price"], "km": cheap.get("km", 0),
+             "year": cheap.get("year", 0), "count": len(listings)}, url)
 
 
 # ── Refresh (1x per dag) ────────────────────────────────────────────────────
