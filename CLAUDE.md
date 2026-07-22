@@ -1,7 +1,8 @@
 # CLAUDE.md — Botsauto
 
 > Claude Code leest dit bestand automatisch. Lees ook `auto-alert/CLAUDE.md`
-> voor de volledige technische briefing van de scraper.
+> voor de technische briefing van de scraper, en **de Carwave-Data-Science-repo (`VISIE.md`)** voor de leidende
+> visie (pan-Europees data-platform), de datalijst en het beslissingen-logboek.
 
 ## Wat is dit project?
 
@@ -15,9 +16,11 @@ eigen inkoop-focus en **wijzigt regelmatig** (URL's erbij/eraf).
 
 **Productvisie:** de engine is bewust **merk-onafhankelijk en zelflerend**, zodat
 het commercieel **verhuurbaar** wordt aan autobedrijven — van goedkope auto's tot
-ultraluxe. Elk bedrijf werkt met andere auto's; het systeem moet zonder
-code-aanpassingen met elk merk/segment kunnen werken en met elke auto die
-binnenkomt **automatisch slimmer worden**. Zie "Productvisie & roadmap".
+ultraluxe. De volgende, grotere stap in die visie is een **pan-Europees
+data-platform**: alle gebruikte-autodata uit heel Europa longitudinaal scrapen en
+opslaan als fundament voor **eigen, accurate prijsbepaling** (à la JP.cars). Zie
+**de Carwave-Data-Science-repo (`VISIE.md`)** — dat is nu het leidende richtingsdocument. Zie ook "Productvisie
+& roadmap".
 
 ## Huidige zoek-set (eigen inkoop-focus, wijzigt)
 
@@ -39,7 +42,7 @@ botsauto/
 ├── auto-alert/
 │   ├── CLAUDE.md                      # gedetailleerde technische briefing
 │   ├── scraper.py                     # de scraper (~2300 regels, alles-in-één)
-│   ├── nl_prices.py                   # NL-prijzen via Gaspedaal (live DB + link)
+│   ├── nl_prices.py                   # NL-prijs live uit de Gaspedaal-zoeklink per alert
 │   ├── requirements.txt               # requests, beautifulsoup4, anthropic
 │   ├── test_ai_scoring.py             # AI scoring tests
 │   ├── test_url.py                    # losse URL test
@@ -51,7 +54,7 @@ botsauto/
     └── test-url.yml
 ```
 
-## Hoe het draait
+## Hoe het draait (huidige systeem)
 
 - **GitHub Actions**, getriggerd door **cron-job.org** (elke 3 min) via
   `workflow_dispatch` — GitHub-cron is uit (kan niet onder 5 min)
@@ -59,10 +62,18 @@ botsauto/
 - **Scrape.do** voor mobile.de (DataDome bypass, super mode + GDPR cookie)
 - **Claude Haiku 4.5** voor feature-scoring (**35 opties + kleur, merk-generiek** —
   detecteert zelf het merk en mapt elk merk's termen op de vaste optie-lijst)
-- **NL-marktprijs vergelijking** via een **dagelijks ververste Gaspedaal-database**
-  (`nl_prices.py`) → import-marge + klikbare "Vergelijk op Gaspedaal"-link
+- **NL-marktprijs vergelijking** — **live** opgehaald uit exact de Gaspedaal-zoeklink
+  die in de alert wordt meegestuurd (`nl_prices.cheapest_nl`): goedkoopste NL-prijs
+  → import-marge + klikbare "Vergelijk zelf op gaspedaal"-link. Slug wordt merk-
+  generiek uit de titel afgeleid.
 - **Telegram Bot** voor alerts
-- **SQLite** (`listings.db`) als database, gecached via Actions cache
+- **SQLite** (`listings.db`) als database, **durabel opgeslagen op de `db-data`
+  git-branch** (elke run hersteld + force-push snapshot)
+
+> ⚠️ Deze hosting/opslag is de *huidige* situatie. De pan-EU-visie ontgroeit dit
+> (SQLite-op-git-branch + GitHub Actions schalen niet naar heel Europa + foto's).
+> Zie de Carwave-Data-Science-repo (`VISIE.md`) §9 — infra-keuze (Postgres + object-opslag + eigen worker) staat
+> op de roadmap als Fase 0.
 
 ## Slimme, zelflerende scoring (het commerciële hart)
 
@@ -81,21 +92,28 @@ Deze delen maken het systeem merk-onafhankelijk en zelfverbeterend:
   de auto zelf heeft telt altijd mee. Vervangt de handmatige uitsluitingslijst.
 - **Dataset-fundament** — élke gescrapete + gescoorde auto wordt opgeslagen (merk,
   model_key, opties, prijs, jaar, km), ook de auto's die géén alert worden. Dat is
-  de brandstof voor bovenstaande zelflerende delen.
+  de brandstof voor bovenstaande zelflerende delen — en de eerste stap richting het
+  longitudinale panel uit de Carwave-Data-Science-repo (`VISIE.md`).
 
 ## Productvisie & roadmap
 
 Doel: van "13 hardcoded modellen voor eigen gebruik" naar een **merk-onafhankelijk,
-zelfverbeterend, per-klant instelbaar** product voor autobedrijven.
+zelfverbeterend, per-klant instelbaar** product — en uiteindelijk een **pan-Europees
+data-platform** dat auto's zelf accuraat prijst. Volledige uitwerking + het
+beslissingen-logboek staan in **de Carwave-Data-Science-repo (`VISIE.md`)**.
 
+Al gedaan (huidige engine):
 - ✅ **Data-fundament** (alle auto's + opties structureel opslaan)
 - ✅ **Markt-relatieve score** (zelfverbeterend, geen vaste noemer)
 - ✅ **Merk-generieke extractie** (35 vakjes, elk merk)
 - ✅ **Zelflerend leverbaar-per-model**
-- ⏭️ **Merk-namen uit de advertentie tonen** (Haiku's eigen term bij ✅, i.p.v.
-  neutrale namen — geen per-merk maps nodig)
-- ⏭️ **Per-klant config (multi-tenant)** — must-haves, budget, doelmodellen en
-  weging per autobedrijf instelbaar; dezelfde engine, andere config
+
+Volgende, grote richting (zie de Carwave-Data-Science-repo (`VISIE.md`)):
+- ⏭️ **Fase 0 — infra** (Postgres + object-opslag + eigen worker; pan-EU + foto's)
+- ⏭️ **Fase 1 — longitudinaal data-platform** (snapshots door de tijd, `vehicle_id`
+  fingerprint, verdwijn/statijd = verkoop-proxy, foto- + kenteken-opslag, RDW)
+- ⏭️ **Fase 2 — waarderingsmodel** (hedonisch €/optie per merk/model + courantheid)
+- ⏭️ **Fase 3 — importmarge-engine** (BPM + kosten) + accuracy-backtest + multi-tenant
 
 ## Secrets (GitHub Actions)
 
@@ -106,13 +124,23 @@ zelfverbeterend, per-klant instelbaar** product voor autobedrijven.
 | `TELEGRAM_BOT_TOKEN` | Telegram alerts |
 | `TELEGRAM_CHAT_ID` | Telegram chat |
 
+## Hosting & privacy
+
+- De repo staat op **privé** (plannen niet zichtbaar). ⚠️ **Let op:** privé-repo's
+  hebben een **maandelijkse limiet op GitHub Actions-minuten** (Free ≈ 2.000/mnd).
+  De ~3-min-cadans (≈480 runs/dag) gaat daar ver overheen → op termijn stopt Actions
+  óf ga je betalen. Opties: (a) cadans verlagen, (b) Actions-minuten betalen, of
+  (c) — aanbevolen, past bij de visie — de scraper naar een **eigen server/worker**
+  verplaatsen. Zie de Carwave-Data-Science-repo (`VISIE.md`) §9.
+
 ## Scrape.do budget
 
-Doel-plan: **1.250.000 credits/maand**. Elke run kost credits voor de ~13
-zoekpagina's (super mode, 10 cr elk) + per nieuwe listing een detail-page fetch
-(render, 5 cr) + 1×/dag de Gaspedaal-refresh. Bij ~3-min cadans is dat fors —
-op een kleiner plan raakt het snel op (zie de memory over credit-verbruik en
-pauzeren via `gh workflow disable alert.yml`).
+Doel-plan: **1.250.000 credits/maand**. Elke run kost credits voor de zoekpagina's
+(super mode, 10 cr elk) + per nieuwe listing een detail-page fetch (render, 5 cr) +
+per alert een live Gaspedaal-fetch (render). Bij ~3-min cadans is dat fors — op een
+kleiner plan raakt het snel op (zie de memory over credit-verbruik en pauzeren via
+`gh workflow disable alert.yml`). De pan-EU-uitbreiding verhoogt dit budget
+substantieel → gefaseerd uitrollen (zie de Carwave-Data-Science-repo (`VISIE.md`) §9).
 
 ## Wat Claude moet doen
 
