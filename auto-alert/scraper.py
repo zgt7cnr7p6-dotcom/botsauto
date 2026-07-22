@@ -1251,6 +1251,53 @@ def market_spec_verdict(model_key: str, features: list):
     return {"verdict": verdict, "pct": pct, "peers": n}
 
 
+# Zelflerend "welke opties kán dit model hebben". Vervangt de handmatige lijst.
+AVAIL_MIN_PEERS = 30   # minimaal aantal soortgenoten voordat we durven filteren
+AVAIL_MIN_COUNT = 2    # optie telt pas als "leverbaar" bij >= zoveel auto's (1 foutieve vink telt niet)
+
+
+def available_features(model_key: str):
+    """Leer uit de soortgenoten-data welke opties dit model daadwerkelijk kan hebben.
+
+    Returns set van leverbare feature-keys, of None bij te weinig data (val dan terug
+    op de handmatige FEATURES_NOT_AVAILABLE / toon alles). Een optie geldt als leverbaar
+    als MINSTENS AVAIL_MIN_COUNT verschillende soortgenoten hem hebben — zo kan één
+    foutieve/toevallige vink de lijst niet vervuilen. Live herberekend per alert, dus
+    corrigeert zichzelf in beide richtingen naarmate de database groeit.
+    """
+    base = model_key.replace("_sportback", "").replace("_touring", "").replace("_sedan", "")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            "SELECT features FROM listings "
+            "WHERE model_key LIKE ? AND features IS NOT NULL "
+            "AND features != '' AND features != '[]'",
+            (base + "%",),
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        log.warning("available_features query faalde: %s", e)
+        return None
+
+    peer_sets = []
+    for (fjson,) in rows:
+        try:
+            fl = json.loads(fjson)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if fl:
+            peer_sets.append(set(fl))
+
+    if len(peer_sets) < AVAIL_MIN_PEERS:
+        return None
+
+    counts = {}
+    for pf in peer_sets:
+        for f in pf:
+            counts[f] = counts.get(f, 0) + 1
+    return {f for f in FULL_OPTION_FEATURES if counts.get(f, 0) >= AVAIL_MIN_COUNT}
+
+
 def detect_model(title: str):
     """Herken merk + model uit de advertentietitel.
 
@@ -1369,8 +1416,16 @@ def send_telegram(listing: Listing):
     model_tag = listing.title.strip()[:80] or model_tag
 
     base_model = model_key.replace("_sportback", "").replace("_touring", "").replace("_sedan", "")
-    excluded = FEATURES_NOT_AVAILABLE.get(base_model, set())
-    model_features = [f for f in FULL_OPTION_FEATURES if f not in excluded]
+    # Zelflerend welke opties dit model kán hebben (uit de soortgenoten-data).
+    # Vangnet: wat deze auto zelf heeft telt altijd mee (eigen bewijs = leverbaar).
+    learned = available_features(model_key)
+    if learned is not None:
+        avail = learned | {f for f in listing.features if f in FULL_OPTION_FEATURES}
+        model_features = [f for f in FULL_OPTION_FEATURES if f in avail]
+    else:
+        # Nog te weinig data: val terug op de handmatige uitsluitingen (bekende modellen)
+        excluded = FEATURES_NOT_AVAILABLE.get(base_model, set())
+        model_features = [f for f in FULL_OPTION_FEATURES if f not in excluded]
     max_score = len(model_features)
 
     # Oordeel — drie-traps, zelfverbeterend:
