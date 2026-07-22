@@ -59,153 +59,20 @@ SEARCH_CRITERIA = {
     "country": "DE",
 }
 
-# mobile.de zoek-URLs
-# URL 1: Q3 hybrid met "pano" in titel — alles doorsturen
-# URL 2: Q3 Sportback hybrid (freetext) — alleen doorsturen als beschrijving panoramadak bevat
-# URL 3: ALLE Q3 hybrids (catch-all, geen freetext) — filter op "sportback" in titel/beschrijving + pano check
-#         Vangt Sportback listings die mobile.de nog niet geïndexeerd heeft voor freetext
+# mobile.de zoek-URLs — TIJDELIJK LEEGGEHAALD voor testen.
+# Voeg hier je zoek-URL(s) toe als dicts. Velden per entry:
+#   label                 naam in de logs
+#   url                   de mobile.de zoek-URL (verplicht)
+#   require_pano_in_desc  True = alleen alerten als AI panoramadak detecteert (optioneel)
+#   require_text          alleen doorsturen als deze tekst in titel/desc staat (optioneel)
+#   min_listing_date      "YYYY-MM-DD": oudere listings opslaan zonder alert (optioneel)
 MOBILE_DE_SEARCH_URLS = [
     {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "isSearchRequest=true&s=Car&vc=Car"
-            "&dam=false&fr=2021&ft=HYBRID&ml=%3A80000"
-            "&ms=1900%3B37%3B%3Bpano&ms=1900%3B37%3B%3Bpanorama"
-            "&ms=1900%3B37%3B%3Bp.dach&ms=1900%3B37%3B%3Bdach"
-            "&p=%3A40000&od=down&sb=doc&ref=dsp"
-        ),
-        "label": "Q3 pano",
-        "require_pano_in_desc": False,
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "isSearchRequest=true&s=Car&vc=Car"
-            "&cn=DE&dam=false&fr=2021&ft=HYBRID&ml=%3A80000"
-            "&ms=1900%3B37%3B%3Bsportback&ms=1900%3B37%3B%3Bspb"
-            "&ms=1900%3B37%3B%3Bsport+back&ms=1900%3B37%3B%3Bsport"
-            "&p=%3A40000&od=down&sb=doc&ref=dsp"
-        ),
-        "label": "Q3 Sportback (pano check)",
-        "require_pano_in_desc": True,
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "isSearchRequest=true&s=Car&vc=Car"
-            "&c=Cabrio&c=Limousine&c=OffRoad&c=SmallCar&c=SportsCar"
-            "&dam=false&fr=2021%3A&ft=HYBRID&ml=%3A90000"
-            "&ms=17200%3B%3B6%3Bpano&ms=17200%3B%3B59%3Bpano"
-            "&ms=3500%3B15%3B%3Bpano&ms=1900%3B32%3B%3Bpano"
-            "&ms=3500%3B15%3B%3Bglasdach&ms=1900%3B32%3B%3Bpanorama"
-            "&p=28000%3A44000&od=down&sb=doc&ref=dsp"
-        ),
-        "label": "Multi-brand pano (C/GLC/330/Q5)",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-05-01",
-    },
-    # ── Dealer-inkoop URLs (pano via fe=PANORAMIC_GLASS_ROOF) ──
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2023%3A2025&ft=HYBRID"
-            "&isSearchRequest=true&ml=%3A80000&ms=3500%3B6%3B%3B"
-            "&od=up&p=%3A40000&s=Car&sb=p&vc=Car"
-        ),
-        "label": "GLC pano 2023-2025",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2022%3A&ft=HYBRID"
-            "&isSearchRequest=true&ml=%3A80000&ms=3500%3B48%3B%3B"
-            "&od=down&p=%3A40000&s=Car&sb=doc&vc=Car"
-        ),
-        "label": "Mercedes CLA pano",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2023%3A&ft=HYBRID"
-            "&isSearchRequest=true&ml=%3A80000&ms=3500%3B%3B21%3B"
-            "&od=down&p=%3A36000&s=Car&sb=doc&vc=Car"
-        ),
-        "label": "Mercedes E-Klasse pano",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2022%3A&ft=HYBRID"
-            "&isSearchRequest=true&ml=%3A80000&ms=3500%3B%3B22%3B"
-            "&od=down&p=%3A35000&s=Car&sb=doc&vc=Car"
-        ),
-        "label": "Mercedes C pano 2022+",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2023%3A&ft=HYBRID"
-            "&isSearchRequest=true&ml=%3A80000&ms=17200%3B%3B59%3BAMG"
-            "&od=up&p=%3A52000&s=Car&sb=p&vc=Car"
-        ),
-        "label": "GLC AMG pano 2023+",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2021%3A&ft=HYBRID"
-            "&isSearchRequest=true&ml=%3A90000&ms=1900%3B15%3B%3B"
-            "&od=down&p=%3A51000&s=Car&sb=doc&vc=Car"
-        ),
-        "label": "Q5 pano 2021+",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2023%3A&ft=HYBRID"
-            "&isSearchRequest=true&ml=%3A80000&ms=1900%3B32%3B%3B"
-            "&od=up&p=%3A41500&s=Car&sb=p&vc=Car"
-        ),
-        "label": "A3 pano 2023+",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "isSearchRequest=true&s=Car&vc=Car&c=EstateCar"
-            "&fe=PANORAMIC_GLASS_ROOF&fr=2022&ft=HYBRID&ml=%3A80000"
-            "&ms=1900%3B10%3B%3B&p=%3A38000&od=up&sb=p&ref=dsp"
-        ),
-        "label": "A4 Avant pano 2022+",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
-    },
-    {
-        "url": (
-            "https://suchen.mobile.de/fahrzeuge/search.html?"
-            "isSearchRequest=true&s=Car&vc=Car"
-            "&dam=false&fe=PANORAMIC_GLASS_ROOF&fr=2021&ft=HYBRID&ml=%3A80000"
-            "&ms=1900%3B46&p=%3A60000&od=up&sb=p&ref=dsp"
-        ),
-        "label": "Q8 pano 2021+",
-        "require_pano_in_desc": False,
-        "min_listing_date": "2026-06-14",
+        "label": "Mercedes hybride (test)",
+        "url": "https://suchen.mobile.de/fahrzeuge/search.html?dam=false&fr=2020%3A2025&ft=HYBRID&isSearchRequest=true&ml=%3A100000&ms=17200%3B%3B%3B&od=down&ref=srpHead&refId=5c569f36-e542-f5d4-75e4-3dbfe4a6233c&s=Car&sb=doc&vc=Car",
     },
 ]
-MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"]
+MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"] if MOBILE_DE_SEARCH_URLS else ""
 
 # ── Full-option checklist ──────────────────────────────────────────────────
 FULL_OPTION_FEATURES = [
@@ -348,6 +215,11 @@ def init_db():
     for col in ("model_key", "brand", "color", "listing_date", "location"):
         if col not in existing:
             conn.execute(f"ALTER TABLE listings ADD COLUMN {col} TEXT")
+    # Baseline-status per zoekopdracht: bij de EERSTE run van een (nieuwe/gewijzigde)
+    # zoek-URL slaan we de dan-online auto's stil op (geen alert). Daarna wél alerten.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS search_state (search_key TEXT PRIMARY KEY, seeded_at TEXT)"
+    )
     conn.commit()
 
     # Eenmalige backfill: model_key/brand voor bestaande rijen uit de opgeslagen titel
@@ -363,6 +235,23 @@ def init_db():
         conn.commit()
         log.info("DB-migratie: %d bestaande listings gebackfilld met model_key/brand", len(todo))
     return conn
+
+
+def is_search_seeded(conn, search_key: str) -> bool:
+    """True als deze zoek-URL al eens gebaselined is (dan wél alerten op nieuwe auto's)."""
+    return conn.execute(
+        "SELECT 1 FROM search_state WHERE search_key = ?", (search_key,)
+    ).fetchone() is not None
+
+
+def mark_search_seeded(conn, search_key: str):
+    """Markeer een zoek-URL als gebaselined (na de eerste run)."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT OR IGNORE INTO search_state (search_key, seeded_at) VALUES (?, ?)",
+        (search_key, now),
+    )
+    conn.commit()
 
 
 def listing_exists(conn, listing_id: str) -> bool:
@@ -432,6 +321,7 @@ class Listing:
     score: int = 0
     features: list = field(default_factory=list)
     detail_incomplete: bool = False
+    sport_detail: str = ""  # letterlijke sportpakket-term uit de advertentie (weergave)
 
 
 # ── Hybrid detectie ───────────────────────────────────────────────────────
@@ -614,8 +504,7 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
    AUDI (Q3 / Q5 / A3):
    • "S line Interieur" / "S line innen" → s_line=true (NIET automatisch s_line_exterieur)
    • "S line Exterieur" / "S line außen" → s_line_exterieur=true (NIET automatisch s_line)
-   • "S line" / "S-Line" (zonder int/ext specificatie) → bepaal uit context welke variant(en). Check of interieur EN/OF exterieur apart vermeld worden
-   • "S line Paket" / "S line Sportpaket" → s_line=true, s_line_exterieur=true (volledig pakket = beide)
+   • "S line" / "S-Line" / "S line Paket" / "S line Sportpaket" (zonder int/ext-aanwijzing) → BEIDE false; alleen sportpakket_detail = "S line" (zie de SPORTPAKKET-regel onderaan). NIET gokken.
    • "Assistenzpaket Tour" / "Assistenz-Paket Tour" → acc=true, lane_assist=true, emergency_assist=true, side_assist=true
    • "Assistenzpaket Sicherheit" / "Sicherheitspaket" → emergency_assist=true, side_assist=true
    • "Assistenzpaket Parken" / "Park-Paket" / "Assistenzpaket Stadt" / "Stadtpaket" → camera_360=true, camera_achteruit=true
@@ -652,8 +541,7 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
    MERCEDES-BENZ (C-Klasse / GLC):
    • "AMG Line Interieur" → s_line=true (NIET automatisch s_line_exterieur)
    • "AMG Line Exterieur" → s_line_exterieur=true (NIET automatisch s_line)
-   • "AMG Line" / "AMG-Line" (zonder int/ext) → bepaal uit context. Als BEIDE vermeld of als compleet pakket → s_line=true, s_line_exterieur=true
-   • "AMG Paket" / "AMG Sportpaket" → s_line=true, s_line_exterieur=true (volledig pakket = beide)
+   • "AMG Line" / "AMG-Line" / "AMG Paket" / "AMG Sportpaket" (zonder int/ext-aanwijzing) → BEIDE false; sportpakket_detail = "AMG Line". NIET gokken.
    • "Night-Paket" / "Night Paket" / "Nightpaket" → optik_pakket_zwart=true (vereist AMG Line)
    • "DISTRONIC" / "Aktiver Abstands-Assistent" → acc=true
    • "Fahrassistenz-Paket" / "Fahrassistenzpaket" → acc=true, lane_assist=true, travel_assist=true, emergency_assist=true
@@ -679,9 +567,8 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
    • "Premium Plus" (pakket-tier) → keyless=true, camera_360=true, matrix_led=true, ambient_lighting=true
 
    BMW (3er / 330e):
-   • "M Sportpaket" / "M Sport Paket" / "M Paket" → s_line=true, s_line_exterieur=true, optik_pakket_zwart=true (volledig pakket = beide + Shadow Line)
-   • "M Sportpaket Pro" / "M Sport Pro" → s_line=true, s_line_exterieur=true, optik_pakket_zwart=true
-   • "M Sport" / "M-Sport" (zonder "Paket") → bepaal uit context welke variant(en). Kan alleen exterieur of alleen interieur zijn
+   • "M Sportpaket" / "M Sport Paket" / "M Paket" / "M Sport" / "M-Sport" (zonder int/ext-aanwijzing) → BEIDE (s_line/s_line_exterieur) false; sportpakket_detail = "M Sportpaket". NIET gokken.
+   • "M Sportpaket Pro" / "M Sport Pro" → optik_pakket_zwart=true (Shadow Line); sportpakket zelf pas int/ext bij expliciete aanwijzing
    • "Shadow Line" / "Shadowline" / "Shadow-Line" / "Hochglanz Shadow Line" → optik_pakket_zwart=true
    • "Harman Kardon" / "Harman/Kardon" / "H/K" / "H+K" / "HK" → audio_premium=true
    • "Adaptive LED" / "Adaptive LED-Scheinwerfer" → matrix_led=true
@@ -706,7 +593,7 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
    • "Memory" / "Memory-Sitze" → elektrische_stoelen=true, stoelen_memory=true
 
    CUPRA (Formentor):
-   • "VZ" / "VZ-Paket" / "VZ-Ausstattung" → s_line=true, s_line_exterieur=true (volledig sportpakket)
+   • "VZ" / "VZ-Paket" / "VZ-Ausstattung" (zonder int/ext-aanwijzing) → BEIDE false; sportpakket_detail = "VZ". NIET gokken.
    • "Beats" / "Beats Audio" / "Beats Sound" → audio_premium=true
    • "KESSY" / "Keyless" / "Komfortschlüssel" → keyless=true
    • "Travel Assist" / "Travel-Assist" → travel_assist=true, acc=true, lane_assist=true
@@ -743,7 +630,12 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
    • camera_360=true → camera_achteruit=true automatisch
    • travel_assist=true → acc=true EN lane_assist=true automatisch
    • luchtvering=true → adaptief_onderstel=true automatisch
-   • s_line en s_line_exterieur zijn ONAFHANKELIJK — een auto kan alleen interieur, alleen exterieur, of beide hebben. Bepaal elk apart op basis van wat er EXPLICIET vermeld staat
+   • SPORTPAKKET — DE ALLERBELANGRIJKSTE REGEL, DEZE OVERSCHRIJFT ALLE "= beide" HIERBOVEN:
+     NOOIT gokken tussen interieur en exterieur. Bepaal STRIKT op wat er letterlijk staat:
+       - s_line=true → ALLEEN bij een EXPLICIETE interieur-aanwijzing: "S line Interieur"/"innen", "S line Sportsitze", "S-Line" logo/stiksel binnen, sportstoelen met S line. (idem AMG Line Interieur, M Sportsitze)
+       - s_line_exterieur=true → ALLEEN bij een EXPLICIETE exterieur-aanwijzing: "S line Exterieur"/"außen" (idem AMG Line Exterieur, M Sportpaket exterieur)
+       - Staat er alleen "S line" / "S-Line" / "S line Sportpaket" / "S line Paket" / "AMG Line" / "M Sportpaket" / "VZ" / "R-Line" ZONDER int/ext-aanwijzing → LAAT BEIDE false. Een "Sportpaket/Paket" impliceert NIET automatisch beide.
+     • sportpakket_detail → geef ALTIJD de letterlijke sportpakket-term terug die je zag (bijv. "S line", "S line Interieur", "AMG Line", "M Sportpaket", "VZ"), of "" als er geen sportpakket genoemd is. Dit is puur voor weergave — verzin niks bij.
 
 6. ZOEK BREED — features kunnen overal staan:
    • In de titel ("S line", "AMG", "M-Sport", "Panorama")
@@ -758,8 +650,8 @@ Bepaal voor elk true of false:
 2. keyless — Sleutelloze TOEGANG/entry (deur opent bij aanraken van het handvat): Comfort Access / KEYLESS-GO / KESSY / Komfortschlüssel / Keyless Entry. De waardevolle variant is keyless ENTRY. Een losse startknop ("Start/Stop", "Keyless Start") ZONDER sleutelloze toegang telt NIET. Sommige advertenties benoemen entry als "Keyless Go" — dat is prima.
 3. camera_achteruit — Rückfahrkamera (ook als 360° camera aanwezig is)
 4. camera_360 — 360°/Umgebungskameras/Surround View/Top View
-5. s_line — Sportpakket interieur: Audi S-Line | Mercedes AMG Line | BMW M Sportpaket
-6. s_line_exterieur — Sportpakket exterieur: Audi S-Line ext. | Mercedes AMG Line ext. | BMW M Sportpaket
+5. s_line — Sportpakket INTERIEUR — alleen true bij EXPLICIETE interieur-aanwijzing (S line Interieur/innen, S line Sportsitze). Anders false. Zie de SPORTPAKKET-regel.
+6. s_line_exterieur — Sportpakket EXTERIEUR — alleen true bij EXPLICIETE exterieur-aanwijzing (S line Exterieur/außen). Anders false. Zie de SPORTPAKKET-regel.
 7. matrix_led — Audi: Matrix LED | Mercedes: DIGITAL LIGHT | BMW: Adaptive LED/Laser (gewone LED NIET)
 8. velgen_19_20 — 19/20 inch velgen
 9. audio_premium — Audi: B&O/Sonos | Mercedes: Burmester | BMW: Harman Kardon (standaard audio NIET)
@@ -834,6 +726,7 @@ Antwoord ALLEEN met JSON, geen uitleg:
   "trekhaak": false,
   "standverwarming": false,
   "sportback": false,
+  "sportpakket_detail": "",
   "color": ""
 }"""
 
@@ -905,6 +798,8 @@ def score_listing_ai(listing: Listing) -> Listing | None:
 
         if not listing.color:
             listing.color = features_dict.get("color", "")
+        # Letterlijke sportpakket-term uit de advertentie (weergave; nooit gokken)
+        listing.sport_detail = (features_dict.get("sportpakket_detail") or "").strip()
 
         missing = [f for f in FULL_OPTION_FEATURES if f not in found]
         log.info(
@@ -975,10 +870,14 @@ MUST_HAVE_FEATURES = [
     "keyless",
 ]
 
-# Sportpakket-features. Geen sportpakket (interieur OF exterieur) → geen alert.
-# Dekt alle merken: Audi S line | Mercedes AMG Line | BMW M Sportpaket | Cupra VZ
-# (de merk-specifieke termen worden door de AI naar s_line/s_line_exterieur gemapt).
+# Sportpakket-features (voor het optionele sportpakket-filter, nu UIT).
+# Dekt alle merken: Audi S line | Mercedes AMG Line | BMW M Sportpaket | Cupra VZ.
 SPORT_PACKAGE_FEATURES = ("s_line", "s_line_exterieur")
+
+# Filter-schakelaars. De gebruiker filtert primair via de mobile.de-zoeklink zelf;
+# deze code-filters staan daarom standaard UIT (later per-klant instelbaar via config).
+SPORT_PACKAGE_FILTER_ENABLED = False   # True = alleen alerten met sportpakket
+MODEL_WHITELIST_ENABLED = False        # True = alleen 'gezochte modellen' doorlaten (is_wanted_model)
 
 
 def _buy_advice(price: int, score: int, max_score: int, features: list, km: int) -> str:
@@ -1519,7 +1418,10 @@ def send_telegram(listing: Listing):
     found_normal = []
     missing_star = []
     missing_normal = []
+    sport_keys = ("s_line", "s_line_exterieur")
     for f in model_features:
+        if f in sport_keys:
+            continue  # sportpakket wordt als één regel getoond (zie hieronder)
         name = display_names.get(f, f)
         star = " ⭐" if f in MUST_HAVE_FEATURES else ""
         if f in listing.features:
@@ -1532,6 +1434,15 @@ def send_telegram(listing: Listing):
                 missing_star.append(f"  ❌ {name}{star}")
             else:
                 missing_normal.append(f"  ❌ {name}{star}")
+
+    # Sportpakket als ÉÉN regel — toon exact de term uit de advertentie (nooit gokken
+    # tussen interieur/exterieur). "S-Line" blijft "S-Line" als er geen int/ext-hint is.
+    if any(k in model_features for k in sport_keys):
+        if any(k in listing.features for k in sport_keys) or listing.sport_detail:
+            found_star.append(f"  ✅ {listing.sport_detail or 'Sportpakket'} ⭐")
+        else:
+            missing_star.append("  ❌ Sportpakket ⭐")
+
     found_lines = found_star + found_normal
     missing_lines = missing_star + missing_normal
 
@@ -1561,15 +1472,21 @@ def send_telegram(listing: Listing):
             f"Score is waarschijnlijk hoger dan hieronder getoond.\n"
         )
 
-    score_display = f"{listing.score}/{max_score}" if show_max else f"{listing.score}"
-    text += (
-        f"\n"
-        f"{verdict_line}\n"
-        f"<b>{score_display}</b> opties gevonden\n"
-    )
-    if market_line:
-        text += market_line
-    text += "\n"
+    if listing.score < 0:
+        # AI-scoring mislukt -> kale alert, geen checklist/oordeel (auto niet verloren)
+        found_lines = []
+        missing_lines = []
+        text += "\n⚠️ Uitrusting niet automatisch gescoord (AI-scoring mislukt)\n\n"
+    else:
+        score_display = f"{listing.score}/{max_score}" if show_max else f"{listing.score}"
+        text += (
+            f"\n"
+            f"{verdict_line}\n"
+            f"<b>{score_display}</b> opties gevonden\n"
+        )
+        if market_line:
+            text += market_line
+        text += "\n"
 
     if found_lines:
         text += "\n".join(found_lines) + "\n"
@@ -2126,7 +2043,8 @@ def _run_scrape():
     # ── Verwerk resultaten (sequentieel voor dedup) ──
     for i, search_cfg in enumerate(MOBILE_DE_SEARCH_URLS):
         url_label = search_cfg["label"]
-        require_pano = search_cfg["require_pano_in_desc"]
+        search_key = search_cfg["url"]
+        require_pano = search_cfg.get("require_pano_in_desc", False)
         require_text = search_cfg.get("require_text", "")
         min_listing_date = search_cfg.get("min_listing_date", "")
 
@@ -2144,9 +2062,8 @@ def _run_scrape():
             if lst.id in seen_ids:
                 log.info("[%s] Overgeslagen (al in andere URL): %s", url_label, lst.title[:40])
                 continue
-            # Model-whitelist: mobile.de geeft soms willekeurige merken terug
-            # (merk-filter genegeerd). Alleen gezochte modellen doorlaten.
-            if not is_wanted_model(lst.title):
+            # Model-whitelist (optioneel, nu UIT): de gebruiker filtert via de mobile-link.
+            if MODEL_WHITELIST_ENABLED and not is_wanted_model(lst.title):
                 log.info("[%s] Overgeslagen (niet-gezocht model): %s", url_label, lst.title[:40])
                 if not listing_exists(conn, lst.id):
                     save_listing(conn, lst)
@@ -2171,6 +2088,7 @@ def _run_scrape():
                     pass
             seen_ids.add(lst.id)
             lst._require_pano = require_pano
+            lst._search_key = search_key
             filtered.append(lst)
 
         # Stap 3: Alleen voor gefilterde listings detail pages ophalen
@@ -2191,75 +2109,60 @@ def _run_scrape():
     if all_listings:
         with ThreadPoolExecutor(max_workers=5) as pool:
             scored = list(pool.map(score_listing, all_listings))
-        # Restore _require_pano en detail_incomplete flags
+        # Restore flags na het parallel scoren
         for orig, sc in zip(all_listings, scored):
             sc._require_pano = getattr(orig, '_require_pano', False)
+            sc._search_key = getattr(orig, '_search_key', '')
             sc.detail_incomplete = getattr(orig, 'detail_incomplete', False)
         all_listings = scored
 
-    # Seed mode: alleen als de DB helemaal leeg is (eerste run ooit / cache verloren)
-    # Voorkomt 70+ alerts tegelijk. Bij niet-lege DB: gewoon alerten.
-    seed_mode = False
-    if conn:
-        row = conn.execute("SELECT COUNT(*) FROM listings").fetchone()
-        db_count = row[0] if row else 0
-        if db_count == 0 and len(all_listings) > 5:
-            seed_mode = True
-            log.info("SEED MODE: DB is leeg, %d listings opslaan zonder alerts (eerste run)", len(all_listings))
+    # Baseline per zoekopdracht: URL's die nog niet gebaselined zijn -> de dan-online
+    # auto's stil opslaan (geen alert). Voorkomt een burst bij een nieuwe/gewijzigde link.
+    baseline_searches = {
+        cfg["url"] for cfg in MOBILE_DE_SEARCH_URLS if not is_search_seeded(conn, cfg["url"])
+    }
+    if baseline_searches:
+        log.info("BASELINE: %d zoekopdracht(en) voor het eerst — dan-online auto's stil opslaan",
+                 len(baseline_searches))
 
     for listing in all_listings:
-        # Als AI scoring mislukt is na alle retries: NIET opslaan zodat volgende run opnieuw probeert
-        if listing.score < 0:
-            log.warning("Listing overgeslagen (AI scoring mislukt na retries, wordt volgende run opnieuw geprobeerd): %s", listing.title[:40])
+        # Detailpagina niet geladen -> data onbetrouwbaar: NIET opslaan, volgende run opnieuw
+        if getattr(listing, 'detail_incomplete', False):
+            log.warning("Detail incompleet, retry volgende run: %s", listing.title[:40])
             continue
 
         is_new = not listing_exists(conn, listing.id)
 
-        # URL 2 pano check: laat Claude AI bepalen of panoramadak aanwezig is
-        require_pano = getattr(listing, '_require_pano', False)
-        if require_pano and "panoramadak" not in listing.features:
-            if getattr(listing, 'detail_incomplete', False):
-                log.warning("[pano-AI] Detail page incompleet, NIET opslaan (retry volgende run): %s", listing.title[:40])
-                continue
-            log.info("[pano-AI] Overgeslagen (AI zegt geen pano): %s | features=%s",
-                     listing.title[:40], listing.features)
+        # Optioneel sportpakket-filter (standaard UIT)
+        if SPORT_PACKAGE_FILTER_ENABLED and not any(f in listing.features for f in SPORT_PACKAGE_FEATURES):
+            log.info("[sport-filter] Overgeslagen (geen sportpakket): %s", listing.title[:40])
             save_listing(conn, listing)
             continue
 
-        # Sportpakket-filter: geen S line / AMG Line / M Sportpaket / VZ → geen alert
-        if not any(f in listing.features for f in SPORT_PACKAGE_FEATURES):
-            if getattr(listing, 'detail_incomplete', False):
-                log.warning("[sport-filter] Detail page incompleet, NIET opslaan (retry volgende run): %s", listing.title[:40])
-                continue
-            log.info("[sport-filter] Overgeslagen (geen sportpakket): %s | features=%s",
-                     listing.title[:40], listing.features)
+        if not is_new:
+            save_listing(conn, listing)  # bekend -> alleen bijwerken (last_seen/prijs), geen alert
+            continue
+        new_count += 1
+
+        # Baseline: eerste run van deze zoek-URL -> stil opslaan, geen alert
+        if getattr(listing, '_search_key', '') in baseline_searches:
             save_listing(conn, listing)
+            log.info("BASELINE: %s — opgeslagen zonder alert (eerste run van deze zoekopdracht)", listing.title[:50])
             continue
 
-        if is_new:
-            new_count += 1
-
-            if seed_mode:
-                save_listing(conn, listing)
-                log.info("SEED: %s — opgeslagen zonder alert (DB was leeg)", listing.title[:50])
-            else:
-                sent = send_telegram(listing)
-                if sent:
-                    save_listing(conn, listing)
-                    alert_count += 1
-                    log.info(
-                        "ALERT: %s — score %d/%d — €%s — %s",
-                        listing.title,
-                        listing.score,
-                        len(FULL_OPTION_FEATURES),
-                        f"{listing.price:,}" if listing.price else "?",
-                        listing.url,
-                    )
-                else:
-                    log.error("NIET opgeslagen (Telegram mislukt, retry volgende run): %s", listing.title[:40])
+        # Altijd pushen — ook als de AI-scoring mislukte (send_telegram maakt dan een kale alert)
+        sent = send_telegram(listing)
+        if sent:
+            save_listing(conn, listing)
+            alert_count += 1
+            log.info("ALERT: %s — score %d — €%s — %s", listing.title, listing.score,
+                     f"{listing.price:,}" if listing.price else "?", listing.url)
         else:
-            save_listing(conn, listing)
-            log.info("Bekende listing bijgewerkt: %s", listing.id)
+            log.error("NIET opgeslagen (Telegram mislukt, retry volgende run): %s", listing.title[:40])
+
+    # Na deze run: alle zoekopdrachten als gebaselined markeren (voortaan wél alerten)
+    for cfg in MOBILE_DE_SEARCH_URLS:
+        mark_search_seeded(conn, cfg["url"])
 
     conn.close()
 
