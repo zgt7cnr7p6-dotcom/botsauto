@@ -67,10 +67,7 @@ SEARCH_CRITERIA = {
 #   require_text          alleen doorsturen als deze tekst in titel/desc staat (optioneel)
 #   min_listing_date      "YYYY-MM-DD": oudere listings opslaan zonder alert (optioneel)
 MOBILE_DE_SEARCH_URLS = [
-    {
-        "label": "Mercedes hybride (test)",
-        "url": "https://suchen.mobile.de/fahrzeuge/search.html?dam=false&fr=2020%3A2025&ft=HYBRID&isSearchRequest=true&ml=%3A100000&ms=17200%3B%3B%3B&od=down&ref=srpHead&refId=5c569f36-e542-f5d4-75e4-3dbfe4a6233c&s=Car&sb=doc&vc=Car",
-    },
+    # (geen actieve zoek-link — bot gepauzeerd; nieuwe link volgt van de eigenaar)
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"] if MOBILE_DE_SEARCH_URLS else ""
 
