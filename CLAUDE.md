@@ -1,8 +1,7 @@
 # CLAUDE.md — Botsauto
 
 > Claude Code leest dit bestand automatisch. Lees ook `auto-alert/CLAUDE.md`
-> voor de technische briefing van de scraper, en **de Carwave-Data-Science-repo (`VISIE.md`)** voor de leidende
-> visie (pan-Europees data-platform), de datalijst en het beslissingen-logboek.
+> voor de volledige technische briefing van de scraper.
 
 ## Wat is dit project?
 
@@ -16,11 +15,9 @@ eigen inkoop-focus en **wijzigt regelmatig** (URL's erbij/eraf).
 
 **Productvisie:** de engine is bewust **merk-onafhankelijk en zelflerend**, zodat
 het commercieel **verhuurbaar** wordt aan autobedrijven — van goedkope auto's tot
-ultraluxe. De volgende, grotere stap in die visie is een **pan-Europees
-data-platform**: alle gebruikte-autodata uit heel Europa longitudinaal scrapen en
-opslaan als fundament voor **eigen, accurate prijsbepaling** (à la JP.cars). Zie
-**de Carwave-Data-Science-repo (`VISIE.md`)** — dat is nu het leidende richtingsdocument. Zie ook "Productvisie
-& roadmap".
+ultraluxe. Elk bedrijf werkt met andere auto's; het systeem moet zonder
+code-aanpassingen met elk merk/segment kunnen werken en met elke auto die
+binnenkomt **automatisch slimmer worden**. Zie ook "Productvisie & roadmap".
 
 ## Huidige zoek-set (eigen inkoop-focus, wijzigt)
 
@@ -54,7 +51,7 @@ botsauto/
     └── test-url.yml
 ```
 
-## Hoe het draait (huidige systeem)
+## Hoe het draait
 
 - **GitHub Actions**, getriggerd door **cron-job.org** (elke 3 min) via
   `workflow_dispatch` — GitHub-cron is uit (kan niet onder 5 min)
@@ -69,11 +66,6 @@ botsauto/
 - **Telegram Bot** voor alerts
 - **SQLite** (`listings.db`) als database, **durabel opgeslagen op de `db-data`
   git-branch** (elke run hersteld + force-push snapshot)
-
-> ⚠️ Deze hosting/opslag is de *huidige* situatie. De pan-EU-visie ontgroeit dit
-> (SQLite-op-git-branch + GitHub Actions schalen niet naar heel Europa + foto's).
-> Zie de Carwave-Data-Science-repo (`VISIE.md`) §9 — infra-keuze (Postgres + object-opslag + eigen worker) staat
-> op de roadmap als Fase 0.
 
 ## Slimme, zelflerende scoring (het commerciële hart)
 
@@ -92,15 +84,12 @@ Deze delen maken het systeem merk-onafhankelijk en zelfverbeterend:
   de auto zelf heeft telt altijd mee. Vervangt de handmatige uitsluitingslijst.
 - **Dataset-fundament** — élke gescrapete + gescoorde auto wordt opgeslagen (merk,
   model_key, opties, prijs, jaar, km), ook de auto's die géén alert worden. Dat is
-  de brandstof voor bovenstaande zelflerende delen — en de eerste stap richting het
-  longitudinale panel uit de Carwave-Data-Science-repo (`VISIE.md`).
+  de brandstof voor bovenstaande zelflerende delen.
 
 ## Productvisie & roadmap
 
 Doel: van "13 hardcoded modellen voor eigen gebruik" naar een **merk-onafhankelijk,
-zelfverbeterend, per-klant instelbaar** product — en uiteindelijk een **pan-Europees
-data-platform** dat auto's zelf accuraat prijst. Volledige uitwerking + het
-beslissingen-logboek staan in **de Carwave-Data-Science-repo (`VISIE.md`)**.
+zelfverbeterend, per-klant instelbaar** product voor autobedrijven.
 
 Al gedaan (huidige engine):
 - ✅ **Data-fundament** (alle auto's + opties structureel opslaan)
@@ -108,12 +97,11 @@ Al gedaan (huidige engine):
 - ✅ **Merk-generieke extractie** (35 vakjes, elk merk)
 - ✅ **Zelflerend leverbaar-per-model**
 
-Volgende, grote richting (zie de Carwave-Data-Science-repo (`VISIE.md`)):
-- ⏭️ **Fase 0 — infra** (Postgres + object-opslag + eigen worker; pan-EU + foto's)
-- ⏭️ **Fase 1 — longitudinaal data-platform** (snapshots door de tijd, `vehicle_id`
-  fingerprint, verdwijn/statijd = verkoop-proxy, foto- + kenteken-opslag, RDW)
-- ⏭️ **Fase 2 — waarderingsmodel** (hedonisch €/optie per merk/model + courantheid)
-- ⏭️ **Fase 3 — importmarge-engine** (BPM + kosten) + accuracy-backtest + multi-tenant
+Volgende:
+- ⏭️ **Merk-namen uit de advertentie tonen** (Haiku's eigen term bij ✅, i.p.v.
+  neutrale namen — geen per-merk maps nodig)
+- ⏭️ **Per-klant config (multi-tenant)** — must-haves, budget, doelmodellen en
+  weging per autobedrijf instelbaar; dezelfde engine, andere config
 
 ## Secrets (GitHub Actions)
 
@@ -130,8 +118,7 @@ Volgende, grote richting (zie de Carwave-Data-Science-repo (`VISIE.md`)):
   hebben een **maandelijkse limiet op GitHub Actions-minuten** (Free ≈ 2.000/mnd).
   De ~3-min-cadans (≈480 runs/dag) gaat daar ver overheen → op termijn stopt Actions
   óf ga je betalen. Opties: (a) cadans verlagen, (b) Actions-minuten betalen, of
-  (c) — aanbevolen, past bij de visie — de scraper naar een **eigen server/worker**
-  verplaatsen. Zie de Carwave-Data-Science-repo (`VISIE.md`) §9.
+  (c) de scraper naar een eigen server/worker verplaatsen.
 
 ## Scrape.do budget
 
@@ -139,8 +126,7 @@ Doel-plan: **1.250.000 credits/maand**. Elke run kost credits voor de zoekpagina
 (super mode, 10 cr elk) + per nieuwe listing een detail-page fetch (render, 5 cr) +
 per alert een live Gaspedaal-fetch (render). Bij ~3-min cadans is dat fors — op een
 kleiner plan raakt het snel op (zie de memory over credit-verbruik en pauzeren via
-`gh workflow disable alert.yml`). De pan-EU-uitbreiding verhoogt dit budget
-substantieel → gefaseerd uitrollen (zie de Carwave-Data-Science-repo (`VISIE.md`) §9).
+`gh workflow disable alert.yml`).
 
 ## Wat Claude moet doen
 
