@@ -67,7 +67,10 @@ SEARCH_CRITERIA = {
 #   require_text          alleen doorsturen als deze tekst in titel/desc staat (optioneel)
 #   min_listing_date      "YYYY-MM-DD": oudere listings opslaan zonder alert (optioneel)
 MOBILE_DE_SEARCH_URLS = [
-    # (geen actieve zoek-link — bot gepauzeerd; nieuwe link volgt van de eigenaar)
+    {
+        "label": "Audi hybride + panoramadak (2021-2024)",
+        "url": "https://suchen.mobile.de/fahrzeuge/search.html?dam=0&fe=PANORAMIC_GLASS_ROOF&fr=1-2021%3A12-2024&ft=HYBRID&isSearchRequest=true&ml=%3A100000&ms=1900%3B37&od=down&ref=ess&refId=117122289775784&s=Car&sb=doc&ssid=117122289775784&vc=Car",
+    },
 ]
 MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"] if MOBILE_DE_SEARCH_URLS else ""
 
