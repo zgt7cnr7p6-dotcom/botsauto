@@ -56,8 +56,9 @@ botsauto/
 
 ## Hoe het draait
 
-- **GitHub Actions**, getriggerd door **cron-job.org** (elke 3 min) via
-  `workflow_dispatch`, met een **GitHub-cron van 5 min als vangnet**
+- **Eigen Hetzner-server** (`62.238.17.43`) met een **systemd-timer** — elke 3 min,
+  ~0 sec opstarttijd. Zie **`server/README.md`**. *(GitHub Actions + cron-job.org
+  zijn uitgeschakeld; die veroorzaakten alle uitval van juli/aug 2026.)*
 - **Draaivenster**: vol gas 08:00–20:00 CET, daarbuiten alleen bijhoud-rondes om
   20:00/00:00/04:00 — 90,4% van de auto's komt binnen dat venster online, dus dit
   halveert de credits zonder snelheidsverlies overdag
@@ -122,15 +123,12 @@ Volgende:
 
 ## Hosting
 
-- ⚠️ **De repo moet PUBLIEK blijven.** Twee redenen: (1) op privé kon de token van
-  cron-job.org er niet meer bij → de job werd automatisch uitgezet en de bot lag
-  **4 weken stil**; (2) privé-repo's hebben een limiet op GitHub Actions-minuten
-  (≈2.000/mnd) die deze cadans ver overschrijdt. Publiek = onbeperkt.
-- Er staan geen secrets in de code of de historie (gecontroleerd); alle sleutels
-  zitten in GitHub Actions-secrets.
-- **Backlog:** verhuizen naar een eigen server (always-on proces) — schrapt de
-  1–1,5 min opstarttijd per run en maakt 60 sec pollen mogelijk. Dan vervallen
-  cron-job.org, de GitHub-cron én de `db-data`-branch.
+- ✅ **Draait op een eigen Hetzner-server** (`62.238.17.43`) sinds 2026-08-20.
+  Zie `server/README.md` voor bediening, cadans wijzigen en herstel.
+- Er staan geen secrets in de code of de historie (gecontroleerd); op de server
+  staan ze in `.env` (0600, gebruiker `botsauto`), in GitHub nog als Actions-secrets.
+- De repo mag nu weer privé — de server is niet afhankelijk van de zichtbaarheid.
+  *(Toen Actions nog de motor was, brak privé de cron-job.org-trigger.)*
 
 ## Scrape.do budget
 

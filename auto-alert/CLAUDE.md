@@ -38,12 +38,21 @@ logregel; de echte filtering zit volledig in de mobile.de-URL's.
 
 ## Draaien & triggers
 
-- **cron-job.org** → elke 3 min een `workflow_dispatch` op `alert.yml` (hoofdtrigger)
-- **GitHub-cron** elke 5 min in `alert.yml` als **vangnet** (GitHub knijpt `schedule`
-  hard af: gemeten ~1 run/uur i.p.v. 12). Dubbele triggers zijn onschadelijk:
-  `concurrency` voorkomt overlap en de DB ontdubbelt.
-- ⚠️ **De repo moet publiek blijven.** Op privé kon de token van cron-job.org er niet
-  meer bij → job automatisch uitgezet → bot lag 4 weken stil (juli-aug 2026).
+**Sinds 2026-08-20 draait de bot op een eigen Hetzner-server** (`62.238.17.43`),
+niet meer op GitHub Actions. Zie **`server/README.md`** voor de volledige opstelling
+en bediening.
+
+- **systemd-timer** `botsauto.timer` → elke 3 min (`OnCalendar=*:0/3`).
+  Voor 60 sec: `*:*:0` — reken eerst de credits na.
+- Draait als gebruiker `botsauto`, code in `/home/botsauto/app`, secrets in
+  `.env` (0600), database gewoon als bestand ernaast.
+- **Bewaking:** dagelijks Telegram-rapport (08:05) + melding bij een harde crash.
+  Blijft het dagrapport uit, dán is er iets mis — dat signaal ontbrak vroeger.
+
+> **Historisch (uitgeschakeld):** GitHub Actions `alert.yml` + cron-job.org +
+> GitHub-cron + de `db-data`-branch. Alle uitval van juli/aug 2026 kwam door die
+> afhankelijkheden (cron-job.org zette zichzelf uit toen de repo privé werd,
+> Actions-minuten). De workflow staat op `disabled` en dient nog als noodoplossing.
 
 ### Draaivenster (`run_mode`, `scraper.py:2291`)
 
