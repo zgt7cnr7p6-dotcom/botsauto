@@ -46,6 +46,8 @@ jobs:
                   r = requests.get("https://api.scrape.do", params=params, timeout=90)
                   n, title = cards(r.text) if r.status_code == 200 else (0, "")
                   print(f"{name:<32} {cr:>3} {r.status_code:>5} {len(r.content)//1024:>7} {n:>6}  {title}")
+                  if r.status_code != 200:
+                      print(f"    >> FOUTMELDING: {r.text[:220]}")
               except Exception as e:
                   print(f"{name:<32} {cr:>3} {'ERR':>5} {'-':>7} {'-':>6}  {e}")
           PY
