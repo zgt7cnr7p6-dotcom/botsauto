@@ -1,11 +1,10 @@
 name: Auto Alert Scraper
 
 on:
-  # GitHub-native cron (elke 30 min) — vervangt de dode cron-job.org-trigger.
-  # 30 min houdt het binnen de ~2.000 gratis Actions-minuten/mnd van een prive-repo.
-  # Sneller (3-5 min) = repo publiek maken (onbeperkte minuten) of Actions-minuten betalen.
+  # GitHub-native cron (elke 5 min) — repo is publiek, dus onbeperkte Actions-minuten.
+  # 5 min is GitHub's snelste native cron-interval (geen cron-job.org meer nodig).
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       clear_db:
