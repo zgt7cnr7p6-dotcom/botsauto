@@ -224,12 +224,6 @@ def init_db():
     conn.execute(
         "CREATE TABLE IF NOT EXISTS search_state (search_key TEXT PRIMARY KEY, seeded_at TEXT)"
     )
-    # Flits-alerts: welke listings al een directe (ongescoorde) melding kregen.
-    # Los van `listings` omdat een listing pas ná de volledige alert wordt opgeslagen —
-    # zonder dit zou een mislukte detail-fetch elke run opnieuw flitsen.
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS flash_state (id TEXT PRIMARY KEY, flashed_at TEXT)"
-    )
     conn.commit()
 
     # Eenmalige backfill: model_key/brand voor bestaande rijen uit de opgeslagen titel
@@ -262,29 +256,6 @@ def mark_search_seeded(conn, search_key: str):
         (search_key, now),
     )
     conn.commit()
-
-
-def was_flashed(conn, listing_id: str) -> bool:
-    """True als deze listing al een flits-alert kreeg (nooit twee keer flitsen)."""
-    return conn.execute(
-        "SELECT 1 FROM flash_state WHERE id = ?", (listing_id,)
-    ).fetchone() is not None
-
-
-def mark_flashed(conn, listing_id: str):
-    """Leg vast dat de flits-alert voor deze listing verstuurd is."""
-    conn.execute(
-        "INSERT OR IGNORE INTO flash_state (id, flashed_at) VALUES (?, ?)",
-        (listing_id, datetime.now(timezone.utc).isoformat()),
-    )
-    conn.commit()
-
-
-def listing_exists(conn, listing_id: str) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM listings WHERE id = ?", (listing_id,)
-    ).fetchone()
-    return row is not None
 
 
 def save_listing(conn, listing: "Listing"):
@@ -1332,28 +1303,34 @@ def detect_model(title: str):
     return brand, model_key, model_tag, display_names
 
 
-def _online_ago(listing: Listing) -> str:
-    """Hoe lang geleden de advertentie online kwam.
+def _listing_age_hours(listing: Listing):
+    """Leeftijd van de advertentie in uren, uit mobile.de's eigen tijdstempel
+    op de zoekkaart ('20.8.2026, 15:01', Duitse/NL lokale tijd).
 
-    Gebruikt mobile.de's eigen tijdstempel op de zoekkaart ('20.8.2026, 15:01',
-    Duitse/NL lokale tijd) — dus de échte online-tijd, niet ons detectiemoment.
-    Dit getal is de meetlat voor onze reactiesnelheid. Leeg als het ontbreekt.
+    Returns None als het tijdstempel ontbreekt of onleesbaar is — dan doen we
+    géén aanname over de leeftijd (liever een alert te veel dan er een missen).
     """
     raw = (listing.listing_date or "").strip()
     if not raw:
-        return ""
-    dt = None
+        return None
     for fmt in ("%d.%m.%Y, %H:%M", "%d.%m.%Y %H:%M"):
         try:
             dt = datetime.strptime(raw, fmt)
             break
         except ValueError:
-            continue
+            dt = None
     if dt is None:
-        return ""
-
+        return None
     tz = ZoneInfo("Europe/Amsterdam")
-    secs = (datetime.now(tz) - dt.replace(tzinfo=tz)).total_seconds()
+    return (datetime.now(tz) - dt.replace(tzinfo=tz)).total_seconds() / 3600.0
+
+
+def _online_ago(listing: Listing) -> str:
+    """Leesbare 'hoe lang geleden online' — de meetlat voor onze reactiesnelheid."""
+    uren = _listing_age_hours(listing)
+    if uren is None:
+        return ""
+    secs = uren * 3600.0
     if secs < 60:
         return f"{max(int(secs), 0)} sec geleden"
     mins = int(secs // 60)
@@ -1364,59 +1341,6 @@ def _online_ago(listing: Listing) -> str:
         return f"{hours}u {rest}m geleden" if rest else f"{hours} uur geleden"
     days = hours // 24
     return f"{days} dag{'en' if days != 1 else ''} geleden"
-
-
-def send_flash_alert(listing: Listing) -> bool:
-    """Directe, ongescoorde melding zodra een nieuwe auto gezien is.
-
-    Gaat eruit vóór de detailpagina en de AI-scoring (samen ~30-60s), zodat je
-    meteen kunt bellen. De volledige alert met score/opties/NL-marge volgt daarna
-    automatisch als tweede bericht.
-    """
-    bits = []
-    if listing.price:
-        bits.append(f"€{listing.price:,}".replace(",", "."))
-    if listing.km:
-        bits.append(f"{listing.km:,} km".replace(",", "."))
-    if listing.year:
-        bits.append(str(listing.year))
-    info = " · ".join(bits) if bits else "details volgen"
-
-    ago = _online_ago(listing)
-    head = f"🆕 <b>NIEUW ONLINE</b> ({ago})" if ago else "🆕 <b>NIEUW ONLINE</b>"
-
-    text = (
-        f"{head}\n"
-        f"{listing.title}\n"
-        f"<b>{info}</b>\n"
-        f"\n"
-        f"<a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>\n"
-        f"<i>Volledige score volgt zo…</i>"
-    )
-
-    if DRY_RUN:
-        log.info("[DRY-RUN] Flits-alert:\n%s", text)
-        return True
-
-    try:
-        resp = req_lib.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text,
-                "parse_mode": "HTML",
-                "link_preview_options": {"url": listing.url},
-            },
-            timeout=15,
-        )
-    except Exception as exc:  # nooit de run laten klappen op een flits
-        log.warning("Flits-alert mislukt (%s): %s", exc, listing.title[:40])
-        return False
-    if resp.ok:
-        log.info("FLITS: %s — %s", listing.title[:50], info)
-        return True
-    log.warning("Flits-alert fout: %s %s", resp.status_code, resp.text[:200])
-    return False
 
 
 def send_telegram(listing: Listing):
@@ -1544,7 +1468,10 @@ def send_telegram(listing: Listing):
     # Tijdstip van plaatsing
     date_line = ""
     if listing.listing_date:
-        date_line = f"📅 Online sinds {listing.listing_date}\n"
+        # "(4 min geleden)" erbij: dat getal is de meetlat voor onze reactiesnelheid.
+        ago = _online_ago(listing)
+        date_line = f"📅 Online sinds {listing.listing_date}"
+        date_line += f" <b>({ago})</b>\n" if ago else "\n"
 
     # Gevonden op tijdstip
     now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
@@ -2186,19 +2113,20 @@ def _run_scrape():
                         continue
                 except (ValueError, IndexError):
                     pass
+            # Te oud om nog een melding waard te zijn (zie MAX_LISTING_AGE_HOURS).
+            # Vroeg filteren: scheelt ook een detailpagina-fetch (10 credits).
+            leeftijd = _listing_age_hours(lst)
+            if leeftijd is not None and leeftijd > MAX_LISTING_AGE_HOURS:
+                log.info("[%s] Overgeslagen (%.0f uur online, > %d uur): %s",
+                         url_label, leeftijd, MAX_LISTING_AGE_HOURS, lst.title[:40])
+                if not listing_exists(conn, lst.id):
+                    save_listing(conn, lst)
+                continue
+
             seen_ids.add(lst.id)
             lst._require_pano = require_pano
             lst._search_key = search_key
             filtered.append(lst)
-
-        # Stap 2b: FLITS-ALERT — meteen melden, nog vóór detailpagina + AI-scoring.
-        # Die twee kosten samen ~30-60s; bij gewilde auto's is dat het verschil
-        # tussen eerste beller of nummer zes. De volledige alert volgt erna.
-        if filtered and search_key not in baseline_searches:
-            for lst in filtered:
-                if not was_flashed(conn, lst.id):
-                    if send_flash_alert(lst):
-                        mark_flashed(conn, lst.id)
 
         # Stap 3: Alleen voor gefilterde listings detail pages ophalen
         if filtered:
@@ -2286,6 +2214,14 @@ RETRY_BACKOFF = [10, 30, 60]  # seconden wachten tussen retries
 ACTIVE_START_HOUR = 8    # vanaf 08:00 vol gas
 ACTIVE_END_HOUR = 20     # tot 19:59 vol gas
 NIGHT_SLOT_HOURS = (20, 0, 4)  # daarbuiten: één ronde per 4 uur (bijhouden)
+
+# ── Maximale advertentie-leeftijd ───────────────────────────────────────────
+# Alleen alerten op auto's die kórt geleden online kwamen. Nodig omdat de bot
+# per zoekopdracht alleen pagina 1 (24 auto's) leest: als bovenaan een paar
+# auto's verkocht worden, schuift een oudere auto van pagina 2 naar pagina 1 en
+# lijkt die "nieuw" terwijl hij er al weken staat. Oudere auto's worden wél stil
+# opgeslagen (dataset groeit door), maar geven geen melding.
+MAX_LISTING_AGE_HOURS = 24
 
 
 def run_mode(hour: int, minute: int) -> str:
