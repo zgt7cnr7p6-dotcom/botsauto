@@ -2026,29 +2026,81 @@ def normalize_search_url(url: str) -> tuple:
     return urlunparse(p._replace(query=urlencode(q, doseq=True))), aangepast
 
 
-def describe_search_url(url: str, page_title: str = "") -> str:
-    """Korte, leesbare omschrijving voor het overzicht — geen rauwe URL-ruis.
+# Vertaling van mobile.de's filtercodes naar leesbare tekst. Onbekende codes
+# worden netjes afgevlakt (SPORT_SEATS -> "Sport seats"), dus een nieuw filter
+# van mobile.de breekt niets — het komt gewoon iets ruwer in beeld.
+_BRANDSTOF = {
+    "PETROL": "benzine", "DIESEL": "diesel", "HYBRID": "hybride",
+    "HYBRID_PLUGIN": "plug-in hybride", "ELECTRICITY": "elektrisch",
+    "LPG": "LPG", "CNG": "CNG", "ETHANOL": "ethanol", "HYDROGENIUM": "waterstof",
+}
+_TRANSMISSIE = {
+    "AUTOMATIC_GEAR": "automaat", "MANUAL_GEAR": "handgeschakeld",
+    "SEMIAUTOMATIC_GEAR": "semi-automaat",
+}
+_UITRUSTING = {
+    "PANORAMIC_GLASS_ROOF": "panoramadak", "SUNROOF": "schuifdak",
+    "TRAILER_COUPLING": "trekhaak", "NAVIGATION_SYSTEM": "navigatie",
+    "HEAD_UP_DISPLAY": "head-up display", "FULL_LEATHER": "leer",
+    "LEATHER": "leer", "XENON_HEADLIGHTS": "xenon", "LED_HEADLIGHTS": "LED",
+    "ELECTRIC_HEATED_SEATS": "stoelverwarming", "CRUISE_CONTROL": "cruise control",
+    "ALLOY_WHEELS": "lichtmetalen velgen", "FOUR_WHEEL_DRIVE": "4x4",
+    "SPORT_SEATS": "sportstoelen", "AIR_CONDITIONING": "airco",
+    "ELECTRIC_ADJUSTABLE_SEATS": "elektrische stoelen",
+}
 
-    Basis is mobile.de's eigen paginatitel (die beschrijft de zoekopdracht al
-    netjes); bouwjaar en km halen we uit de URL-parameters.
+
+def _leesbaar(code: str, tabel: dict) -> str:
+    return tabel.get(code.upper(), code.replace("_", " ").capitalize())
+
+
+def describe_search_url(url: str, page_title: str = "") -> str:
+    """Leesbare omschrijving van een zoekopdracht — model, brandstof en filters.
+
+    Basis is mobile.de's eigen paginatitel: die bevat al merk, model en de
+    belangrijkste filters (bv. "Audi Q3 Panorama-Dach Hybrid (Benzin/Elektro)").
+    Daar plakken we de filters achter die NIET in de titel staan — bouwjaar,
+    kilometerstand, prijs, transmissie — zodat we niets dubbel tonen.
     """
     from urllib.parse import urlparse, parse_qs
 
     naam = re.sub(r"\s*(kaufen bei|bei)\s*mobile\.de.*$", "", page_title or "", flags=re.I).strip()
-    naam = re.sub(r"\s+", " ", naam)[:60] or "mobile.de zoekopdracht"
+    naam = re.sub(r"\s+", " ", naam)[:70]
+    q = parse_qs(urlparse(url).query)
+
+    # Zonder titel (bv. offline) toch iets zinnigs tonen: brandstof + uitrusting
+    if not naam:
+        losse = [_leesbaar(v, _BRANDSTOF) for v in q.get("ft", [])]
+        losse += [_leesbaar(v, _UITRUSTING) for v in q.get("fe", [])]
+        naam = " · ".join(losse) or "mobile.de zoekopdracht"
 
     extra = []
-    q = parse_qs(urlparse(url).query)
-    fr = q.get("fr", [""])[0]                       # bv. "1-2021:12-2024"
-    m = re.findall(r"(\d{4})", fr)
-    if len(m) >= 2:
-        extra.append(f"{m[0]}–{m[1]}")
-    elif m:
-        extra.append(f"vanaf {m[0]}")
-    ml = q.get("ml", [""])[0]                       # bv. ":100000"
-    km = re.findall(r"(\d+)", ml)
+    jaren = re.findall(r"(\d{4})", q.get("fr", [""])[0])          # "1-2021:12-2024"
+    if len(jaren) >= 2:
+        extra.append(f"{jaren[0]}–{jaren[1]}")
+    elif jaren:
+        extra.append(f"vanaf {jaren[0]}")
+
+    km = re.findall(r"(\d+)", q.get("ml", [""])[0])                # ":100000"
     if km:
         extra.append(f"≤{int(km[-1]):,} km".replace(",", "."))
+
+    prijs = re.findall(r"(\d+)", q.get("p", [""])[0])              # ":40000"
+    if prijs:
+        extra.append(f"≤€{int(prijs[-1]):,}".replace(",", "."))
+
+    for v in q.get("tr", []):
+        extra.append(_leesbaar(v, _TRANSMISSIE))
+
+    # Uitrusting alleen als de titel het niet al noemt (voorkomt dubbelingen)
+    for v in q.get("fe", []):
+        term = _leesbaar(v, _UITRUSTING)
+        if term.split()[0].lower()[:5] not in naam.lower():
+            extra.append(term)
+
+    if q.get("dam", [""])[0] in ("0", "false"):
+        extra.append("schadevrij")
+
     return naam + (" · " + " · ".join(extra) if extra else "")
 
 
