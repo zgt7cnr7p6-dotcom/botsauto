@@ -59,14 +59,20 @@ SEARCH_CRITERIA = {
     "country": "DE",
 }
 
-# mobile.de zoek-URLs — TIJDELIJK LEEGGEHAALD voor testen.
-# Voeg hier je zoek-URL(s) toe als dicts. Velden per entry:
-#   label                 naam in de logs
+# ── Zoekopdrachten ──────────────────────────────────────────────────────────
+# De ACTIEVE zoekopdrachten staan in de DATABASE (tabel `searches`), zodat je ze
+# via Telegram kunt toevoegen/verwijderen zonder code-wijziging. Onderstaande
+# lijst is alleen de STARTLIJST: die wordt één keer ingeladen als de tabel nog
+# leeg is (verse database). Daarna wordt deze lijst genegeerd — wijzig je hier
+# iets, dan gebeurt er niets; gebruik Telegram of pas de tabel aan.
+#
+# Optionele velden per entry (blijven werken, ook vanuit de database):
+#   label                 naam in de logs / het overzicht
 #   url                   de mobile.de zoek-URL (verplicht)
-#   require_pano_in_desc  True = alleen alerten als AI panoramadak detecteert (optioneel)
-#   require_text          alleen doorsturen als deze tekst in titel/desc staat (optioneel)
-#   min_listing_date      "YYYY-MM-DD": oudere listings opslaan zonder alert (optioneel)
-MOBILE_DE_SEARCH_URLS = [
+#   require_pano_in_desc  True = alleen alerten als AI panoramadak detecteert
+#   require_text          alleen doorsturen als deze tekst in titel/desc staat
+#   min_listing_date      "YYYY-MM-DD": oudere listings opslaan zonder alert
+SEED_SEARCH_URLS = [
     {
         "label": "Audi hybride + panoramadak (2021-2024)",
         "url": "https://suchen.mobile.de/fahrzeuge/search.html?dam=0&fe=PANORAMIC_GLASS_ROOF&fr=1-2021%3A12-2024&ft=HYBRID&isSearchRequest=true&ml=%3A100000&ms=1900%3B37&od=down&ref=ess&refId=117122289775784&s=Car&sb=doc&ssid=117122289775784&vc=Car",
@@ -76,7 +82,7 @@ MOBILE_DE_SEARCH_URLS = [
         "url": "https://suchen.mobile.de/fahrzeuge/search.html?dam=0&fe=PANORAMIC_GLASS_ROOF&fr=1-2022%3A12-2024&ft=HYBRID&isSearchRequest=true&ml=%3A80000&ms=3500%3B48&od=down&ref=ess&refId=117127589577142&s=Car&sb=doc&ssid=117127589577142&vc=Car",
     },
 ]
-MOBILE_DE_SEARCH_URL = MOBILE_DE_SEARCH_URLS[0]["url"] if MOBILE_DE_SEARCH_URLS else ""
+MOBILE_DE_SEARCH_URL = SEED_SEARCH_URLS[0]["url"] if SEED_SEARCH_URLS else ""
 
 # ── Full-option checklist ──────────────────────────────────────────────────
 FULL_OPTION_FEATURES = [
@@ -224,7 +230,34 @@ def init_db():
     conn.execute(
         "CREATE TABLE IF NOT EXISTS search_state (search_key TEXT PRIMARY KEY, seeded_at TEXT)"
     )
+    # Zoekopdrachten staan in de DATABASE, niet in de code — zo kunnen ze via
+    # Telegram toegevoegd/verwijderd worden zonder code-wijziging of herstart.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS searches (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            url       TEXT NOT NULL UNIQUE,
+            label     TEXT,
+            active    INTEGER NOT NULL DEFAULT 1,
+            added_at  TEXT,
+            added_by  TEXT
+        )
+        """
+    )
     conn.commit()
+
+    # Eenmalige overname: bij een lege tabel de startlijst uit de code inladen.
+    # Daarna is de database leidend en wordt SEED_SEARCH_URLS genegeerd.
+    if conn.execute("SELECT count(*) FROM searches").fetchone()[0] == 0 and SEED_SEARCH_URLS:
+        now = datetime.now(timezone.utc).isoformat()
+        for cfg in SEED_SEARCH_URLS:
+            conn.execute(
+                "INSERT OR IGNORE INTO searches (url, label, active, added_at, added_by) "
+                "VALUES (?, ?, 1, ?, 'startlijst')",
+                (cfg["url"], cfg.get("label", ""), now),
+            )
+        conn.commit()
+        log.info("Zoekopdrachten overgenomen uit de startlijst: %d", len(SEED_SEARCH_URLS))
 
     # Eenmalige backfill: model_key/brand voor bestaande rijen uit de opgeslagen titel
     # (zodat de markt-relatieve score meteen data heeft). Idempotent: alleen NULL-rijen.
@@ -246,6 +279,51 @@ def is_search_seeded(conn, search_key: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM search_state WHERE search_key = ?", (search_key,)
     ).fetchone() is not None
+
+
+def get_searches(conn, only_active: bool = True) -> list:
+    """De zoekopdrachten uit de database, in hetzelfde dict-formaat als de startlijst.
+
+    Dit is de enige bron van waarheid voor wat de scraper afzoekt — de Telegram-bot
+    schrijft naar dezelfde tabel, dus wijzigingen zijn meteen actief bij de volgende
+    ronde (geen herstart nodig).
+    """
+    sql = "SELECT id, url, label, active FROM searches"
+    if only_active:
+        sql += " WHERE active = 1"
+    sql += " ORDER BY id"
+    return [
+        {"id": r[0], "url": r[1], "label": r[2] or f"zoekopdracht {r[0]}", "active": bool(r[3])}
+        for r in conn.execute(sql).fetchall()
+    ]
+
+
+def add_search(conn, url: str, label: str = "", added_by: str = "") -> int:
+    """Zoekopdracht toevoegen. Returns het id, of -1 als de URL er al in staat."""
+    try:
+        cur = conn.execute(
+            "INSERT INTO searches (url, label, active, added_at, added_by) VALUES (?, ?, 1, ?, ?)",
+            (url, label, datetime.now(timezone.utc).isoformat(), added_by),
+        )
+        conn.commit()
+        return cur.lastrowid
+    except sqlite3.IntegrityError:
+        return -1
+
+
+def remove_search(conn, search_id: int) -> bool:
+    """Zoekopdracht verwijderen. Returns False als het id niet bestaat.
+
+    De bijbehorende `search_state`-rij gaat mee, zodat dezelfde link later opnieuw
+    baselinet (stil opslaan) in plaats van een golf oude auto's te alerten.
+    """
+    row = conn.execute("SELECT url FROM searches WHERE id = ?", (search_id,)).fetchone()
+    if not row:
+        return False
+    conn.execute("DELETE FROM searches WHERE id = ?", (search_id,))
+    conn.execute("DELETE FROM search_state WHERE search_key = ?", (row[0],))
+    conn.commit()
+    return True
 
 
 def mark_search_seeded(conn, search_key: str):
@@ -1925,6 +2003,99 @@ CONSENT_ACTIONS = [
 ]
 
 
+def normalize_search_url(url: str) -> tuple:
+    """Forceer sortering op 'nieuwste eerst'. Returns (url, aangepast?).
+
+    Cruciaal: de scraper leest per zoekopdracht alleen pagina 1 (24 auto's). Staat
+    de lijst op relevantie of prijs, dan kan een verse auto op pagina 4 staan en
+    ziet de bot hem nooit — zonder foutmelding. Daarom zetten we sb=doc (sorteer
+    op plaatsingsdatum) en od=down (aflopend) altijd hard.
+    """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
+    p = urlparse(url)
+    q = parse_qs(p.query, keep_blank_values=True)
+    aangepast = q.get("sb", [""])[0] != "doc" or q.get("od", [""])[0] != "down"
+    q["sb"] = ["doc"]
+    q["od"] = ["down"]
+    return urlunparse(p._replace(query=urlencode(q, doseq=True))), aangepast
+
+
+def describe_search_url(url: str, page_title: str = "") -> str:
+    """Korte, leesbare omschrijving voor het overzicht — geen rauwe URL-ruis.
+
+    Basis is mobile.de's eigen paginatitel (die beschrijft de zoekopdracht al
+    netjes); bouwjaar en km halen we uit de URL-parameters.
+    """
+    from urllib.parse import urlparse, parse_qs
+
+    naam = re.sub(r"\s*(kaufen bei|bei)\s*mobile\.de.*$", "", page_title or "", flags=re.I).strip()
+    naam = re.sub(r"\s+", " ", naam)[:60] or "mobile.de zoekopdracht"
+
+    extra = []
+    q = parse_qs(urlparse(url).query)
+    fr = q.get("fr", [""])[0]                       # bv. "1-2021:12-2024"
+    m = re.findall(r"(\d{4})", fr)
+    if len(m) >= 2:
+        extra.append(f"{m[0]}–{m[1]}")
+    elif m:
+        extra.append(f"vanaf {m[0]}")
+    ml = q.get("ml", [""])[0]                       # bv. ":100000"
+    km = re.findall(r"(\d+)", ml)
+    if km:
+        extra.append(f"≤{int(km[-1]):,} km".replace(",", "."))
+    return naam + (" · " + " · ".join(extra) if extra else "")
+
+
+def check_search_url(url: str) -> dict:
+    """Test een zoek-URL vóór we hem opslaan: werkt hij, en klopt de sortering?
+
+    De sortering controleren we niet op het URL-parameter maar EMPIRISCH: staan de
+    plaatsingsdatums van de eerste auto's echt aflopend? Dat is het enige dat telt.
+    """
+    net_url, sort_aangepast = normalize_search_url(url)
+    uit = {"url": net_url, "sort_aangepast": sort_aangepast, "ok": False,
+           "count": 0, "omschrijving": "", "sortering_ok": None, "nieuwste": "", "fout": ""}
+
+    html = scrape_do_fetch(net_url, super_mode=True, retries=1, geo_code="de", timeout=75)
+    if not html:
+        uit["fout"] = "mobile.de gaf geen pagina terug (probeer het zo nog eens)"
+        return uit
+
+    soup = BeautifulSoup(html, "html.parser")
+    cards = soup.select("a[data-testid*='result'], a[data-testid*='listing']")
+    if not cards:
+        cards = soup.select("a.result-item, div.cBox-body--resultitem")
+    if not cards:
+        cards = soup.select("a[href*='/fahrzeuge/details']")
+    uit["count"] = len(cards)
+    uit["omschrijving"] = describe_search_url(net_url, soup.title.text if soup.title else "")
+
+    if not cards:
+        uit["fout"] = "geen auto's gevonden — klopt de zoekopdracht wel?"
+        return uit
+
+    # Plaatsingsdatums van de eerste kaarten: lopen ze echt af?
+    datums = []
+    for c in cards[:8]:
+        m = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4}),?\s*(\d{1,2}:\d{2})", c.get_text(" ", strip=True))
+        if m:
+            try:
+                datums.append(datetime.strptime(m.group(0).strip().replace(",", ""), "%d.%m.%Y %H:%M"))
+            except ValueError:
+                pass
+    if len(datums) >= 2:
+        uit["sortering_ok"] = all(a >= b for a, b in zip(datums, datums[1:]))
+    if datums:
+        tz = ZoneInfo("Europe/Amsterdam")
+        nieuwste = Listing(id="", source="", title="", price=0, year=0, km=0, url="",
+                           listing_date=datums[0].strftime("%d.%m.%Y, %H:%M"))
+        uit["nieuwste"] = _online_ago(nieuwste)
+
+    uit["ok"] = True
+    return uit
+
+
 def _fetch_single_detail(idx_url: tuple) -> tuple:
     """Haal één detail page op met actieve consent-click via playWithBrowser."""
     idx, url = idx_url
@@ -2035,6 +2206,15 @@ def _run_scrape():
     # (NL-prijs wordt niet meer dagelijks voorgescraped — hij komt nu LIVE per alert
     #  uit exact de Gaspedaal-zoeklink die we meesturen; zie send_telegram/cheapest_nl.)
 
+    # Zoekopdrachten uit de database (bron van waarheid). Elke ronde opnieuw
+    # gelezen, dus een via Telegram toegevoegde link werkt meteen — geen herstart.
+    searches = get_searches(conn, only_active=True)
+    if not searches:
+        log.warning("Geen actieve zoekopdrachten — niets te doen (voeg er een toe via Telegram)")
+        conn.close()
+        return
+    log.info("Actieve zoekopdrachten: %d", len(searches))
+
     all_listings: list[Listing] = []
     seen_ids: set[str] = set()
 
@@ -2045,9 +2225,9 @@ def _run_scrape():
         idx, cfg = idx_cfg
         return idx, scrape_mobile_de(conn, search_url=cfg["url"], fetch_details=False)
 
-    log.info("Zoekpagina's parallel ophalen (%d URLs) ...", len(MOBILE_DE_SEARCH_URLS))
+    log.info("Zoekpagina's parallel ophalen (%d URLs) ...", len(searches))
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(_fetch_search_page, (i, cfg)): i for i, cfg in enumerate(MOBILE_DE_SEARCH_URLS)}
+        futures = {pool.submit(_fetch_search_page, (i, cfg)): i for i, cfg in enumerate(searches)}
         for future in as_completed(futures):
             try:
                 idx, listings = future.result()
@@ -2061,14 +2241,14 @@ def _run_scrape():
     # auto's stil opslaan (geen alert). Voorkomt een burst bij een nieuwe/gewijzigde link.
     # Vroeg bepaald, want de flits-alert (hieronder) moet de baseline óók respecteren.
     baseline_searches = {
-        cfg["url"] for cfg in MOBILE_DE_SEARCH_URLS if not is_search_seeded(conn, cfg["url"])
+        cfg["url"] for cfg in searches if not is_search_seeded(conn, cfg["url"])
     }
     if baseline_searches:
         log.info("BASELINE: %d zoekopdracht(en) voor het eerst — dan-online auto's stil opslaan",
                  len(baseline_searches))
 
     # ── Verwerk resultaten (sequentieel voor dedup) ──
-    for i, search_cfg in enumerate(MOBILE_DE_SEARCH_URLS):
+    for i, search_cfg in enumerate(searches):
         url_label = search_cfg["label"]
         search_key = search_cfg["url"]
         require_pano = search_cfg.get("require_pano_in_desc", False)
@@ -2191,7 +2371,7 @@ def _run_scrape():
             log.error("NIET opgeslagen (Telegram mislukt, retry volgende run): %s", listing.title[:40])
 
     # Na deze run: alle zoekopdrachten als gebaselined markeren (voortaan wél alerten)
-    for cfg in MOBILE_DE_SEARCH_URLS:
+    for cfg in searches:
         mark_search_seeded(conn, cfg["url"])
 
     conn.close()
