@@ -1332,6 +1332,40 @@ def detect_model(title: str):
     return brand, model_key, model_tag, display_names
 
 
+def _online_ago(listing: Listing) -> str:
+    """Hoe lang geleden de advertentie online kwam.
+
+    Gebruikt mobile.de's eigen tijdstempel op de zoekkaart ('20.8.2026, 15:01',
+    Duitse/NL lokale tijd) — dus de échte online-tijd, niet ons detectiemoment.
+    Dit getal is de meetlat voor onze reactiesnelheid. Leeg als het ontbreekt.
+    """
+    raw = (listing.listing_date or "").strip()
+    if not raw:
+        return ""
+    dt = None
+    for fmt in ("%d.%m.%Y, %H:%M", "%d.%m.%Y %H:%M"):
+        try:
+            dt = datetime.strptime(raw, fmt)
+            break
+        except ValueError:
+            continue
+    if dt is None:
+        return ""
+
+    tz = ZoneInfo("Europe/Amsterdam")
+    secs = (datetime.now(tz) - dt.replace(tzinfo=tz)).total_seconds()
+    if secs < 60:
+        return f"{max(int(secs), 0)} sec geleden"
+    mins = int(secs // 60)
+    if mins < 60:
+        return f"{mins} min geleden"
+    hours, rest = divmod(mins, 60)
+    if hours < 24:
+        return f"{hours}u {rest}m geleden" if rest else f"{hours} uur geleden"
+    days = hours // 24
+    return f"{days} dag{'en' if days != 1 else ''} geleden"
+
+
 def send_flash_alert(listing: Listing) -> bool:
     """Directe, ongescoorde melding zodra een nieuwe auto gezien is.
 
@@ -1348,8 +1382,11 @@ def send_flash_alert(listing: Listing) -> bool:
         bits.append(str(listing.year))
     info = " · ".join(bits) if bits else "details volgen"
 
+    ago = _online_ago(listing)
+    head = f"🆕 <b>NIEUW ONLINE</b> ({ago})" if ago else "🆕 <b>NIEUW ONLINE</b>"
+
     text = (
-        f"⚡ <b>NIEUW — BEL NU</b>\n"
+        f"{head}\n"
         f"{listing.title}\n"
         f"<b>{info}</b>\n"
         f"\n"
