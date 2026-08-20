@@ -47,8 +47,12 @@ botsauto/
 │   ├── test_ai_scoring.py             # AI scoring tests
 │   ├── test_url.py                    # losse URL test
 │   └── .env                           # LOKAAL ONLY, nooit committen
-└── .github/workflows/
-    ├── alert.yml                      # ACTIEVE workflow (workflow_dispatch)
+├── server/                            # ← de draaiende opstelling
+│   ├── README.md                      # bediening, cadans wijzigen, herstel
+│   ├── healthcheck.sh                 # dagelijks Telegram-rapport
+│   └── systemd/                       # timers + services
+└── .github/workflows/                 # UITGESCHAKELD (historisch / noodoplossing)
+    ├── alert.yml                      # oude motor, staat op disabled
     ├── research-prices.yml            # NL-marktprijzen research
     ├── test-ai.yml                    # AI-scoring test (mét Anthropic key)
     └── test-url.yml
@@ -73,8 +77,8 @@ botsauto/
   → import-marge + klikbare "Vergelijk zelf op gaspedaal"-link. Slug wordt merk-
   generiek uit de titel afgeleid.
 - **Telegram Bot** voor alerts
-- **SQLite** (`listings.db`) als database, **durabel opgeslagen op de `db-data`
-  git-branch** (elke run hersteld + force-push snapshot)
+- **SQLite** (`listings.db`) als database — gewoon een bestand naast de code op de
+  server. *(De oude `db-data`-git-branch is niet meer nodig.)*
 
 ## Slimme, zelflerende scoring (het commerciële hart)
 
@@ -112,14 +116,17 @@ Volgende:
 - ⏭️ **Per-klant config (multi-tenant)** — must-haves, budget, doelmodellen en
   weging per autobedrijf instelbaar; dezelfde engine, andere config
 
-## Secrets (GitHub Actions)
+## Secrets
 
 | Secret | Doel |
 |--------|------|
 | `SCRAPE_DO_TOKEN` | Scrape.do API |
 | `ANTHROPIC_API_KEY` | Claude Haiku scoring |
 | `TELEGRAM_BOT_TOKEN` | Telegram alerts |
-| `TELEGRAM_CHAT_ID` | Telegram chat |
+| `TELEGRAM_CHAT_ID` | Telegram groep |
+
+Op de server staan ze in `/home/botsauto/app/auto-alert/.env` (0600). In GitHub
+staan ze ook nog als Actions-secrets (voor de uitgeschakelde noodoplossing).
 
 ## Hosting
 
@@ -155,14 +162,14 @@ Met het huidige venster: 246 runs/dag (3 min) of 723 runs/dag (60 sec).
 ⚠️ **Reken dit altijd na voordat je links toevoegt of het tempo verhoogt** — bij veel
 links is 60 sec niet haalbaar binnen het gedeelde budget.
 
-Pauzeren: `gh workflow disable alert.yml` (weer aan: `enable`).
+Pauzeren: `ssh root@62.238.17.43 systemctl stop botsauto.timer` (weer aan: `start`).
 
 ## Wat Claude moet doen
 
 ### Bij bugs / log-analyse
 
-1. Lees logs via `gh run list --workflow=alert.yml` en `gh run view <id> --log`
-   (`gh` staat op `~/.local/bin/gh`, niet op PATH — gebruik het volledige pad)
+1. Lees logs op de server: `ssh root@62.238.17.43 journalctl -u botsauto.service -n 50`
+   (live meekijken: `-f`). Zie `server/README.md`.
 2. Zoek het probleem in `auto-alert/scraper.py` (zie `auto-alert/CLAUDE.md` voor
    file:line referenties)
 3. Fix → commit → push naar de actieve branch
