@@ -66,8 +66,9 @@ botsauto/
 - **Draaivenster**: vol gas 08:00–20:00 CET, daarbuiten alleen bijhoud-rondes om
   20:00/00:00/04:00 — 90,4% van de auto's komt binnen dat venster online, dus dit
   halveert de credits zonder snelheidsverlies overdag
-- **Flits-alert**: direct na detectie een korte "🆕 NIEUW ONLINE (X min geleden)"-melding,
-  vóór detailpagina + AI-scoring; de volledige alert volgt ~30-60s later
+- **Leeftijdsgrens**: alleen auto's die < 24 uur online staan geven een melding.
+  Voorkomt valse "nieuwe" auto's die van pagina 2 naar pagina 1 schuiven als er
+  bovenaan iets verkocht wordt. Oudere auto's worden stil opgeslagen.
 - mobile.de zoek-URL's (nu 2, flexibel), parallel opgehaald
 - **Scrape.do** voor mobile.de (DataDome bypass, super mode + GDPR cookie)
 - **Claude Haiku 4.5** voor feature-scoring (**35 opties + kleur, merk-generiek** —

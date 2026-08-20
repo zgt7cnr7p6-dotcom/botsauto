@@ -10,12 +10,15 @@ Python-scraper die **mobile.de** afzoekt en **Telegram-alerts** stuurt bij nieuw
 auto's. Per auto: detailpagina ophalen → met **Claude Haiku** scoren op **35 opties
 + kleur** → vergelijken met de **NL-marktprijs** (import-marge) → alert.
 
-Twee alerts per auto:
-1. **Flits-alert** — direct na detectie, vóór de dure stappen ("🆕 NIEUW ONLINE
-   (2 min geleden)"). Zodat je meteen kunt bellen.
-2. **Volledige alert** — ~30-60s later, met score, optielijst en NL-marge.
+In de alert staat **hoe lang de auto al online is** ("Online sinds … (4 min geleden)"),
+uit mobile.de's eigen tijdstempel. Dat getal is de meetlat voor reactiesnelheid.
 
-Alles zit in één bestand: **`scraper.py`** (~2360 regels).
+> Er was tijdelijk een aparte **flits-alert** vóór de dure stappen; die is op
+> 2026-08-20 verwijderd. Zinvol toen een ronde op GitHub Actions 30-60s duurde,
+> maar op de eigen server duurt een hele ronde ~1s — beide berichten kwamen dus
+> tegelijk aan.
+
+Alles zit in één bestand: **`scraper.py`** (~2290 regels).
 
 ## Zoek-URL's — volledig flexibel
 
@@ -71,16 +74,16 @@ piek 11:00–14:00 (45%). 's Nachts 1-2 per link — ruim onder de 24-per-pagina
 dus 4-uursgaten missen niets. Dit halveerde het verbruik (288k → ~148k/mnd) zónder
 snelheidsverlies overdag.
 
-Handmatig buiten het venster draaien: **`force`-input** op de workflow
-(of `--force` lokaal). cron-job.org stuurt geen inputs en valt dus onder het venster.
+Handmatig buiten het venster draaien: `--force` meegeven
+(`sudo -u botsauto /home/botsauto/venv/bin/python scraper.py --force`).
 
-## Pipeline per run (`_run_scrape`, `scraper.py:2098`)
+## Pipeline per run (`_run_scrape`, `scraper.py:2025`)
 
 1. **Zoekpagina's parallel** (4 workers) via Scrape.do (`super=true`, `geoCode=de`).
 2. **Parse + filter** (`scrape_mobile_de`, `:1781`) — gesponsorde ads, al bekende
    listings, `require_text` en `min_listing_date` vallen af.
-3. **⚡ Flits-alert** (`send_flash_alert`, `:1369`) — meteen, vóór de dure stappen.
-   `flash_state`-tabel voorkomt dubbele flitsen; respecteert de baseline.
+3. **Leeftijdsfilter** — auto's ouder dan `MAX_LISTING_AGE_HOURS` (24u) worden
+   stil opgeslagen, géén alert. Vóór de detailpagina, dus scheelt ook credits.
 4. **Detailpagina's parallel** (8 workers, `:2018`) + GDPR-cookie; HTML opgeschoond
    (`clean_detail_html`, `:434`). Mislukt de fetch → `detail_incomplete=True` →
    **niet opslaan**, zodat de volgende run het opnieuw probeert.
@@ -135,12 +138,12 @@ gaspedaal"-link. De slug wordt **merk-generiek** uit de titel afgeleid
 
 ## Database
 
-SQLite `listings.db`, **durabel op de `db-data` git-branch** (elke run hersteld +
-force-push snapshot). Tabellen:
+SQLite `listings.db` — gewoon een bestand naast de code op de server.
+*(De oude `db-data`-git-branch is niet meer nodig.)* Tabellen:
 - `listings` — id, titel, prijs, jaar, km, url, score, features (JSON), model_key,
   brand, color, listing_date, location, first_seen, last_seen
 - `search_state` — welke zoek-URL's al gebaselined zijn
-- `flash_state` — welke listings al een flits-alert kregen
+*(`flash_state` kan in oude databases nog bestaan — ongebruikt sinds 2026-08-20.)*
 
 ## Telegram
 
@@ -195,42 +198,50 @@ wacht en probeert opnieuw.
 
 | Regel | Functie |
 |---|---|
-| `:2304` | `main` — venster-check + retry-loop |
-| `:2291` | `run_mode` — vol gas / nacht / overslaan |
-| `:2098` | `_run_scrape` — kern: scrape → flits → detail → score → alert |
-| `:1781` | `scrape_mobile_de` — zoekpagina-parser |
-| `:2018` | `_fetch_detail_pages` · `:2001` `_fetch_single_detail` |
-| `:1634` | `scrape_do_fetch` — Scrape.do-client met retry |
-| `:760` `:850` | `score_listing_ai` / `score_listing` |
-| `:501` | `AI_SCORING_PROMPT` |
-| `:1369` | `send_flash_alert` · `:1335` `_online_ago` |
-| `:1422` | `send_telegram` |
-| `:1115` | `market_spec_verdict` · `:1184` `available_features` |
-| `:1226` | `detect_model` |
+| `:2240` | `main` — venster-check + retry-loop |
+| `:2227` | `run_mode` — vol gas / nacht / overslaan |
+| `:2025` | `_run_scrape` — kern: scrape → filter → detail → score → alert |
+| `:1708` | `scrape_mobile_de` — zoekpagina-parser |
+| `:1945` | `_fetch_detail_pages` · `:1928` `_fetch_single_detail` |
+| `:1561` | `scrape_do_fetch` — Scrape.do-client met retry |
+| `:731` `:821` | `score_listing_ai` / `score_listing` |
+| `:472` | `AI_SCORING_PROMPT` |
+| `:1306` `:1328` | `_listing_age_hours` / `_online_ago` — leeftijd uit mobile.de's tijdstempel |
+| `:1346` | `send_telegram` |
+| `:1086` | `market_spec_verdict` · `:1155` `available_features` |
+| `:1197` | `detect_model` |
+| `:2224` | `MAX_LISTING_AGE_HOURS` · `:2214` venster-constanten |
 
 ## Storingen — check deze eerst bij "geen meldingen"
 
-1. **cron-job.org job Inactive** (zet zichzelf uit na fouten)
+1. **Timer stil** → `systemctl status botsauto.timer` op de server
 2. **Anthropic-tegoed op** → `credit balance is too low` → score=-1 → 0 alerts
 3. **Scrape.do-credits op** → 401 (verwarrend: zelfde code als ongeldige token —
    check `/info?token=` → `RemainingMonthlyRequest`)
-4. **Repo per ongeluk privé** → cron-job.org-token geweigerd
-5. **Groep omgezet naar supergroep** → chat-id veranderd
+4. **Groep omgezet naar supergroep** → chat-id veranderd
+
+> Hoofdsignaal: het **dagelijkse 08:05-rapport** in Telegram. Blijft dat uit,
+> dan is er iets mis — dat is precies het signaal dat vroeger ontbrak.
 
 ## Dev-loop
 
 ```bash
-# gh staat op ~/.local/bin/gh (niet op PATH)
-gh run list --workflow=alert.yml --limit 10
-gh run view <run-id> --log
-# Run-logs staan ook als commit-comment op de SHA
+ssh root@62.238.17.43
+
+journalctl -u botsauto.service -n 50      # laatste logs
+journalctl -u botsauto.service -f         # live meekijken
+systemctl start botsauto.service          # nu een ronde draaien
+systemctl list-timers botsauto            # volgende ronde?
 
 # Database bekijken
-git fetch origin db-data --depth=1
-git show origin/db-data:auto-alert/listings.db > /tmp/l.db && sqlite3 /tmp/l.db
+sudo -u botsauto sqlite3 /home/botsauto/app/auto-alert/listings.db
+
+# Code bijwerken na een push
+sudo -u botsauto git -C /home/botsauto/app pull
 ```
 
-Lokaal: `python scraper.py --dry-run --force` (geen Telegram, geen venster-check).
+Lokaal testen: `python scraper.py --dry-run --force` (geen Telegram, geen venster-check).
+Zie ook `server/README.md`.
 
 ## Wat er NIET moet gebeuren
 
@@ -243,13 +254,15 @@ Lokaal: `python scraper.py --dry-run --force` (geen Telegram, geen venster-check
 
 ## Backlog
 
-1. **Verhuizing naar eigen server** — always-on proces i.p.v. GitHub Actions;
-   schrapt ~1-1,5 min opstarttijd per run en maakt 60 sec pollen mogelijk.
-   Dan vervallen cron-job.org, GitHub-cron én de db-data-branch.
-2. **Hartslag/waarschuwing** — melding bij 401/stille storing (nu merk je uitval
-   pas doordat er geen alerts komen)
+1. **Zoeklinks via Telegram beheren** — links van code naar database, plus een
+   luisteraar die direct op berichten reageert (link plakken → knop "Toevoegen",
+   `/links` met verwijderknoppen). Alleen de eigenaar mag wijzigen; bij toevoegen
+   een link-test (werkt hij? staat hij op nieuwste-eerst?) en een credit-waarschuwing.
+2. **Naar 60 sec pollen** zodra het creditbudget het toelaat (`OnCalendar=*:*:0`)
 3. **Merk-eigen optienamen tonen** (Haiku's eigen term bij ✅)
 4. **Per-klant config (multi-tenant)**
+
+✅ *Gedaan: verhuizing naar eigen server (2026-08-20) en hartslag/dagrapport.*
 
 ## Git / branch policy
 
