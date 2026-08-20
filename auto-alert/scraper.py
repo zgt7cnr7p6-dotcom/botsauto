@@ -2085,14 +2085,14 @@ def check_search_url(url: str) -> dict:
         if "gesponsert" in tekst.lower()[:50] or "sponsored" in tekst.lower()[:50]:
             continue
         echte_kaarten += 1
+        if len(datums) >= 8:      # 8 datums is genoeg om de sortering te beoordelen,
+            continue              # maar we tellen wél alle kaarten door
         m = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4}),?\s*(\d{1,2}:\d{2})", tekst)
         if m:
             try:
                 datums.append(datetime.strptime(m.group(0).strip().replace(",", ""), "%d.%m.%Y %H:%M"))
             except ValueError:
                 pass
-        if len(datums) >= 8:
-            break
     uit["count"] = echte_kaarten
     if len(datums) >= 2:
         uit["sortering_ok"] = all(a >= b for a, b in zip(datums, datums[1:]))
