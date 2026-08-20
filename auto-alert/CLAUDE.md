@@ -20,12 +20,21 @@ uit mobile.de's eigen tijdstempel. Dat getal is de meetlat voor reactiesnelheid.
 
 Alles zit in één bestand: **`scraper.py`** (~2290 regels).
 
-## Zoek-URL's — volledig flexibel
+## Zoekopdrachten — staan in de DATABASE
 
-`MOBILE_DE_SEARCH_URLS` (`scraper.py:69`) is een **lijst die vrij groeit of krimpt**.
-Nu staan er **2** in (Audi + BMW, beide hybride + panoramadak), maar dat is een
-momentopname: de eigenaar past de set regelmatig aan en wil er mogelijk **10+**
-draaien. Een link toevoegen = een `{"label": ..., "url": ...}` erbij, verder niets.
+De actieve zoekopdrachten staan in de tabel **`searches`**, niet in de code. Ze zijn
+te beheren **via Telegram** (zie hieronder) en de scraper leest de tabel élke ronde
+opnieuw — een wijziging is dus meteen actief, zonder herstart.
+
+`SEED_SEARCH_URLS` (`scraper.py:69`) is alleen de **startlijst**: die wordt één keer
+ingeladen als de tabel nog leeg is (verse database). Daarna wordt hij genegeerd.
+
+Helpers: `get_searches` / `add_search` / `remove_search`. Verwijderen ruimt ook de
+`search_state`-rij op, zodat dezelfde link later opnieuw baselinet (stil opslaan)
+in plaats van een golf oude auto's te alerten.
+
+Nu staan er **2** in (Audi + BMW, hybride + panoramadak) — een momentopname; de
+eigenaar wil er mogelijk **10+** draaien.
 
 Optionele velden per URL-config:
 - `label` — naam in de logs
@@ -151,6 +160,20 @@ Alerts gaan naar een **groep** (secret `TELEGRAM_CHAT_ID`), niet naar een privé
 zodat meerdere mensen meekijken. Wordt de groep ooit een supergroep, dan verandert
 het id en stopt de bezorging.
 
+### Bediening (`telegram_bot.py`)
+
+Losse long-polling service (`botsauto-bot.service`, `Restart=always`) die binnen een
+seconde reageert. Beheert de `searches`-tabel:
+
+- **een mobile.de-zoeklink plakken** → `check_search_url` test hem → bevestigen met
+  een knop. Toont: aantal auto's op pagina 1, hoe oud de nieuwste is, of de sortering
+  gecorrigeerd moest worden, en het **geschatte creditverbruik** vóór bevestiging.
+- **`/links`** — overzicht met verwijderknop per zoekopdracht (mét bevestigingsstap)
+- **`/status`**, **`/help`**
+
+Alleen **`TELEGRAM_OWNER_ID`** (in `.env`) mag wijzigen; anderen krijgen een nette
+weigering. De database staat in **WAL-modus** zodat scraper en bot 'm veilig delen.
+
 ## Credits (Scrape.do) — de belangrijkste beperking
 
 **mobile.de vereist super-mode.** Live getest (2026-08-20): basis (1cr),
@@ -254,15 +277,14 @@ Zie ook `server/README.md`.
 
 ## Backlog
 
-1. **Zoeklinks via Telegram beheren** — links van code naar database, plus een
-   luisteraar die direct op berichten reageert (link plakken → knop "Toevoegen",
-   `/links` met verwijderknoppen). Alleen de eigenaar mag wijzigen; bij toevoegen
-   een link-test (werkt hij? staat hij op nieuwste-eerst?) en een credit-waarschuwing.
-2. **Naar 60 sec pollen** zodra het creditbudget het toelaat (`OnCalendar=*:*:0`)
-3. **Merk-eigen optienamen tonen** (Haiku's eigen term bij ✅)
-4. **Per-klant config (multi-tenant)**
+1. **Naar 60 sec pollen** zodra het creditbudget het toelaat (`OnCalendar=*:*:0`
+   in `botsauto.timer`, én `POLL_INTERVAL_MINUTES` in scraper.py meeveranderen)
+2. **Merk-eigen optienamen tonen** (Haiku's eigen term bij ✅)
+3. **Per-klant config (multi-tenant)** — de `searches`-tabel is hiervoor de opmaat:
+   config staat al los van code
 
-✅ *Gedaan: verhuizing naar eigen server (2026-08-20) en hartslag/dagrapport.*
+✅ *Gedaan (2026-08-20): eigen server, hartslag/dagrapport, zoekopdrachten in de
+database, beheer via Telegram.*
 
 ## Git / branch policy
 

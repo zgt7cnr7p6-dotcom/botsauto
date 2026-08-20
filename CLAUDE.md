@@ -21,7 +21,8 @@ binnenkomt **automatisch slimmer worden**. Zie ook "Productvisie & roadmap".
 
 ## Huidige zoek-set (momentopname — wijzigt regelmatig)
 
-`MOBILE_DE_SEARCH_URLS` is een **vrij aanpasbare lijst**. Op dit moment staan er **2**
+De zoekopdrachten staan in de **database** en zijn te beheren **via Telegram**
+(link plakken → bevestigen; `/links` om te verwijderen). Op dit moment staan er **2**
 links in, beide hybride + panoramadak:
 - **Audi** (2021–2024, ≤100.000 km)
 - **BMW** (2022–2024, ≤80.000 km)
@@ -45,6 +46,7 @@ botsauto/
 │   ├── nl_prices.py                   # NL-prijs live uit de Gaspedaal-zoeklink per alert
 │   ├── requirements.txt               # requests, beautifulsoup4, anthropic
 │   ├── test_ai_scoring.py             # AI scoring tests
+│   ├── telegram_bot.py                # bediening via Telegram (zoekopdrachten)
 │   ├── test_url.py                    # losse URL test
 │   └── .env                           # LOKAAL ONLY, nooit committen
 ├── server/                            # ← de draaiende opstelling
