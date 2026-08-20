@@ -224,6 +224,12 @@ def init_db():
     conn.execute(
         "CREATE TABLE IF NOT EXISTS search_state (search_key TEXT PRIMARY KEY, seeded_at TEXT)"
     )
+    # Flits-alerts: welke listings al een directe (ongescoorde) melding kregen.
+    # Los van `listings` omdat een listing pas ná de volledige alert wordt opgeslagen —
+    # zonder dit zou een mislukte detail-fetch elke run opnieuw flitsen.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS flash_state (id TEXT PRIMARY KEY, flashed_at TEXT)"
+    )
     conn.commit()
 
     # Eenmalige backfill: model_key/brand voor bestaande rijen uit de opgeslagen titel
@@ -254,6 +260,22 @@ def mark_search_seeded(conn, search_key: str):
     conn.execute(
         "INSERT OR IGNORE INTO search_state (search_key, seeded_at) VALUES (?, ?)",
         (search_key, now),
+    )
+    conn.commit()
+
+
+def was_flashed(conn, listing_id: str) -> bool:
+    """True als deze listing al een flits-alert kreeg (nooit twee keer flitsen)."""
+    return conn.execute(
+        "SELECT 1 FROM flash_state WHERE id = ?", (listing_id,)
+    ).fetchone() is not None
+
+
+def mark_flashed(conn, listing_id: str):
+    """Leg vast dat de flits-alert voor deze listing verstuurd is."""
+    conn.execute(
+        "INSERT OR IGNORE INTO flash_state (id, flashed_at) VALUES (?, ?)",
+        (listing_id, datetime.now(timezone.utc).isoformat()),
     )
     conn.commit()
 
@@ -1310,6 +1332,56 @@ def detect_model(title: str):
     return brand, model_key, model_tag, display_names
 
 
+def send_flash_alert(listing: Listing) -> bool:
+    """Directe, ongescoorde melding zodra een nieuwe auto gezien is.
+
+    Gaat eruit vóór de detailpagina en de AI-scoring (samen ~30-60s), zodat je
+    meteen kunt bellen. De volledige alert met score/opties/NL-marge volgt daarna
+    automatisch als tweede bericht.
+    """
+    bits = []
+    if listing.price:
+        bits.append(f"€{listing.price:,}".replace(",", "."))
+    if listing.km:
+        bits.append(f"{listing.km:,} km".replace(",", "."))
+    if listing.year:
+        bits.append(str(listing.year))
+    info = " · ".join(bits) if bits else "details volgen"
+
+    text = (
+        f"⚡ <b>NIEUW — BEL NU</b>\n"
+        f"{listing.title}\n"
+        f"<b>{info}</b>\n"
+        f"\n"
+        f"<a href=\"{listing.url}\">👉 BEKIJK ADVERTENTIE</a>\n"
+        f"<i>Volledige score volgt zo…</i>"
+    )
+
+    if DRY_RUN:
+        log.info("[DRY-RUN] Flits-alert:\n%s", text)
+        return True
+
+    try:
+        resp = req_lib.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": text,
+                "parse_mode": "HTML",
+                "link_preview_options": {"url": listing.url},
+            },
+            timeout=15,
+        )
+    except Exception as exc:  # nooit de run laten klappen op een flits
+        log.warning("Flits-alert mislukt (%s): %s", exc, listing.title[:40])
+        return False
+    if resp.ok:
+        log.info("FLITS: %s — %s", listing.title[:50], info)
+        return True
+    log.warning("Flits-alert fout: %s %s", resp.status_code, resp.text[:200])
+    return False
+
+
 def send_telegram(listing: Listing):
     brand, model_key, model_tag, display_names = detect_model(listing.title)
 
@@ -2021,6 +2093,16 @@ def _run_scrape():
                 log.error("Zoekpagina %d fout: %s", idx, e)
                 search_results[idx] = []
 
+    # Baseline per zoekopdracht: URL's die nog niet gebaselined zijn -> de dan-online
+    # auto's stil opslaan (geen alert). Voorkomt een burst bij een nieuwe/gewijzigde link.
+    # Vroeg bepaald, want de flits-alert (hieronder) moet de baseline óók respecteren.
+    baseline_searches = {
+        cfg["url"] for cfg in MOBILE_DE_SEARCH_URLS if not is_search_seeded(conn, cfg["url"])
+    }
+    if baseline_searches:
+        log.info("BASELINE: %d zoekopdracht(en) voor het eerst — dan-online auto's stil opslaan",
+                 len(baseline_searches))
+
     # ── Verwerk resultaten (sequentieel voor dedup) ──
     for i, search_cfg in enumerate(MOBILE_DE_SEARCH_URLS):
         url_label = search_cfg["label"]
@@ -2072,6 +2154,15 @@ def _run_scrape():
             lst._search_key = search_key
             filtered.append(lst)
 
+        # Stap 2b: FLITS-ALERT — meteen melden, nog vóór detailpagina + AI-scoring.
+        # Die twee kosten samen ~30-60s; bij gewilde auto's is dat het verschil
+        # tussen eerste beller of nummer zes. De volledige alert volgt erna.
+        if filtered and search_key not in baseline_searches:
+            for lst in filtered:
+                if not was_flashed(conn, lst.id):
+                    if send_flash_alert(lst):
+                        mark_flashed(conn, lst.id)
+
         # Stap 3: Alleen voor gefilterde listings detail pages ophalen
         if filtered:
             log.info("[%s] %d listings na filter, detail pages ophalen ...", url_label, len(filtered))
@@ -2097,14 +2188,7 @@ def _run_scrape():
             sc.detail_incomplete = getattr(orig, 'detail_incomplete', False)
         all_listings = scored
 
-    # Baseline per zoekopdracht: URL's die nog niet gebaselined zijn -> de dan-online
-    # auto's stil opslaan (geen alert). Voorkomt een burst bij een nieuwe/gewijzigde link.
-    baseline_searches = {
-        cfg["url"] for cfg in MOBILE_DE_SEARCH_URLS if not is_search_seeded(conn, cfg["url"])
-    }
-    if baseline_searches:
-        log.info("BASELINE: %d zoekopdracht(en) voor het eerst — dan-online auto's stil opslaan",
-                 len(baseline_searches))
+    # (baseline_searches is hierboven al bepaald, vóór de flits-alerts)
 
     for listing in all_listings:
         # Detailpagina niet geladen -> data onbetrouwbaar: NIET opslaan, volgende run opnieuw
