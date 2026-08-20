@@ -2279,22 +2279,52 @@ def _run_scrape():
 MAX_RETRIES = 3
 RETRY_BACKOFF = [10, 30, 60]  # seconden wachten tussen retries
 
+# ── Draaivenster (CET) ──────────────────────────────────────────────────────
+# Overdag vol gas, 's nachts alleen bijhouden. Scheelt ~50% Scrape.do-credits
+# zonder snelheidsverlies overdag: 90,4% van de auto's komt tussen 08:00-20:00
+# online (gemeten over de eigen dataset), en 's nachts is er geen concurrentie.
+ACTIVE_START_HOUR = 8    # vanaf 08:00 vol gas
+ACTIVE_END_HOUR = 20     # tot 19:59 vol gas
+NIGHT_SLOT_HOURS = (20, 0, 4)  # daarbuiten: één ronde per 4 uur (bijhouden)
+
+
+def run_mode(hour: int, minute: int) -> str:
+    """'full' (vol gas), 'night' (bijhoud-ronde) of 'skip' (niet draaien).
+
+    Losse functie zodat het schema testbaar is zonder de klok te manipuleren.
+    """
+    if ACTIVE_START_HOUR <= hour < ACTIVE_END_HOUR:
+        return "full"
+    # Marge van 5 min: de trigger kan een paar minuten driften.
+    if hour in NIGHT_SLOT_HOURS and minute < 5:
+        return "night"
+    return "skip"
+
 
 def main():
-    # Quiet hours: niet scrapen tussen 20:00 en 08:00 CET, behalve om 00:30
-    force = "--force" in sys.argv or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    # ── Actief venster ──────────────────────────────────────────────────────
+    # 08:00-19:59 CET: vol gas (elke ronde draait). Gemeten op eigen data komt
+    # 90,4% van alle auto's in dit venster online; buiten het venster is snelle
+    # polling weggegooid geld — en 's nachts belt niemand.
+    # 20:00-07:59: alleen een bijhoud-ronde om 20:00, 00:00 en 04:00 (elke 4 uur).
+    # Veilig omdat mobile.de per zoekpagina de 24 nieuwste toont en er 's nachts
+    # 1-2 auto's per link bijkomen — ruim onder die grens.
+    force = "--force" in sys.argv
     if not force:
         now_cet = datetime.now(ZoneInfo("Europe/Amsterdam"))
-        hour = now_cet.hour
-        minute = now_cet.minute
-        is_night_scan = (hour == 0 and 25 <= minute <= 40)
-        if not is_night_scan and (hour >= 20 or hour < 8):
-            log.info("Quiet hours (%02d:%02d CET) — overslaan (actief 08:00-20:00 + 00:30)", hour, minute)
+        mode = run_mode(now_cet.hour, now_cet.minute)
+        if mode == "skip":
+            log.info(
+                "Buiten venster (%02d:%02d CET) — overslaan (vol gas %02d:00-%02d:00, "
+                "nacht-bijhoudrondes om %s)",
+                now_cet.hour, now_cet.minute, ACTIVE_START_HOUR, ACTIVE_END_HOUR,
+                ", ".join(f"{h:02d}:00" for h in NIGHT_SLOT_HOURS),
+            )
             return
-        if is_night_scan:
-            log.info("Nachtscan (%02d:%02d CET)", hour, minute)
+        if mode == "night":
+            log.info("Nacht-bijhoudronde (%02d:%02d CET)", now_cet.hour, now_cet.minute)
     else:
-        log.info("--force: quiet hours overgeslagen")
+        log.info("--force: venster-check overgeslagen")
 
     log.info("=== Auto-Alert Scraper gestart ===")
     log.info(

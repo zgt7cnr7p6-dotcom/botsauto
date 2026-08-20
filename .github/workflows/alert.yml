@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      force:
+        description: 'Nu draaien, ook buiten het actieve venster (08:00-20:00 CET)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -58,7 +63,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python scraper.py 2>&1 | tee scraper_output.log
+        run: python scraper.py ${{ inputs.force && '--force' || '' }} 2>&1 | tee scraper_output.log
 
       - name: Post log summary as commit comment
         if: always()
