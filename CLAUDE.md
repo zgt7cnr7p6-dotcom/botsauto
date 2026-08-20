@@ -19,16 +19,19 @@ ultraluxe. Elk bedrijf werkt met andere auto's; het systeem moet zonder
 code-aanpassingen met elk merk/segment kunnen werken en met elke auto die
 binnenkomt **automatisch slimmer worden**. Zie ook "Productvisie & roadmap".
 
-## Huidige zoek-set (eigen inkoop-focus, wijzigt)
+## Huidige zoek-set (momentopname — wijzigt regelmatig)
 
-Premium plug-in hybrides met panoramadak, 2021+, binnen budget:
-- **Audi**: Q3 (Sportback), Q5 (Sportback), A3, A4 Avant, Q8
-- **Mercedes**: C-Klasse (sedan/Estate), GLC, CLA, E-Klasse
-- **BMW**: 3-serie / 330e (sedan/Touring)
-- **Cupra**: Formentor
+`MOBILE_DE_SEARCH_URLS` is een **vrij aanpasbare lijst**. Op dit moment staan er **2**
+links in, beide hybride + panoramadak:
+- **Audi** (2021–2024, ≤100.000 km)
+- **BMW** (2022–2024, ≤80.000 km)
 
-> De scoring/vergelijking werkt echter voor **elk** merk/model dat je toevoegt —
-> deze lijst is alleen de huidige zoekopdracht, geen limiet van het systeem.
+> Dit is **geen limiet van het systeem**. De eigenaar past de set regelmatig aan en
+> wil er mogelijk **10+** draaien. Een merk/model toevoegen = alleen een zoek-URL
+> erbij; de scoring en vergelijking zijn merk-generiek.
+>
+> ⚠️ Wél eerst de **credits narekenen** — elke extra link vermenigvuldigt de kosten
+> (zie "Scrape.do budget").
 
 ## Repo structuur
 
@@ -54,8 +57,13 @@ botsauto/
 ## Hoe het draait
 
 - **GitHub Actions**, getriggerd door **cron-job.org** (elke 3 min) via
-  `workflow_dispatch` — GitHub-cron is uit (kan niet onder 5 min)
-- ~13 mobile.de zoek-URL's, parallel opgehaald
+  `workflow_dispatch`, met een **GitHub-cron van 5 min als vangnet**
+- **Draaivenster**: vol gas 08:00–20:00 CET, daarbuiten alleen bijhoud-rondes om
+  20:00/00:00/04:00 — 90,4% van de auto's komt binnen dat venster online, dus dit
+  halveert de credits zonder snelheidsverlies overdag
+- **Flits-alert**: direct na detectie een korte "🆕 NIEUW ONLINE (X min geleden)"-melding,
+  vóór detailpagina + AI-scoring; de volledige alert volgt ~30-60s later
+- mobile.de zoek-URL's (nu 2, flexibel), parallel opgehaald
 - **Scrape.do** voor mobile.de (DataDome bypass, super mode + GDPR cookie)
 - **Claude Haiku 4.5** voor feature-scoring (**35 opties + kleur, merk-generiek** —
   detecteert zelf het merk en mapt elk merk's termen op de vaste optie-lijst)
@@ -112,21 +120,44 @@ Volgende:
 | `TELEGRAM_BOT_TOKEN` | Telegram alerts |
 | `TELEGRAM_CHAT_ID` | Telegram chat |
 
-## Hosting & privacy
+## Hosting
 
-- De repo staat op **privé** (plannen niet zichtbaar). ⚠️ **Let op:** privé-repo's
-  hebben een **maandelijkse limiet op GitHub Actions-minuten** (Free ≈ 2.000/mnd).
-  De ~3-min-cadans (≈480 runs/dag) gaat daar ver overheen → op termijn stopt Actions
-  óf ga je betalen. Opties: (a) cadans verlagen, (b) Actions-minuten betalen, of
-  (c) de scraper naar een eigen server/worker verplaatsen.
+- ⚠️ **De repo moet PUBLIEK blijven.** Twee redenen: (1) op privé kon de token van
+  cron-job.org er niet meer bij → de job werd automatisch uitgezet en de bot lag
+  **4 weken stil**; (2) privé-repo's hebben een limiet op GitHub Actions-minuten
+  (≈2.000/mnd) die deze cadans ver overschrijdt. Publiek = onbeperkt.
+- Er staan geen secrets in de code of de historie (gecontroleerd); alle sleutels
+  zitten in GitHub Actions-secrets.
+- **Backlog:** verhuizen naar een eigen server (always-on proces) — schrapt de
+  1–1,5 min opstarttijd per run en maakt 60 sec pollen mogelijk. Dan vervallen
+  cron-job.org, de GitHub-cron én de `db-data`-branch.
 
 ## Scrape.do budget
 
-Doel-plan: **1.250.000 credits/maand**. Elke run kost credits voor de zoekpagina's
-(super mode, 10 cr elk) + per nieuwe listing een detail-page fetch (render, 5 cr) +
-per alert een live Gaspedaal-fetch (render). Bij ~3-min cadans is dat fors — op een
-kleiner plan raakt het snel op (zie de memory over credit-verbruik en pauzeren via
-`gh workflow disable alert.yml`).
+Plan: **1.250.000 credits/maand**, **gedeeld met een ander project**.
+
+**mobile.de vereist super-mode** (live getest): goedkopere modes geven HTTP 400.
+Dus **10 credits per zoekpagina** is de bodem. Detailpagina 10 cr (per nieuwe auto),
+Gaspedaal 5 cr (per alert).
+
+Het **aantal auto's maakt vrijwel niets uit** (~1,5%). De rekening is:
+
+```
+credits/maand ≈ runs_per_dag × aantal_links × 10 × 30
+```
+
+Met het huidige venster: 246 runs/dag (3 min) of 723 runs/dag (60 sec).
+
+| Links | 3 min | 60 sec |
+|---|---|---|
+| **2 (nu)** | **148k** | 434k |
+| 5 | 369k | 1,08M |
+| 10 | 738k | 2,17M |
+
+⚠️ **Reken dit altijd na voordat je links toevoegt of het tempo verhoogt** — bij veel
+links is 60 sec niet haalbaar binnen het gedeelde budget.
+
+Pauzeren: `gh workflow disable alert.yml` (weer aan: `enable`).
 
 ## Wat Claude moet doen
 

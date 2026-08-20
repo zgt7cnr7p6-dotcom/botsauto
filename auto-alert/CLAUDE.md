@@ -1,247 +1,248 @@
 # CLAUDE.md — Auto-Alert Scraper
 
-> Lees dit eerst voordat je iets aan dit project verandert. Dit is de
-> volledige technische briefing. Het hoort bij de root `CLAUDE.md`.
+> Lees dit eerst voordat je iets aan dit project verandert. Dit is de volledige
+> technische briefing. Het hoort bij de root `CLAUDE.md`.
+> Laatst bijgewerkt: **2026-08-20**.
 
 ## TL;DR
 
-Python-scraper die elke paar minuten **mobile.de** afzoekt naar premium
-plug-in hybrides met panoramadak en alerts stuurt via **Telegram**. Per
-listing wordt de detail-pagina opgehaald, met **Claude Haiku** gescoord op
-27 opties + kleur, en vergeleken met **NL-marktprijzen** om de import-marge
-te bepalen.
+Python-scraper die **mobile.de** afzoekt en **Telegram-alerts** stuurt bij nieuwe
+auto's. Per auto: detailpagina ophalen → met **Claude Haiku** scoren op **35 opties
++ kleur** → vergelijken met de **NL-marktprijs** (import-marge) → alert.
 
-Draait op **GitHub Actions**, getriggerd door **cron-job.org** (elke 3 min)
-via `workflow_dispatch` — GitHub's eigen cron is uitgeschakeld omdat die
-niet onder 5 min kan en minder betrouwbaar is.
+Twee alerts per auto:
+1. **Flits-alert** — direct na detectie, vóór de dure stappen ("🆕 NIEUW ONLINE
+   (2 min geleden)"). Zodat je meteen kunt bellen.
+2. **Volledige alert** — ~30-60s later, met score, optielijst en NL-marge.
 
-Alles zit in één bestand: **`scraper.py`** (~1955 regels).
+Alles zit in één bestand: **`scraper.py`** (~2360 regels).
 
-## Welke auto's worden gezocht?
+## Zoek-URL's — volledig flexibel
 
-Meerdere merken/modellen, allemaal **HYBRID (PHEV)**, 2021+, met
-panoramadak, binnen budget:
+`MOBILE_DE_SEARCH_URLS` (`scraper.py:69`) is een **lijst die vrij groeit of krimpt**.
+Nu staan er **2** in (Audi + BMW, beide hybride + panoramadak), maar dat is een
+momentopname: de eigenaar past de set regelmatig aan en wil er mogelijk **10+**
+draaien. Een link toevoegen = een `{"label": ..., "url": ...}` erbij, verder niets.
 
-| Merk | Modellen |
-|------|----------|
-| **Audi** | Q3 (Sportback), Q5 (Sportback), A3, A4 Avant, Q8 |
-| **Mercedes** | C-Klasse (sedan/Estate), GLC, CLA, E-Klasse |
-| **BMW** | 3-serie / 330e (sedan/Touring) |
-| **Cupra** | Formentor |
-
-## Repository layout
-
-```
-botsauto/
-├── auto-alert/
-│   ├── scraper.py            # DE scraper. Alles-in-één (~1955 regels).
-│   ├── requirements.txt      # requests, beautifulsoup4, anthropic
-│   ├── CLAUDE.md             # ← dit bestand
-│   ├── test_ai_scoring.py    # AI scoring tests tegen opgeslagen HTML
-│   ├── test_url.py           # losse mobile.de URL test
-│   ├── .gitignore            # negeert listings.db, __pycache__, .env, debug_*.html
-│   └── .github/workflows/alert.yml  # LEGACY (oude cron */5), niet actief
-└── .github/workflows/
-    ├── alert.yml             # ACTIEVE workflow (workflow_dispatch via cron-job.org)
-    ├── research-prices.yml   # NL-marktprijzen research workflow
-    ├── test-ai.yml
-    └── test-url.yml
-```
-
-> Let op: er staan twee `alert.yml` bestanden. De **actieve** is
-> `botsauto/.github/workflows/alert.yml`. Die in `auto-alert/.github/` is legacy.
-
-## Wat de scraper precies doet
-
-### Zoekcriteria (`scraper.py:49`)
-
-```python
-SEARCH_CRITERIA = {
-    "model": "Audi Q3 45 TFSI e",  # legacy label, scraper zoekt veel breder
-    "fuel": "hybrid", "year_min": 2021,
-    "km_max": 80_000, "price_max": 40_000, "country": "DE",
-}
-```
-
-### Zoek-URL's (`MOBILE_DE_SEARCH_URLS`, `scraper.py:63`)
-
-13 mobile.de zoek-URL's. Twee soorten pano-filtering:
-
-1. **Freetext** (`ms=...;pano`/`sportback`/etc.) — oudere Q3-URL's.
-2. **Feature-filter** (`fe=PANORAMIC_GLASS_ROOF`) — nieuwere "dealer-inkoop"
-   URL's; mobile.de's eigen pano-filter, betrouwbaarder dan freetext.
-
-Elke URL-config heeft velden:
+Optionele velden per URL-config:
 - `label` — naam in de logs
-- `require_pano_in_desc` — `True` → alleen alerten als AI panoramadak detecteert
-- `require_text` — optioneel: alleen doorsturen als deze tekst in titel/desc staat
-- `min_listing_date` — optioneel `YYYY-MM-DD`: oudere listings opslaan zonder alert
-  (voorkomt alert-spam bij toevoegen van een nieuwe URL voor bestaande voorraad)
+- `require_pano_in_desc` — `True` → alleen alerten als de AI panoramadak detecteert
+- `require_text` — alleen doorsturen als deze tekst in titel/omschrijving staat
+- `min_listing_date` — `YYYY-MM-DD`: oudere listings opslaan zonder alert
 
-URL-overzicht (labels): Q3 pano · Q3 Sportback (pano check) ·
-Multi-brand pano (C/GLC/330/Q5) · GLC pano 2023-2025 · Mercedes CLA pano ·
-Mercedes E-Klasse pano · Mercedes C pano 2022+ · GLC AMG pano 2023+ ·
-Q5 pano 2021+ · A3 pano 2023+ · A4 Avant pano 2022+ · Q8 pano 2021+.
+> ⚠️ **Elke extra link vermenigvuldigt de kosten.** Zie "Credits" hieronder —
+> dat is de belangrijkste ontwerpbeperking van dit project.
 
-### Pipeline per run (`_run_scrape`, `scraper.py:1742`)
+`SEARCH_CRITERIA` (`scraper.py:53`) is nog slechts een **legacy label** voor de
+logregel; de echte filtering zit volledig in de mobile.de-URL's.
 
-1. **Alle zoekpagina's parallel** (`ThreadPoolExecutor`, 4 workers) via
-   **Scrape.do** (`super=true`, `geoCode=de`). Zonder Scrape.do → 502/DataDome.
-2. **Parse + dedup** (`scrape_mobile_de`, `scraper.py:1431`): titel, prijs, km,
-   jaar, locatie, listing-datum. Gesponsorde ads worden overgeslagen. Listings
-   die al in `listings.db` staan of niet aan `require_text`/`min_listing_date`
-   voldoen worden gefilterd (en zo nodig opgeslagen zonder alert).
-3. **Detail pages parallel** (`_fetch_detail_pages`, `scraper.py:1662`, 8 workers):
-   Scrape.do `super=true` + `setCookies=usercentrics-cmp-consent=true` voor
-   GDPR. HTML wordt opgeschoond (`clean_detail_html`, `scraper.py:412`):
-   cookie banners, nav, footer, GDPR-tekst eruit. Mislukt de detail-fetch →
-   `detail_incomplete=True` (score onbetrouwbaar, NIET opslaan zodat retry volgt).
-4. **AI scoring parallel** (`score_listing`, 5 workers): Claude Haiku 4.5
-   (`claude-haiku-4-5-20251001`) met `AI_SCORING_PROMPT` (`scraper.py:479`).
-   Geeft JSON met **27 features + kleur**. 3x retry; daarna `score=-1` en
-   **niet** opslaan zodat de volgende run het opnieuw probeert.
-5. **Pano-filter**: bij `require_pano_in_desc` URL's zonder `panoramadak` in
-   features → opslaan, géén alert.
-   **Sportpakket-filter** (`SPORT_PACKAGE_FEATURES`, `scraper.py`): listing
-   zonder `s_line`/`s_line_exterieur` (= S line / AMG Line / M Sportpaket / VZ)
-   → opslaan, géén alert. Werkt op de al-gescoorde features, dus geen extra
-   AI-calls. Bij `detail_incomplete` → niet opslaan zodat de volgende run het
-   opnieuw probeert.
-6. **Telegram alert** (`send_telegram`, `scraper.py:1058`): merk-detectie uit
-   titel, NL-marktprijs vergelijking, koopadvies (`_buy_advice`), verdict,
-   feature-checklist (must-haves met ⭐). Pas **ná** succesvolle send wordt de
-   listing in de DB gezet.
-7. **Seed mode**: als de DB leeg is (eerste run / cache verloren) en er >5
-   listings zijn → alles opslaan zónder alerts. Voorkomt 70+ alerts tegelijk.
-8. **Failure path**: `_run_scrape` zit in retry-loop (`MAX_RETRIES=3`, backoff
-   `[10,30,60]s`). Volledige fail → Telegram `🚨 SCRAPER GEFAALD`.
+## Draaien & triggers
 
-### AI scoring: features (`scraper.py:207`, `FULL_OPTION_FEATURES`)
+- **cron-job.org** → elke 3 min een `workflow_dispatch` op `alert.yml` (hoofdtrigger)
+- **GitHub-cron** elke 5 min in `alert.yml` als **vangnet** (GitHub knijpt `schedule`
+  hard af: gemeten ~1 run/uur i.p.v. 12). Dubbele triggers zijn onschadelijk:
+  `concurrency` voorkomt overlap en de DB ontdubbelt.
+- ⚠️ **De repo moet publiek blijven.** Op privé kon de token van cron-job.org er niet
+  meer bij → job automatisch uitgezet → bot lag 4 weken stil (juli-aug 2026).
 
-24 features in `FULL_OPTION_FEATURES` (panoramadak, keyless, camera's, s_line
-(int/ext), matrix_led, velgen, audio_premium, stoelen, ACC, lane/travel assist,
-drive_select, onderstel, assists, ambient, achterklep, optik zwart, dyn.
-knipperlicht, head_up, luchtvering). Plus `stoelen_memory` en `sportback` voor
-display. Kleur wordt apart teruggegeven.
+### Draaivenster (`run_mode`, `scraper.py:2291`)
 
-**Merk-bewuste prompt** — de prompt mapt pakketten per merk naar features:
-- **Audi** (Q3/Q5/A3): S line, Assistenzpaket Tour/Stadt, Komfortschlüssel,
-  B&O/Sonos, Matrix LED, Optikpaket Schwarz, drive select, luchtvering (Q5)
-- **Mercedes** (C/GLC): AMG Line, Night-Paket, DISTRONIC, Fahrassistenz-Paket,
-  KEYLESS-GO, Burmester, DIGITAL LIGHT, AIRMATIC, pakket-tiers (Advanced/Premium)
-- **BMW** (3er/330e): M Sportpaket, Shadow Line, Harman Kardon, Comfort Access,
-  Driving Assistant Professional, Adaptive LED
-- **Cupra** (Formentor): VZ-pakket, Beats, KESSY, Travel Assist, Drive Profile
+| Tijd (CET) | Gedrag |
+|---|---|
+| **08:00–19:59** | vol gas — elke ronde draait |
+| 20:00, 00:00, 04:00 (± 5 min) | één bijhoud-ronde |
+| overige nachturen | overslaan |
 
-**Implicaties afgedwongen in code** (`scraper.py:757`):
-- `camera_360 → camera_achteruit`
-- `luchtvering → adaptief_onderstel`
-- `acc + lane_assist → travel_assist` (en omgekeerd impliceert travel_assist beide)
+Instelbaar via `ACTIVE_START_HOUR` / `ACTIVE_END_HOUR` / `NIGHT_SLOT_HOURS`
+(`scraper.py:2286`). `run_mode()` is bewust een **losse, pure functie** zodat het
+schema testbaar is zonder de klok te manipuleren.
 
-Display-namen per merk: `FEATURE_DISPLAY_NAMES` + `_MERCEDES`/`_BMW`/`_CUPRA`
-overrides (`scraper.py:235`).
+**Onderbouwing (eigen dataset, 470 auto's):** 90,4% komt online tussen 08:00–20:00;
+piek 11:00–14:00 (45%). 's Nachts 1-2 per link — ruim onder de 24-per-pagina grens,
+dus 4-uursgaten missen niets. Dit halveerde het verbruik (288k → ~148k/mnd) zónder
+snelheidsverlies overdag.
 
-### NL-marktprijs vergelijking (`scraper.py:939`)
+Handmatig buiten het venster draaien: **`force`-input** op de workflow
+(of `--force` lokaal). cron-job.org stuurt geen inputs en valt dus onder het venster.
 
-`NL_MARKET_PRICES` is een lookup-tabel met goedkoopste NL-prijzen per
-`(jaar, km-bracket, tier)` per model (bron: Gaspedaal.nl research). `tier` =
-`sport` (S-line/AMG/M-sport) of `std`. `_nl_market_price` (`scraper.py:994`)
-zoekt exact → andere tier → dichtstbijzijnde km → dichtstbijzijnde jaar.
-In de alert: `🇳🇱 NL vanaf: €X → +marge`. Geeft Djari direct de import-marge.
+## Pipeline per run (`_run_scrape`, `scraper.py:2098`)
 
-`FEATURES_NOT_AVAILABLE` (`scraper.py:924`) sluit features uit per model voor
-de max-score berekening (bijv. Q3/A3 hebben geen luchtvering, Q3 geen head-up).
+1. **Zoekpagina's parallel** (4 workers) via Scrape.do (`super=true`, `geoCode=de`).
+2. **Parse + filter** (`scrape_mobile_de`, `:1781`) — gesponsorde ads, al bekende
+   listings, `require_text` en `min_listing_date` vallen af.
+3. **⚡ Flits-alert** (`send_flash_alert`, `:1369`) — meteen, vóór de dure stappen.
+   `flash_state`-tabel voorkomt dubbele flitsen; respecteert de baseline.
+4. **Detailpagina's parallel** (8 workers, `:2018`) + GDPR-cookie; HTML opgeschoond
+   (`clean_detail_html`, `:434`). Mislukt de fetch → `detail_incomplete=True` →
+   **niet opslaan**, zodat de volgende run het opnieuw probeert.
+5. **AI-scoring parallel** (5 workers, `score_listing`, `:850`) — Claude Haiku 4.5.
+   Mislukt het → `score=-1`, maar de auto wordt **wél gealerteerd** (kale alert).
+6. **Volledige alert** (`send_telegram`, `:1422`). Pas **ná** succesvol versturen
+   wordt de listing opgeslagen (mislukt Telegram → retry volgende run).
+7. **Baseline per zoekopdracht** — de eerste run van een nieuwe/gewijzigde URL slaat
+   de dan-online auto's **stil** op (geen alert-golf). Daarna wél alerten.
+   Tabel `search_state`; vervangt de oude "seed mode".
 
-### Database
+## AI-scoring (`AI_SCORING_PROMPT`, `scraper.py:501`)
 
-SQLite (`listings.db`), tabel `listings`: `id` (PK), `source`, `title`,
-`price`, `year`, `km`, `url`, `score`, `features` (JSON), `first_seen`,
-`last_seen`. Functies: `init_db`, `listing_exists`, `save_listing`.
+**35 opties + kleur**, `FULL_OPTION_FEATURES` (`:82`). De prompt is **merk-generiek**:
+Haiku herkent zelf merk/model en mapt de pakketten van dat merk (S line, AMG Line,
+M Sport, VZ, R-Line, R-Design…) op de vaste taxonomie. Nieuw merk = alleen een
+zoek-URL, geen code.
 
-### Quiet hours (`main`, `scraper.py:1909`)
+**Sportpakket-regel:** interieur/exterieur alleen aanvinken bij **expliciet** bewijs.
+"S line" of "Sportpaket" zonder aanwijzing → géén van beide gokken, maar tonen zoals
+het er staat (`sportpakket_detail`, de letterlijke term uit de advertentie).
 
-Draait alleen 08:00–20:00 CET, met één nachtscan rond 00:30. Override via
-`--force` of GitHub `workflow_dispatch`.
+**Implicaties afgedwongen in code:** `camera_360 → camera_achteruit` ·
+`luchtvering → adaptief_onderstel` · `acc + lane_assist ↔ travel_assist`.
 
-### Externe diensten / secrets
+## Zelflerende delen (het commerciële hart)
+
+- **`market_spec_verdict`** (`:1115`) — markt-relatieve score: rariteit-gewogen
+  percentiel t.o.v. opgeslagen soortgenoten per basismodel. Geen hardcoded "max
+  opties". Terugval op vaste drempels onder `MARKET_MIN_PEERS = 10` (`:1112`).
+- **`available_features`** (`:1184`) — leert per model welke opties écht leverbaar
+  zijn: telt pas mee vanaf `AVAIL_MIN_PEERS = 30` soortgenoten en `AVAIL_MIN_COUNT = 2`
+  bevestigingen (één foutieve vink telt dus niet). Voorkomt misleidende ❌.
+- **Dataset-fundament** — élke gescrapete auto wordt opgeslagen, ook zonder alert.
+  Dat is de brandstof voor bovenstaande.
+
+## NL-marktprijs (`nl_prices.py`)
+
+**Live** opgehaald uit exact de Gaspedaal-zoeklink die in de alert wordt meegestuurd
+(`cheapest_nl`): goedkoopste NL-prijs → import-marge + klikbare "Vergelijk zelf op
+gaspedaal"-link. De slug wordt **merk-generiek** uit de titel afgeleid
+(`gaspedaal_slug`), met een breadcrumb-check die een verkeerde slug detecteert
+(voorkomt bv. A-klasse-prijzen tonen als C-klasse).
+
+> De oude `NL_MARKET_PRICES`-lookuptabel is vervangen: prijs en link komen nu uit
+> **dezelfde bron**, dus ze kunnen niet meer uit elkaar lopen.
+
+## Filters (standaard UIT)
+
+- `SPORT_PACKAGE_FILTER_ENABLED = False` (`:905`) — code behouden, niet actief
+- `MODEL_WHITELIST_ENABLED = False` (`:906`) — de eigenaar filtert via de mobile.de-link
+
+## Database
+
+SQLite `listings.db`, **durabel op de `db-data` git-branch** (elke run hersteld +
+force-push snapshot). Tabellen:
+- `listings` — id, titel, prijs, jaar, km, url, score, features (JSON), model_key,
+  brand, color, listing_date, location, first_seen, last_seen
+- `search_state` — welke zoek-URL's al gebaselined zijn
+- `flash_state` — welke listings al een flits-alert kregen
+
+## Telegram
+
+Alerts gaan naar een **groep** (secret `TELEGRAM_CHAT_ID`), niet naar een privé-chat,
+zodat meerdere mensen meekijken. Wordt de groep ooit een supergroep, dan verandert
+het id en stopt de bezorging.
+
+## Credits (Scrape.do) — de belangrijkste beperking
+
+**mobile.de vereist super-mode.** Live getest (2026-08-20): basis (1cr),
+basis+geoCode (1cr) en render-zonder-super (5cr) geven **allemaal HTTP 400** met
+*"use super gateway … with 'Super=True'"*. **10 credits per zoekpagina is de bodem.**
+
+| Actie | Credits |
+|---|---|
+| Zoekpagina (per link, per run) | **10** |
+| Detailpagina (per nieuwe auto) | 10 |
+| Gaspedaal NL-prijs (per alert) | 5 |
+
+**Het aantal auto's maakt vrijwel niets uit (~1,5% van de rekening).** De formule is:
+
+```
+credits/maand ≈ runs_per_dag × aantal_links × 10 × 30
+```
+
+Met het huidige venster: **246 runs/dag** (3 min) of **723 runs/dag** (60 sec).
+
+| Links | 3 min | 60 sec |
+|---|---|---|
+| 2 | 148k | 434k |
+| 5 | 369k | 1,08M |
+| 10 | 738k | 2,17M |
+
+⚠️ Het plan (1,25M/mnd) wordt **gedeeld met een ander project**. Bij veel links is
+60 sec dus niet haalbaar — dan is ~3 min de realistische snelheid. **Reken dit altijd
+na voordat je links toevoegt of het tempo verhoogt.**
+
+Concurrency-limiet (50 op het Pro-plan) is géén knelpunt: piek is ~8 gelijktijdige
+verzoeken (8 detail-workers). Bij overschrijding geeft Scrape.do 429 → de client
+wacht en probeert opnieuw.
+
+## Secrets
 
 | Env var | Doel | Verplicht |
 |---------|------|-----------|
-| `SCRAPE_DO_TOKEN` | Scrape.do — DataDome bypass voor mobile.de | ja |
-| `ANTHROPIC_API_KEY` | Claude Haiku feature-scoring | ja |
+| `SCRAPE_DO_TOKEN` | Scrape.do — super-mode voor mobile.de | ja |
+| `ANTHROPIC_API_KEY` | Claude Haiku scoring | ja |
 | `TELEGRAM_BOT_TOKEN` | Telegram alerts | ja (anders DRY_RUN) |
-| `TELEGRAM_CHAT_ID` | Doel chat | ja |
+| `TELEGRAM_CHAT_ID` | Doelgroep | ja |
 
-Zonder `TELEGRAM_BOT_TOKEN` → `DRY_RUN` (geen Telegram, alleen logs).
+## Belangrijke functies (file:line)
 
-### Belangrijke functies (file:line)
+| Regel | Functie |
+|---|---|
+| `:2304` | `main` — venster-check + retry-loop |
+| `:2291` | `run_mode` — vol gas / nacht / overslaan |
+| `:2098` | `_run_scrape` — kern: scrape → flits → detail → score → alert |
+| `:1781` | `scrape_mobile_de` — zoekpagina-parser |
+| `:2018` | `_fetch_detail_pages` · `:2001` `_fetch_single_detail` |
+| `:1634` | `scrape_do_fetch` — Scrape.do-client met retry |
+| `:760` `:850` | `score_listing_ai` / `score_listing` |
+| `:501` | `AI_SCORING_PROMPT` |
+| `:1369` | `send_flash_alert` · `:1335` `_online_ago` |
+| `:1422` | `send_telegram` |
+| `:1115` | `market_spec_verdict` · `:1184` `available_features` |
+| `:1226` | `detect_model` |
 
-- `scraper.py:1909` `main` — entrypoint, quiet hours + retry loop
-- `scraper.py:1742` `_run_scrape` — kern: scrape → score → alert
-- `scraper.py:1431` `scrape_mobile_de` — zoekpagina parser
-- `scraper.py:1662` `_fetch_detail_pages` — parallel detail fetcher
-- `scraper.py:1645` `_fetch_single_detail` — single detail + GDPR cookie
-- `scraper.py:1289` `scrape_do_fetch` — Scrape.do client met retry
-- `scraper.py:717` `score_listing_ai` / `:807` `score_listing` — Claude AI scoring
-- `scraper.py:479` `AI_SCORING_PROMPT` — de merk-bewuste prompt
-- `scraper.py:412` `clean_detail_html` — HTML opschonen
-- `scraper.py:994` `_nl_market_price` — NL marktprijs lookup
-- `scraper.py:857` `_buy_advice` — koopadvies-tekst
-- `scraper.py:1058` `send_telegram` — merk-detectie + alert opmaak
+## Storingen — check deze eerst bij "geen meldingen"
 
-## Hosting (GitHub Actions)
+1. **cron-job.org job Inactive** (zet zichzelf uit na fouten)
+2. **Anthropic-tegoed op** → `credit balance is too low` → score=-1 → 0 alerts
+3. **Scrape.do-credits op** → 401 (verwarrend: zelfde code als ongeldige token —
+   check `/info?token=` → `RemainingMonthlyRequest`)
+4. **Repo per ongeluk privé** → cron-job.org-token geweigerd
+5. **Groep omgezet naar supergroep** → chat-id veranderd
 
-`.github/workflows/alert.yml`:
-- Trigger: `workflow_dispatch` (cron-job.org pingt elke 3 min). GitHub-cron uit.
-- `clear_db` input: wist de DB-cache → volledige nieuwe scan (let op: alert-spam).
-- Stappen: checkout → Python 3.12 → `pip install` → cache restore `listings.db`
-  → `python scraper.py | tee scraper_output.log` → log als commit-comment →
-  cache save → upload `debug_*.html` + log als artifact.
-- `concurrency: scraper-run` (geen overlappende runs), `timeout-minutes: 8`.
-
-## Dev-loop & logs
+## Dev-loop
 
 ```bash
-# Laatste runs / logs (gebruik --json voor structured output)
+# gh staat op ~/.local/bin/gh (niet op PATH)
 gh run list --workflow=alert.yml --limit 10
 gh run view <run-id> --log
-gh run view <run-id> --log-failed
-gh run download <run-id> --name debug-html --dir debug/
+# Run-logs staan ook als commit-comment op de SHA
 
-# Run-logs staan ook als commit-comment op de SHA (Post log summary step)
+# Database bekijken
+git fetch origin db-data --depth=1
+git show origin/db-data:auto-alert/listings.db > /tmp/l.db && sqlite3 /tmp/l.db
 ```
 
-### Lokaal reproduceren
-
-```bash
-cd auto-alert
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-export $(grep -v '^#' .env | xargs)   # .env lokaal, NOOIT committen
-
-python scraper.py --dry-run --force   # geen Telegram, geen quiet hours
-python test_url.py                    # losse URL test
-python test_ai_scoring.py             # AI scoring tegen opgeslagen HTML
-```
+Lokaal: `python scraper.py --dry-run --force` (geen Telegram, geen venster-check).
 
 ## Wat er NIET moet gebeuren
 
 - **Geen secrets committen** — `.env`, `*.db`, `debug_*.html` blijven gitignored
-- **Geen refactor van scoring-prompt of zoek-URL's** tenzij expliciet gevraagd
-  — die zijn empirisch afgesteld
+- **Geen refactor van de scoring-prompt of zoek-URL's** tenzij gevraagd — empirisch afgesteld
 - **Geen `git push --force`**, **geen push naar `master`**
-- **Geen Playwright/headless Chrome lokaal** — alles via Scrape.do
+- **Geen Playwright/headless Chrome** — alles via Scrape.do
 - **Geen feature creep** bij bug-fixes — alleen het gerapporteerde fixen
+- **Links toevoegen zonder de credits na te rekenen**
 
-## Verbeterpunten (backlog)
+## Backlog
 
-1. **Lockfile** voor het geval twee runs overlappen (deels gedekt door `concurrency`)
-2. **Heartbeat** naar Telegram/healthchecks.io
-3. **Kosten-logging** voor Scrape.do en Anthropic credits per run
-4. **Telegram bot commands** (`/status`, `/lastrun`) via long-polling
+1. **Verhuizing naar eigen server** — always-on proces i.p.v. GitHub Actions;
+   schrapt ~1-1,5 min opstarttijd per run en maakt 60 sec pollen mogelijk.
+   Dan vervallen cron-job.org, GitHub-cron én de db-data-branch.
+2. **Hartslag/waarschuwing** — melding bij 401/stille storing (nu merk je uitval
+   pas doordat er geen alerts komen)
+3. **Merk-eigen optienamen tonen** (Haiku's eigen term bij ✅)
+4. **Per-klant config (multi-tenant)**
 
 ## Git / branch policy
 
-- Hoofdbranch: `master`
-- Branch moet beginnen met `claude/` en eindigen op het session-id
-- Push: `git push -u origin <branch>`
+- Hoofdbranch: `master` · actieve branch: `claude/deploy-auto-alert-scraper-ZsKua`
+- Branch begint met `claude/` en eindigt op het session-id
