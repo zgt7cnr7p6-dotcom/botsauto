@@ -1,0 +1,12 @@
+[Unit]
+Description=Botsauto — draait de scraper periodiek
+
+[Timer]
+# Elke 3 minuten (gelijk aan de oude cadans). Voor 60 sec: OnCalendar=*:*:0
+OnCalendar=*:0/3
+AccuracySec=1s
+Persistent=false
+Unit=botsauto.service
+
+[Install]
+WantedBy=timers.target

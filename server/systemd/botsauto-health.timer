@@ -1,0 +1,10 @@
+[Unit]
+Description=Botsauto — gezondheidsrapport elke ochtend
+
+[Timer]
+OnCalendar=*-*-* 08:05:00
+Persistent=true
+Unit=botsauto-health.service
+
+[Install]
+WantedBy=timers.target

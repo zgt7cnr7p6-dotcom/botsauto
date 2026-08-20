@@ -1,0 +1,8 @@
+[Unit]
+Description=Botsauto — dagelijks gezondheidsrapport naar Telegram
+
+[Service]
+Type=oneshot
+User=botsauto
+SupplementaryGroups=systemd-journal
+ExecStart=/home/botsauto/healthcheck.sh

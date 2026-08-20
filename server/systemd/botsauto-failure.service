@@ -1,0 +1,8 @@
+[Unit]
+Description=Botsauto — meldt een mislukte ronde via Telegram
+
+[Service]
+Type=oneshot
+User=botsauto
+EnvironmentFile=/home/botsauto/app/auto-alert/.env
+ExecStart=/bin/bash -c 'curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=🚨 Botsauto: een scrape-ronde is mislukt op de server. Check: journalctl -u botsauto.service -n 50" >/dev/null'
