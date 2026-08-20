@@ -197,7 +197,12 @@ DB_PATH = "listings.db"
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
+    # WAL: scraper en Telegram-bot benaderen dezelfde database tegelijk. In WAL-modus
+    # blokkeert lezen en schrijven elkaar niet; busy_timeout laat een schrijver netjes
+    # wachten i.p.v. meteen "database is locked" te geven.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS listings (
@@ -2412,6 +2417,26 @@ NIGHT_SLOT_HOURS = (20, 0, 4)  # daarbuiten: één ronde per 4 uur (bijhouden)
 # lijkt die "nieuw" terwijl hij er al weken staat. Oudere auto's worden wél stil
 # opgeslagen (dataset groeit door), maar geven geen melding.
 MAX_LISTING_AGE_HOURS = 24
+
+# Poll-interval van de systemd-timer. Wordt NIET gebruikt om te plannen (dat doet
+# systemd), alleen om het creditverbruik te schatten bij het toevoegen van een link.
+# ⚠️ Aanpassen als je OnCalendar in botsauto.timer wijzigt.
+POLL_INTERVAL_MINUTES = 3
+
+
+def estimate_runs_per_day() -> int:
+    """Aantal scrape-rondes per etmaal, gegeven het venster en het poll-interval."""
+    venster_uren = ACTIVE_END_HOUR - ACTIVE_START_HOUR
+    overdag = int(venster_uren * 60 / POLL_INTERVAL_MINUTES)
+    # nachtrondes: per slot vuurt de timer binnen de 5-minutenmarge ~1-2 keer
+    return overdag + len(NIGHT_SLOT_HOURS) * 2
+
+
+def estimate_monthly_credits(aantal_links: int) -> int:
+    """Geschat Scrape.do-verbruik per maand. Zoekpagina = 10 credits (super-mode is
+    verplicht voor mobile.de); detailpagina's en NL-prijzen zijn verwaarloosbaar
+    (~1,5%) omdat ze alleen per NIEUWE auto/alert tellen."""
+    return estimate_runs_per_day() * max(aantal_links, 0) * 10 * 30
 
 
 def run_mode(hour: int, minute: int) -> str:
