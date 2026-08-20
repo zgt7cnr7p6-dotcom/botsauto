@@ -2076,14 +2076,24 @@ def check_search_url(url: str) -> dict:
         return uit
 
     # Plaatsingsdatums van de eerste kaarten: lopen ze echt af?
-    datums = []
-    for c in cards[:8]:
-        m = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4}),?\s*(\d{1,2}:\d{2})", c.get_text(" ", strip=True))
+    # Gesponsorde advertenties overslaan — die staan altijd bovenaan, ongeacht de
+    # sortering, en zouden de controle onterecht laten falen (de scraper negeert
+    # ze verderop ook).
+    datums, echte_kaarten = [], 0
+    for c in cards:
+        tekst = c.get_text(" ", strip=True)
+        if "gesponsert" in tekst.lower()[:50] or "sponsored" in tekst.lower()[:50]:
+            continue
+        echte_kaarten += 1
+        m = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4}),?\s*(\d{1,2}:\d{2})", tekst)
         if m:
             try:
                 datums.append(datetime.strptime(m.group(0).strip().replace(",", ""), "%d.%m.%Y %H:%M"))
             except ValueError:
                 pass
+        if len(datums) >= 8:
+            break
+    uit["count"] = echte_kaarten
     if len(datums) >= 2:
         uit["sortering_ok"] = all(a >= b for a, b in zip(datums, datums[1:]))
     if datums:
