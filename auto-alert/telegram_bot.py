@@ -309,6 +309,7 @@ def main():
     offset = None
     while True:
         try:
+            t0 = time.time()
             r = requests.get(f"{API}/getUpdates", timeout=40, params={
                 "timeout": 30,
                 "offset": offset,
@@ -318,12 +319,21 @@ def main():
                 log.warning("getUpdates niet ok: %s", str(r)[:200])
                 time.sleep(5)
                 continue
-            for up in r.get("result", []):
+            ups = r.get("result", [])
+            if ups:
+                log.info("%d update(s) ontvangen na %.1fs wachten", len(ups), time.time() - t0)
+            for up in ups:
                 offset = up["update_id"] + 1
                 try:
                     if "message" in up:
-                        verwerk_bericht(up["message"])
+                        m = up["message"]
+                        log.info("bericht van %s: %r", (m.get("from") or {}).get("id"),
+                                 (m.get("text") or "")[:40])
+                        t1 = time.time()
+                        verwerk_bericht(m)
+                        log.info("  afgehandeld in %.1fs", time.time() - t1)
                     elif "callback_query" in up:
+                        log.info("knop: %s", up["callback_query"].get("data"))
                         verwerk_knop(up["callback_query"])
                 except Exception:
                     log.error("Fout bij verwerken update:\n%s", traceback.format_exc())
