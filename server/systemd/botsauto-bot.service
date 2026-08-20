@@ -1,0 +1,22 @@
+[Unit]
+Description=Botsauto — Telegram-bediening (zoekopdrachten beheren)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botsauto
+WorkingDirectory=/home/botsauto/app/auto-alert
+EnvironmentFile=/home/botsauto/app/auto-alert/.env
+ExecStart=/home/botsauto/venv/bin/python telegram_bot.py
+Restart=always
+RestartSec=10
+# Beveiliging
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/botsauto/app/auto-alert
+
+[Install]
+WantedBy=multi-user.target

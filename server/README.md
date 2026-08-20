@@ -24,6 +24,7 @@ Actions-minuten) kwamen door die afhankelijkheden. Die zijn nu weg.
 /home/botsauto/app/auto-alert/listings.db  database (verhuisd van db-data-branch)
 /home/botsauto/venv/         Python-omgeving
 /home/botsauto/healthcheck.sh              dagelijks gezondheidsrapport
+   (zoekopdrachten staan in de DATABASE, tabel `searches` — te beheren via Telegram)
 ```
 
 Draait als gebruiker **`botsauto`** (niet root). Firewall: alleen SSH.
@@ -35,6 +36,7 @@ Tijdzone: Europe/Amsterdam.
 |---|---|
 | `botsauto.service` | één scrape-ronde (oneshot) |
 | `botsauto.timer` | **elke 3 min** (`OnCalendar=*:0/3`) — voor 60 sec: `*:*:0` |
+| `botsauto-bot.service` | **Telegram-bediening** (long polling, `Restart=always`) |
 | `botsauto-health.service/.timer` | dagelijks rapport naar Telegram, 08:05 |
 | `botsauto-failure.service` | Telegram-melding zodra een ronde hard faalt |
 
@@ -53,8 +55,11 @@ systemctl start botsauto.service         # nu een ronde draaien
 journalctl -u botsauto.service -n 50     # laatste logs
 journalctl -u botsauto.service -f        # live meekijken
 
-systemctl stop botsauto.timer            # pauzeren
+systemctl stop botsauto.timer            # scrapen pauzeren
 systemctl start botsauto.timer           # hervatten
+
+systemctl status botsauto-bot            # draait de Telegram-bediening?
+journalctl -u botsauto-bot -f            # live meekijken met commando's
 ```
 
 **Code bijwerken** (na een push naar GitHub):

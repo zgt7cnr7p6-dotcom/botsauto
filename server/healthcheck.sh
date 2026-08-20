@@ -17,8 +17,8 @@ LOG=$(journalctl -u botsauto.service --since "$SINCE" --output=cat 2>/dev/null)
 runs=$(grep -c "=== Klaar:" <<<"$LOG")
 nieuw=$(grep -oE "Klaar: [0-9]+ totaal, ([0-9]+) nieuw" <<<"$LOG" | grep -oE "[0-9]+ nieuw" | grep -oE "^[0-9]+" | paste -sd+ - | bc 2>/dev/null || echo 0)
 alerts=$(grep -oE "([0-9]+) alerts verstuurd" <<<"$LOG" | grep -oE "^[0-9]+" | paste -sd+ - | bc 2>/dev/null || echo 0)
-flits=$(grep -c "FLITS:" <<<"$LOG")
 totaal_db=$(sqlite3 "$DB" "SELECT count(*) FROM listings;" 2>/dev/null || echo "?")
+zoekopdrachten=$(sqlite3 "$DB" "SELECT count(*) FROM searches WHERE active = 1;" 2>/dev/null || echo "?")
 
 # Bekende storingen opsporen
 waarschuwingen=""
@@ -27,13 +27,15 @@ grep -qiE "Monthly request limit|status=401" <<<"$LOG" && waarschuwingen+="\n⚠
 grep -qi "Telegram fout" <<<"$LOG" && waarschuwingen+="\n⚠️ Telegram-bezorging faalde"
 grep -qi "SCRAPER GEFAALD" <<<"$LOG" && waarschuwingen+="\n⚠️ Scraper volledig gefaald"
 [ "$runs" -eq 0 ] && waarschuwingen+="\n🚨 GEEN ENKELE RONDE in 24 uur!"
+systemctl is-active --quiet botsauto-bot.service || waarschuwingen+="\n⚠️ Telegram-bediening ligt eruit (/links werkt niet)"
 
 kop="🩺 <b>Botsauto dagrapport</b>"
 [ -n "$waarschuwingen" ] && kop="⚠️ <b>Botsauto dagrapport</b>"
 
 tekst="${kop}
 🔄 ${runs} rondes (24u)
-🚗 ${nieuw} nieuwe auto's · ${flits} flitsen · ${alerts} alerts
+🚗 ${nieuw} nieuwe auto's · ${alerts} alerts
+🔍 ${zoekopdrachten} zoekopdrachten
 💾 ${totaal_db} auto's in database${waarschuwingen}"
 
 curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
