@@ -252,7 +252,7 @@ def init_db():
     )
     # Migratie: voorwaarde-kolommen (bv. "alleen S-Line tonen" bij deze link)
     bestaande_s = {r[1] for r in conn.execute("PRAGMA table_info(searches)")}
-    for col in ("require_feature", "require_text"):
+    for col in ("require_feature", "require_text", "exclude_feature", "exclude_text"):
         if col not in bestaande_s:
             conn.execute(f"ALTER TABLE searches ADD COLUMN {col} TEXT")
     conn.commit()
@@ -299,26 +299,31 @@ def get_searches(conn, only_active: bool = True) -> list:
     schrijft naar dezelfde tabel, dus wijzigingen zijn meteen actief bij de volgende
     ronde (geen herstart nodig).
     """
-    sql = "SELECT id, url, label, active, require_feature, require_text FROM searches"
+    sql = ("SELECT id, url, label, active, require_feature, require_text, "
+           "exclude_feature, exclude_text FROM searches")
     if only_active:
         sql += " WHERE active = 1"
     sql += " ORDER BY id"
     return [
         {"id": r[0], "url": r[1], "label": r[2] or f"zoekopdracht {r[0]}", "active": bool(r[3]),
-         "require_feature": r[4] or "", "require_text": r[5] or ""}
+         "require_feature": r[4] or "", "require_text": r[5] or "",
+         "exclude_feature": r[6] or "", "exclude_text": r[7] or ""}
         for r in conn.execute(sql).fetchall()
     ]
 
 
 def add_search(conn, url: str, label: str = "", added_by: str = "",
-               require_feature: str = "", require_text: str = "") -> int:
+               require_feature: str = "", require_text: str = "",
+               exclude_feature: str = "", exclude_text: str = "") -> int:
     """Zoekopdracht toevoegen. Returns het id, of -1 als de URL er al in staat."""
     try:
         cur = conn.execute(
-            "INSERT INTO searches (url, label, active, added_at, added_by, require_feature, require_text) "
-            "VALUES (?, ?, 1, ?, ?, ?, ?)",
+            "INSERT INTO searches (url, label, active, added_at, added_by, "
+            " require_feature, require_text, exclude_feature, exclude_text) "
+            "VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)",
             (url, label, datetime.now(timezone.utc).isoformat(), added_by,
-             require_feature or None, require_text or None),
+             require_feature or None, require_text or None,
+             exclude_feature or None, exclude_text or None),
         )
         conn.commit()
         return cur.lastrowid
@@ -1052,6 +1057,8 @@ _FEATURE_ALIASSEN = {
     "360camera": "camera_360", "camera360": "camera_360",
     "standheizung": "standverwarming", "stoelkoeling": "stoelventilatie",
     "matrix": "matrix_led", "laser": "matrix_led",
+    # Carrosserie-vlaggen (geen uitrusting, wel filterbaar):
+    "sportback": "sportback", "sportsback": "sportback",
 }
 
 
@@ -1088,6 +1095,8 @@ def requirement_label(soort: str, waarde) -> str:
     """Leesbare weergave van een voorwaarde, voor Telegram."""
     if soort == "sportpakket" or waarde == "sportpakket":
         return "sportpakket (S line / AMG Line / M Sport …)"
+    if waarde == "sportback":
+        return "Sportback (carrosserie)"
     if soort == "feature":
         return FEATURE_DISPLAY_NAMES.get(waarde, waarde)
     return f'tekst "{waarde}" in de advertentie'
@@ -2600,19 +2609,37 @@ def _run_scrape():
         # stil opslaan (voedt het zelflerende systeem), géén alert. Gecheckt ná
         # de AI-scoring, want de voorwaarde gaat over de gescoorde opties.
         cfg = cfg_by_key.get(getattr(listing, '_search_key', ''), {})
+
+        def _heeft(kenmerk: str) -> bool:
+            """Heeft deze auto het kenmerk? (sportpakket/sportback speciaal)"""
+            if kenmerk == "sportpakket":
+                return (any(k in listing.features for k in SPORT_PACKAGE_FEATURES)
+                        or bool(listing.sport_detail))
+            if kenmerk == "sportback":
+                # AI-vlag óf gewoon in de titel — titels vermelden 'Sportback' vrijwel altijd
+                return "sportback" in listing.features or "sportback" in listing.title.lower()
+            return kenmerk in listing.features
+
+        # Vereiste optie (bv. alleen S-Line). Alleen bij geslaagde scoring: bij
+        # score<0 wéten we het niet — dan liever de kale alert dan stil droppen.
         req = (cfg.get("require_feature") or "").strip()
-        # Alleen toepassen als de scoring slaagde: bij score<0 wéten we niet of de
-        # auto de optie heeft — dan liever de kale alert dan stilletjes droppen.
-        if req and listing.score >= 0:
-            if req == "sportpakket":
-                voldoet = (any(k in listing.features for k in SPORT_PACKAGE_FEATURES)
-                           or bool(listing.sport_detail))
-            else:
-                voldoet = req in listing.features
-            if not voldoet:
-                save_listing(conn, listing)
-                log.info("[voorwaarde] Geen '%s' — stil opgeslagen: %s", req, listing.title[:40])
-                continue
+        if req and listing.score >= 0 and not _heeft(req):
+            save_listing(conn, listing)
+            log.info("[voorwaarde] Geen '%s' — stil opgeslagen: %s", req, listing.title[:40])
+            continue
+
+        # Uitsluiting (bv. geen Sportback). Sportback/tekst kan óók zonder scoring
+        # beoordeeld worden (titel); optie-uitsluiting alleen bij geslaagde scoring.
+        exc = (cfg.get("exclude_feature") or "").strip()
+        if exc and (exc in ("sportback", "sportpakket") or listing.score >= 0) and _heeft(exc):
+            save_listing(conn, listing)
+            log.info("[voorwaarde] Uitgesloten '%s' — stil opgeslagen: %s", exc, listing.title[:40])
+            continue
+        exc_text = (cfg.get("exclude_text") or "").strip()
+        if exc_text and exc_text.lower() in f"{listing.title} {listing.description}".lower():
+            save_listing(conn, listing)
+            log.info("[voorwaarde] Uitgesloten tekst '%s' — stil opgeslagen: %s", exc_text, listing.title[:40])
+            continue
 
         # Altijd pushen — ook als de AI-scoring mislukte (send_telegram maakt dan een kale alert)
         sent = send_telegram(listing)

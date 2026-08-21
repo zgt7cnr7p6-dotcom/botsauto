@@ -88,6 +88,9 @@ HELP = (
     "🎯 <b>Met voorwaarde:</b> zet een optie achter de link, bv.\n"
     "   <code>/add &lt;link&gt; s-line</code> of <code>/add &lt;link&gt; trekhaak</code>\n"
     "   → alleen auto's mét die optie worden gepusht.\n"
+    "🚫 <b>Uitsluiten:</b> met 'zonder' of 'geen', bv.\n"
+    "   <code>/add &lt;link&gt; geen sportback</code>\n"
+    "   <code>/add &lt;link&gt; s-line zonder sportback</code>\n"
     "   <i>(Een link los plakken werkt ook, zodra de groeps-privacy van de bot uitstaat.)</i>\n\n"
     "📋 /links — bekijken en verwijderen\n"
     "📊 /status — draait alles goed?\n"
@@ -120,6 +123,10 @@ def toon_links(chat_id):
             regels.append(f"    🎯 alleen mét {html.escape(core.requirement_label('feature', r['require_feature']))}")
         elif r.get("require_text"):
             regels.append(f"    🎯 alleen met \"{html.escape(r['require_text'])}\" in de advertentie")
+        if r.get("exclude_feature"):
+            regels.append(f"    🚫 zonder {html.escape(core.requirement_label('feature', r['exclude_feature']))}")
+        elif r.get("exclude_text"):
+            regels.append(f"    🚫 zonder \"{html.escape(r['exclude_text'])}\" in de advertentie")
         knoppen.append([{"text": f"🗑 {i}. {naam[:28]}", "callback_data": f"vraagdel:{r['id']}"}])
 
     regels.append(f"\n💳 Samen ± <b>{_credit_regel(len(rijen))}</b> credits/maand")
@@ -147,18 +154,43 @@ def toon_status(chat_id):
           f"💳 ± {_credit_regel(n)} credits/maand")
 
 
+def _parse_voorwaarden(tekst: str):
+    """Splits '/add <link> s-line zonder sportback' in (vereist, uitgesloten).
+
+    Uitsluit-woorden: 'zonder', 'geen', 'niet', of een '-' voor de term.
+    Voorbeelden: "s-line" -> ("s-line", "") · "geen sportback" -> ("", "sportback")
+    · "s-line zonder sportback" -> ("s-line", "sportback")
+    """
+    t = (tekst or "").strip()
+    if not t:
+        return "", ""
+    m = re.search(r"\b(?:zonder|geen|niet)\b", t, re.I)
+    if m:
+        return t[:m.start()].strip(" ,;-—"), t[m.end():].strip(" ,;-—")
+    if t.startswith("-"):
+        return "", t[1:].strip()
+    return t, ""
+
+
+def _resolve(deel: str):
+    """Voorwaarde-tekst -> (feature, text) voor opslag."""
+    soort, waarde = core.resolve_requirement(deel)
+    if soort == "sportpakket":
+        return "sportpakket", ""
+    if soort == "feature":
+        return waarde, ""
+    if soort == "text":
+        return "", waarde
+    return "", ""
+
+
 def verwerk_link(chat_id, url, msg_id, voorwaarde_tekst=""):
     stuur(chat_id, "🔎 Even checken…", reply_to=msg_id)
 
-    # Voorwaarde herkennen ("s-line" -> sportpakket, "trekhaak" -> optie, anders tekst)
-    req_soort, req_waarde = core.resolve_requirement(voorwaarde_tekst)
-    req_feature, req_text = "", ""
-    if req_soort == "sportpakket":
-        req_feature = "sportpakket"
-    elif req_soort == "feature":
-        req_feature = req_waarde
-    elif req_soort == "text":
-        req_text = req_waarde
+    # "s-line zonder sportback" -> vereiste + uitsluiting
+    req_deel, exc_deel = _parse_voorwaarden(voorwaarde_tekst)
+    req_feature, req_text = _resolve(req_deel)
+    exc_feature, exc_text = _resolve(exc_deel)
     try:
         r = core.check_search_url(url)
     except Exception as exc:
@@ -194,6 +226,10 @@ def verwerk_link(chat_id, url, msg_id, voorwaarde_tekst=""):
         regels.append(f"🎯 Alleen tonen mét: <b>{html.escape(core.requirement_label('feature', req_feature))}</b>")
     elif req_text:
         regels.append(f"🎯 Alleen tonen als de advertentie <b>\"{html.escape(req_text)}\"</b> bevat")
+    if exc_feature:
+        regels.append(f"🚫 Niet tonen mét: <b>{html.escape(core.requirement_label('feature', exc_feature))}</b>")
+    elif exc_text:
+        regels.append(f"🚫 Niet tonen als de advertentie <b>\"{html.escape(exc_text)}\"</b> bevat")
     regels.append(
         f"\n💳 Wordt zoekopdracht <b>{nieuw_aantal}</b> → "
         f"± <b>{_credit_regel(nieuw_aantal)}</b> credits/maand "
@@ -201,7 +237,8 @@ def verwerk_link(chat_id, url, msg_id, voorwaarde_tekst=""):
     )
 
     t = _token()
-    _pending[t] = {"url": r["url"], "require_feature": req_feature, "require_text": req_text}
+    _pending[t] = {"url": r["url"], "require_feature": req_feature, "require_text": req_text,
+                   "exclude_feature": exc_feature, "exclude_text": exc_text}
     stuur(chat_id, "\n".join(regels), [[
         {"text": "✅ Toevoegen", "callback_data": f"add:{t}"},
         {"text": "❌ Annuleren", "callback_data": f"nee:{t}"},
@@ -273,7 +310,9 @@ def verwerk_knop(cb):
             naam = r["omschrijving"] if r["ok"] else "mobile.de zoekopdracht"
             nid = core.add_search(conn, p["url"], naam, str(user_id),
                                   require_feature=p.get("require_feature", ""),
-                                  require_text=p.get("require_text", ""))
+                                  require_text=p.get("require_text", ""),
+                                  exclude_feature=p.get("exclude_feature", ""),
+                                  exclude_text=p.get("exclude_text", ""))
             aantal = len(core.get_searches(conn))
         finally:
             conn.close()
@@ -282,9 +321,13 @@ def verwerk_knop(cb):
             return
         voorwaarde = ""
         if p.get("require_feature"):
-            voorwaarde = f"\n🎯 Alleen mét {html.escape(core.requirement_label('feature', p['require_feature']))}"
+            voorwaarde += f"\n🎯 Alleen mét {html.escape(core.requirement_label('feature', p['require_feature']))}"
         elif p.get("require_text"):
-            voorwaarde = f"\n🎯 Alleen met \"{html.escape(p['require_text'])}\" in de advertentie"
+            voorwaarde += f"\n🎯 Alleen met \"{html.escape(p['require_text'])}\" in de advertentie"
+        if p.get("exclude_feature"):
+            voorwaarde += f"\n🚫 Zonder {html.escape(core.requirement_label('feature', p['exclude_feature']))}"
+        elif p.get("exclude_text"):
+            voorwaarde += f"\n🚫 Zonder \"{html.escape(p['exclude_text'])}\" in de advertentie"
         bewerk(chat_id, msg_id,
                f"✅ <b>Toegevoegd</b>\n{html.escape(naam)}{voorwaarde}\n\n"
                f"De eerste ronde slaat de auto's die er nu al staan stil op — "
