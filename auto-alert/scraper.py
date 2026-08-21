@@ -888,7 +888,9 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=500,
+            # 500 was genoeg voor alleen de 35 vinkjes; met optie_termen +
+            # extra_opties erbij werd de JSON afgekapt (unterminated string).
+            max_tokens=1500,
             temperature=0,
             messages=[
                 {
