@@ -1317,6 +1317,57 @@ def _extract_engine(title: str) -> str:
 MARKET_MIN_PEERS = 10  # minimaal aantal soortgenoten; anders terugval op de vaste lijst
 
 
+def _peer_feature_sets(model_key: str) -> list:
+    """Feature-sets van alle gescoorde soortgenoten (zelfde basismodel, sedan/
+    touring/sportback gepoold). Ongefilterd — aanroepers filteren zelf."""
+    base = model_key.replace("_sportback", "").replace("_touring", "").replace("_sedan", "")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            "SELECT features FROM listings "
+            "WHERE model_key LIKE ? AND features IS NOT NULL "
+            "AND features != '' AND features != '[]'",
+            (base + "%",),
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        log.warning("Soortgenoten-query faalde: %s", e)
+        return []
+
+    peer_sets = []
+    for (fjson,) in rows:
+        try:
+            fl = json.loads(fjson)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if fl:
+            peer_sets.append(set(fl))
+    return peer_sets
+
+
+# Zelflerende sterren: wat "speciaal" is verschilt per model, dus laat de data
+# het bepalen. Een optie die < RARE_SHARE van de soortgenoten heeft is bijzonder
+# voor dit model (⭐); ontbreekt een optie die > COMMON_SHARE wél heeft, dan is
+# dat een echt minpunt (⚠️). Head-up op een Q3 (8%) = ⭐; op een S-klasse (90%)
+# = gewoon. Vervangt het statische wensenlijstje van de eerste eigenaar.
+RARE_SHARE = 0.25
+COMMON_SHARE = 0.85
+
+
+def peer_option_stats(model_key: str):
+    """Per optie: welk aandeel van de soortgenoten hem heeft.
+
+    Returns (freq-dict, aantal) of None bij < MARKET_MIN_PEERS — zelfde drempel
+    als het markt-oordeel, zodat sterren en oordeel samen omschakelen.
+    """
+    sets = _peer_feature_sets(model_key)
+    n = len(sets)
+    if n < MARKET_MIN_PEERS:
+        return None
+    freq = {f: sum(1 for ps in sets if f in ps) / n for f in FULL_OPTION_FEATURES}
+    return freq, n
+
+
 def market_spec_verdict(model_key: str, features: list):
     """Rariteit-gewogen percentiel-oordeel t.o.v. soortgenoten uit de database.
 
@@ -1331,27 +1382,8 @@ def market_spec_verdict(model_key: str, features: list):
     if not relevant:
         return None
 
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        rows = conn.execute(
-            "SELECT features FROM listings "
-            "WHERE model_key LIKE ? AND features IS NOT NULL "
-            "AND features != '' AND features != '[]'",
-            (base + "%",),
-        ).fetchall()
-        conn.close()
-    except Exception as e:
-        log.warning("Markt-score query faalde: %s", e)
-        return None
-
-    peer_sets = []
-    for (fjson,) in rows:
-        try:
-            fl = json.loads(fjson)
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if fl:
-            peer_sets.append({f for f in fl if f in relevant})
+    raw_sets = _peer_feature_sets(model_key)
+    peer_sets = [{f for f in ps if f in relevant} for ps in raw_sets]
 
     n = len(peer_sets)
     if n < MARKET_MIN_PEERS:
@@ -1633,9 +1665,12 @@ def send_telegram(listing: Listing):
         avail = learned | {f for f in listing.features if f in FULL_OPTION_FEATURES}
         model_features = [f for f in FULL_OPTION_FEATURES if f in avail]
     else:
-        # Nog te weinig data: val terug op de handmatige uitsluitingen (bekende modellen)
+        # Nog te weinig data: val terug op de handmatige uitsluitingen (bekende
+        # modellen). Zelfde vangnet als hierboven: wat deze auto AANTOONBAAR heeft
+        # wordt nooit verborgen — eigen bewijs wint van de uitsluitlijst.
         excluded = FEATURES_NOT_AVAILABLE.get(base_model, set())
-        model_features = [f for f in FULL_OPTION_FEATURES if f not in excluded]
+        model_features = [f for f in FULL_OPTION_FEATURES
+                          if f not in excluded or f in listing.features]
     max_score = len(model_features)
 
     # Oordeel — drie-traps, zelfverbeterend:
@@ -1704,9 +1739,29 @@ def send_telegram(listing: Listing):
     if gp_url:
         nl_link_line = f'🔗 <a href="{gp_url}">Vergelijk zelf op gaspedaal</a>\n'
 
-    # Feature check — groepeer in aanwezig / afwezig
-    # Must-haves krijgen een ⭐ markering
-    # ⭐ items worden bovenaan gesorteerd
+    # Feature check — groepeer in aanwezig / afwezig.
+    # Sterren zijn ZELFLEREND per model (peer_option_stats):
+    #   ⭐ = deze auto heeft iets dat < RARE_SHARE van de soortgenoten heeft
+    #   ⚠️ = deze auto mist iets dat > COMMON_SHARE van de soortgenoten wél heeft
+    # Gemarkeerde regels sorteren bovenaan. Bij te weinig soortgenoten (< 10)
+    # valt hij terug op de vaste MUST_HAVE_FEATURES-lijst.
+    # Weergave bewust alléén de NL-naam (merk-termen staan als leerdata in de DB).
+    stats = peer_option_stats(model_key)
+    if stats:
+        freq, _n_peers = stats
+
+        def _is_bijzonder(f):
+            return freq.get(f, 0.0) < RARE_SHARE
+
+        def _is_gemis(f):
+            return freq.get(f, 0.0) > COMMON_SHARE
+    else:
+        def _is_bijzonder(f):
+            return f in MUST_HAVE_FEATURES
+
+        def _is_gemis(f):
+            return f in MUST_HAVE_FEATURES
+
     found_star = []
     found_normal = []
     missing_star = []
@@ -1716,21 +1771,16 @@ def send_telegram(listing: Listing):
         if f in sport_keys:
             continue  # sportpakket wordt als één regel getoond (zie hieronder)
         name = display_names.get(f, f)
-        star = " ⭐" if f in MUST_HAVE_FEATURES else ""
         if f in listing.features:
-            # Bewust alléén de Nederlandse naam — de merk-term erachter maakte
-            # het bericht te druk. De letterlijke termen worden wel opgeslagen
-            # (feature_terms) als leerdata; alleen sportpakket toont de merk-term
-            # (daar is de exacte formulering juist de informatie).
-            if f in MUST_HAVE_FEATURES:
-                found_star.append(f"  ✅ {name}{star}")
+            if _is_bijzonder(f):
+                found_star.append(f"  ✅ {name} ⭐")
             else:
-                found_normal.append(f"  ✅ {name}{star}")
+                found_normal.append(f"  ✅ {name}")
         else:
-            if f in MUST_HAVE_FEATURES:
-                missing_star.append(f"  ❌ {name}{star}")
+            if _is_gemis(f):
+                missing_star.append(f"  ❌ {name} ⚠️" if stats else f"  ❌ {name} ⭐")
             else:
-                missing_normal.append(f"  ❌ {name}{star}")
+                missing_normal.append(f"  ❌ {name}")
 
     # Sportpakket als ÉÉN regel — toon exact de term uit de advertentie (nooit gokken
     # tussen interieur/exterieur). "S-Line" blijft "S-Line" als er geen int/ext-hint is.
