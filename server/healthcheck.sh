@@ -29,6 +29,12 @@ grep -qi "SCRAPER GEFAALD" <<<"$LOG" && waarschuwingen+="\n⚠️ Scraper volled
 [ "$runs" -eq 0 ] && waarschuwingen+="\n🚨 GEEN ENKELE RONDE in 24 uur!"
 systemctl is-active --quiet botsauto-bot.service || waarschuwingen+="\n⚠️ Telegram-bediening ligt eruit (/links werkt niet)"
 
+# Stille breuk opsporen (les van 2026-08-21: parser was kapot, rondes "slaagden"
+# met 0 nieuw en niemand merkte het):
+kaartfouten=$(grep -c "mobile.de card:" <<<"$LOG")
+[ "$kaartfouten" -gt 50 ] && waarschuwingen+="\n🚨 ${kaartfouten} parse-fouten op auto-kaarten — parser stuk? Meldingen komen dan niet door"
+[ "$runs" -gt 0 ] && [ "${nieuw:-0}" -eq 0 ] && waarschuwingen+="\n⚠️ 0 nieuwe auto's gezien in 24u — kan toeval zijn, maar check het even"
+
 kop="🩺 <b>Botsauto dagrapport</b>"
 [ -n "$waarschuwingen" ] && kop="⚠️ <b>Botsauto dagrapport</b>"
 

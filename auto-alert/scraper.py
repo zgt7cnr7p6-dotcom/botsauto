@@ -341,6 +341,49 @@ def mark_search_seeded(conn, search_key: str):
     conn.commit()
 
 
+def alarm_once(conn, key: str, tekst: str, min_uren: int = 6):
+    """Stuur een storings-melding naar Telegram, maar hoogstens één keer per
+    `min_uren` per soort (key). De scraper draait elke 3 minuten — zonder deze
+    rem zou een kapotte parser 20 identieke meldingen per uur sturen.
+
+    Bestaansreden: op 2026-08-21 was de parser een dag stil kapot (elke kaart
+    faalde, rondes 'slaagden' met 0 nieuw) en merkte niemand het. Dit soort
+    structurele breuk moet zich meteen melden.
+    """
+    conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (f"alarm_{key}",)).fetchone()
+    nu = datetime.now(timezone.utc)
+    if row:
+        try:
+            laatst = datetime.fromisoformat(row[0])
+            if (nu - laatst).total_seconds() < min_uren * 3600:
+                return  # onlangs al gemeld
+        except ValueError:
+            pass
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                 (f"alarm_{key}", nu.isoformat()))
+    conn.commit()
+
+    log.error("ALARM (%s): %s", key, tekst)
+    if DRY_RUN:
+        return
+    try:
+        req_lib.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": tekst, "parse_mode": "HTML"},
+            timeout=15,
+        )
+    except Exception as exc:
+        log.error("Alarm versturen mislukt: %s", exc)
+
+
+def listing_exists(conn, listing_id: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM listings WHERE id = ?", (listing_id,)
+    ).fetchone()
+    return row is not None
+
+
 def save_listing(conn, listing: "Listing"):
     now = datetime.now(timezone.utc).isoformat()
     # Verrijk met dataset-velden (fundament voor markt-relatieve score later)
@@ -1847,6 +1890,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
         log.info("mobile.de body (2000 chars): %s", body[:2000])
         return listings
 
+    kaart_fouten = 0
     for card in cards[:50]:
         try:
             card_full_text = card.get_text(separator=" ", strip=True)
@@ -1942,8 +1986,21 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             listings.append(listing)
 
         except Exception as e:
+            kaart_fouten += 1
             log.warning("mobile.de card: %s", e)
             continue
+
+    # Structureel kapot? Eén mislukte kaart is ruis, maar als het merendeel van
+    # een pagina faalt is de parser stuk (code-bug of mobile.de-verbouwing) en
+    # zouden we anders stilletjes "0 nieuw" blijven melden. Direct alarmeren.
+    if kaart_fouten >= 10:
+        alarm_once(
+            conn, "parser_kapot",
+            f"🚨 <b>Botsauto: parser-probleem</b>\n"
+            f"{kaart_fouten} van {len(cards)} auto-kaarten konden niet gelezen worden — "
+            f"er komen nu waarschijnlijk GEEN meldingen door.\n"
+            f"Check: <code>journalctl -u botsauto.service -n 50</code>",
+        )
 
     log.info("mobile.de: %d nieuwe listings gevonden", len(listings))
     return listings
