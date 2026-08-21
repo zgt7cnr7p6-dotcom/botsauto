@@ -93,6 +93,9 @@ Handmatig buiten het venster draaien: `--force` meegeven
    listings, `require_text` en `min_listing_date` vallen af.
 3. **Leeftijdsfilter** — auto's ouder dan `MAX_LISTING_AGE_HOURS` (24u) worden
    stil opgeslagen, géén alert. Vóór de detailpagina, dus scheelt ook credits.
+   **Uitzondering:** tijdens de baseline-run van een nieuwe zoeklink gaan oude
+   auto's WÉL door detail+scoring (eenmalig ~24×10 cr) — dat is de startdata
+   voor het zelflerende systeem. Alerts blijven onderdrukt.
 4. **Detailpagina's parallel** (8 workers, `:2018`) + GDPR-cookie; HTML opgeschoond
    (`clean_detail_html`, `:434`). Mislukt de fetch → `detail_incomplete=True` →
    **niet opslaan**, zodat de volgende run het opnieuw probeert.
@@ -110,6 +113,13 @@ Handmatig buiten het venster draaien: `--force` meegeven
 Haiku herkent zelf merk/model en mapt de pakketten van dat merk (S line, AMG Line,
 M Sport, VZ, R-Line, R-Design…) op de vaste taxonomie. Nieuw merk = alleen een
 zoek-URL, geen code.
+
+**Merk-eigen termen + extra's (2026-08-21):** Haiku geeft per aangevinkte optie de
+**letterlijke term** uit de advertentie terug (`optie_termen` → kolom `feature_terms`)
+en max 8 opvallende opties **buiten de vaste lijst** (`extra_opties` → kolom
+`extra_options`, ontdubbeld tegen de termen). De alert toont "Keyless — <i>Komfortzugang</i>"
+en een "➕ Verder: …"-regel. Dit is de opmaat naar een zelflerende woordenschat per model.
+`max_tokens=1500` (bij 500 werd de uitgebreide JSON afgekapt).
 
 **Sportpakket-regel:** interieur/exterieur alleen aanvinken bij **expliciet** bewijs.
 "S line" of "Sportpaket" zonder aanwijzing → géén van beide gokken, maar tonen zoals
@@ -150,7 +160,9 @@ gaspedaal"-link. De slug wordt **merk-generiek** uit de titel afgeleid
 SQLite `listings.db` — gewoon een bestand naast de code op de server.
 *(De oude `db-data`-git-branch is niet meer nodig.)* Tabellen:
 - `listings` — id, titel, prijs, jaar, km, url, score, features (JSON), model_key,
-  brand, color, listing_date, location, first_seen, last_seen
+  brand, color, listing_date, location, **raw_text** (advertentietekst, cap 20k —
+  maakt her-scoren met terugwerkende kracht mogelijk), **feature_terms** (JSON:
+  optie → letterlijke merk-term), **extra_options** (JSON), first_seen, last_seen
 - `search_state` — welke zoek-URL's al gebaselined zijn
 *(`flash_state` kan in oude databases nog bestaan — ongebruikt sinds 2026-08-20.)*
 
