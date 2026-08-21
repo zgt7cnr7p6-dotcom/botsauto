@@ -949,7 +949,11 @@ def score_listing_ai(listing: Listing) -> Listing | None:
             }
         extra = features_dict.get("extra_opties")
         if isinstance(extra, list):
-            listing.extra_options = [str(x).strip()[:60] for x in extra if str(x).strip()][:8]
+            # Dedup: wat al als merk-term bij een vakje hoort, is geen "extra"
+            # (Haiku zet bv. "Driving Assistant Professional" soms in beide).
+            al_gezien = {v.lower() for v in listing.feature_terms.values()}
+            schoon = [str(x).strip()[:60] for x in extra if str(x).strip()]
+            listing.extra_options = [x for x in schoon if x.lower() not in al_gezien][:8]
 
         missing = [f for f in FULL_OPTION_FEATURES if f not in found]
         log.info(
