@@ -33,6 +33,14 @@ Helpers: `get_searches` / `add_search` / `remove_search`. Verwijderen ruimt ook 
 `search_state`-rij op, zodat dezelfde link later opnieuw baselinet (stil opslaan)
 in plaats van een golf oude auto's te alerten.
 
+**Voorwaarde per zoekopdracht (2026-08-21):** `/add <link> s-line` → alleen auto's
+mét die optie worden gepusht (de rest wordt stil opgeslagen — voedt het leren).
+Kolommen `require_feature`/`require_text`; `resolve_requirement()` vertaalt
+gebruikers-invoer ("s-line"/"AMG"/"M Sport" → sportpakket-check op vakjes óf
+`sport_detail`; bekende opties + aliassen → feature-check; onbekend → tekst-filter).
+Gecheckt ná de AI-scoring en alleen bij `score >= 0` (mislukte scoring → kale alert,
+niet stilletjes droppen). Bespaart geen credits, wel ruis.
+
 Nu staan er **2** in (Audi + BMW, hybride + panoramadak) — een momentopname; de
 eigenaar wil er mogelijk **10+** draaien.
 
