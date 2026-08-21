@@ -85,6 +85,9 @@ HELP = (
     "👋 <b>Zo beheer je je zoekopdrachten</b>\n\n"
     "➕ <b>Toevoegen:</b> typ <code>/add</code> met daarachter je mobile.de-zoeklink.\n"
     "   Ik test hem en vraag je om te bevestigen.\n"
+    "🎯 <b>Met voorwaarde:</b> zet een optie achter de link, bv.\n"
+    "   <code>/add &lt;link&gt; s-line</code> of <code>/add &lt;link&gt; trekhaak</code>\n"
+    "   → alleen auto's mét die optie worden gepusht.\n"
     "   <i>(Een link los plakken werkt ook, zodra de groeps-privacy van de bot uitstaat.)</i>\n\n"
     "📋 /links — bekijken en verwijderen\n"
     "📊 /status — draait alles goed?\n"
@@ -113,6 +116,10 @@ def toon_links(chat_id):
     for i, r in enumerate(rijen, 1):
         naam = html.escape(r["label"] or "zoekopdracht")
         regels.append(f"<b>{i}.</b> <a href=\"{html.escape(r['url'])}\">{naam}</a>")
+        if r.get("require_feature"):
+            regels.append(f"    🎯 alleen mét {html.escape(core.requirement_label('feature', r['require_feature']))}")
+        elif r.get("require_text"):
+            regels.append(f"    🎯 alleen met \"{html.escape(r['require_text'])}\" in de advertentie")
         knoppen.append([{"text": f"🗑 {i}. {naam[:28]}", "callback_data": f"vraagdel:{r['id']}"}])
 
     regels.append(f"\n💳 Samen ± <b>{_credit_regel(len(rijen))}</b> credits/maand")
@@ -140,8 +147,18 @@ def toon_status(chat_id):
           f"💳 ± {_credit_regel(n)} credits/maand")
 
 
-def verwerk_link(chat_id, url, msg_id):
+def verwerk_link(chat_id, url, msg_id, voorwaarde_tekst=""):
     stuur(chat_id, "🔎 Even checken…", reply_to=msg_id)
+
+    # Voorwaarde herkennen ("s-line" -> sportpakket, "trekhaak" -> optie, anders tekst)
+    req_soort, req_waarde = core.resolve_requirement(voorwaarde_tekst)
+    req_feature, req_text = "", ""
+    if req_soort == "sportpakket":
+        req_feature = "sportpakket"
+    elif req_soort == "feature":
+        req_feature = req_waarde
+    elif req_soort == "text":
+        req_text = req_waarde
     try:
         r = core.check_search_url(url)
     except Exception as exc:
@@ -173,6 +190,10 @@ def verwerk_link(chat_id, url, msg_id):
         regels.append("🔧 Stond niet op <i>nieuwste eerst</i> — gecorrigeerd")
     if r["sortering_ok"] is False:
         regels.append("⚠️ Sortering klopt nog steeds niet — je mist mogelijk auto's")
+    if req_feature:
+        regels.append(f"🎯 Alleen tonen mét: <b>{html.escape(core.requirement_label('feature', req_feature))}</b>")
+    elif req_text:
+        regels.append(f"🎯 Alleen tonen als de advertentie <b>\"{html.escape(req_text)}\"</b> bevat")
     regels.append(
         f"\n💳 Wordt zoekopdracht <b>{nieuw_aantal}</b> → "
         f"± <b>{_credit_regel(nieuw_aantal)}</b> credits/maand "
@@ -180,7 +201,7 @@ def verwerk_link(chat_id, url, msg_id):
     )
 
     t = _token()
-    _pending[t] = r["url"]
+    _pending[t] = {"url": r["url"], "require_feature": req_feature, "require_text": req_text}
     stuur(chat_id, "\n".join(regels), [[
         {"text": "✅ Toevoegen", "callback_data": f"add:{t}"},
         {"text": "❌ Annuleren", "callback_data": f"nee:{t}"},
@@ -215,7 +236,9 @@ def verwerk_bericht(msg):
     else:
         m = MOBILE_LINK.search(tekst)
         if m:
-            verwerk_link(chat_id, m.group(0), msg.get("message_id"))
+            # Alles ná de link is de voorwaarde: "/add <link> s-line"
+            na_link = tekst[m.end():].strip().lstrip("-—,;: ")
+            verwerk_link(chat_id, m.group(0), msg.get("message_id"), na_link)
         elif cmd == "/add":
             stuur(chat_id, "➕ Zet de link er direct achter, bijvoorbeeld:\n"
                            "<code>/add https://suchen.mobile.de/fahrzeuge/search.html?...</code>")
@@ -240,23 +263,30 @@ def verwerk_knop(cb):
     actie, _, arg = data.partition(":")
 
     if actie == "add":
-        url = _pending.pop(arg, None)
-        if not url:
+        p = _pending.pop(arg, None)
+        if not p:
             bewerk(chat_id, msg_id, "⌛ Deze vraag is verlopen. Plak de link opnieuw.")
             return
         conn = core.init_db()
         try:
-            r = core.check_search_url(url)          # verse omschrijving
+            r = core.check_search_url(p["url"])     # verse omschrijving
             naam = r["omschrijving"] if r["ok"] else "mobile.de zoekopdracht"
-            nid = core.add_search(conn, url, naam, str(user_id))
+            nid = core.add_search(conn, p["url"], naam, str(user_id),
+                                  require_feature=p.get("require_feature", ""),
+                                  require_text=p.get("require_text", ""))
             aantal = len(core.get_searches(conn))
         finally:
             conn.close()
         if nid == -1:
             bewerk(chat_id, msg_id, "ℹ️ Deze zoekopdracht stond er al in.")
             return
+        voorwaarde = ""
+        if p.get("require_feature"):
+            voorwaarde = f"\n🎯 Alleen mét {html.escape(core.requirement_label('feature', p['require_feature']))}"
+        elif p.get("require_text"):
+            voorwaarde = f"\n🎯 Alleen met \"{html.escape(p['require_text'])}\" in de advertentie"
         bewerk(chat_id, msg_id,
-               f"✅ <b>Toegevoegd</b>\n{html.escape(naam)}\n\n"
+               f"✅ <b>Toegevoegd</b>\n{html.escape(naam)}{voorwaarde}\n\n"
                f"De eerste ronde slaat de auto's die er nu al staan stil op — "
                f"je krijgt alleen meldingen voor <b>nieuwe</b> auto's.\n"
                f"💳 Nu ± {_credit_regel(aantal)} credits/maand")

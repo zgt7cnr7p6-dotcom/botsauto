@@ -250,6 +250,11 @@ def init_db():
         )
         """
     )
+    # Migratie: voorwaarde-kolommen (bv. "alleen S-Line tonen" bij deze link)
+    bestaande_s = {r[1] for r in conn.execute("PRAGMA table_info(searches)")}
+    for col in ("require_feature", "require_text"):
+        if col not in bestaande_s:
+            conn.execute(f"ALTER TABLE searches ADD COLUMN {col} TEXT")
     conn.commit()
 
     # Eenmalige overname: bij een lege tabel de startlijst uit de code inladen.
@@ -294,22 +299,26 @@ def get_searches(conn, only_active: bool = True) -> list:
     schrijft naar dezelfde tabel, dus wijzigingen zijn meteen actief bij de volgende
     ronde (geen herstart nodig).
     """
-    sql = "SELECT id, url, label, active FROM searches"
+    sql = "SELECT id, url, label, active, require_feature, require_text FROM searches"
     if only_active:
         sql += " WHERE active = 1"
     sql += " ORDER BY id"
     return [
-        {"id": r[0], "url": r[1], "label": r[2] or f"zoekopdracht {r[0]}", "active": bool(r[3])}
+        {"id": r[0], "url": r[1], "label": r[2] or f"zoekopdracht {r[0]}", "active": bool(r[3]),
+         "require_feature": r[4] or "", "require_text": r[5] or ""}
         for r in conn.execute(sql).fetchall()
     ]
 
 
-def add_search(conn, url: str, label: str = "", added_by: str = "") -> int:
+def add_search(conn, url: str, label: str = "", added_by: str = "",
+               require_feature: str = "", require_text: str = "") -> int:
     """Zoekopdracht toevoegen. Returns het id, of -1 als de URL er al in staat."""
     try:
         cur = conn.execute(
-            "INSERT INTO searches (url, label, active, added_at, added_by) VALUES (?, ?, 1, ?, ?)",
-            (url, label, datetime.now(timezone.utc).isoformat(), added_by),
+            "INSERT INTO searches (url, label, active, added_at, added_by, require_feature, require_text) "
+            "VALUES (?, ?, 1, ?, ?, ?, ?)",
+            (url, label, datetime.now(timezone.utc).isoformat(), added_by,
+             require_feature or None, require_text or None),
         )
         conn.commit()
         return cur.lastrowid
@@ -1027,6 +1036,62 @@ MUST_HAVE_FEATURES = [
 # Sportpakket-features (voor het optionele sportpakket-filter, nu UIT).
 # Dekt alle merken: Audi S line | Mercedes AMG Line | BMW M Sportpaket | Cupra VZ.
 SPORT_PACKAGE_FEATURES = ("s_line", "s_line_exterieur")
+
+# Merk-termen die allemaal "een sportpakket" betekenen — de AI vinkt s_line/
+# s_line_exterieur alleen bij expliciet bewijs, maar zet de letterlijke term
+# ALTIJD in sport_detail. Een sportpakket-voorwaarde checkt dus beide.
+_SPORT_SYNONIEMEN = {
+    "sline", "s-line", "slinepaket", "amg", "amgline", "msport", "m-sport",
+    "msportpaket", "vz", "rline", "r-line", "rdesign", "sportpakket", "sportpaket",
+}
+_FEATURE_ALIASSEN = {
+    "pano": "panoramadak", "panodak": "panoramadak", "panoramadach": "panoramadak",
+    "ahk": "trekhaak", "anhangerkupplung": "trekhaak",
+    "hud": "head_up", "headup": "head_up", "headupdisplay": "head_up",
+    "acc": "acc", "distronic": "acc", "adaptivecruise": "acc",
+    "360camera": "camera_360", "camera360": "camera_360",
+    "standheizung": "standverwarming", "stoelkoeling": "stoelventilatie",
+    "matrix": "matrix_led", "laser": "matrix_led",
+}
+
+
+def _norm_req(t: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (t or "").lower())
+
+
+def resolve_requirement(tekst: str):
+    """Vertaal een voorwaarde van de gebruiker naar een filter.
+
+    Returns (soort, waarde):
+      ("sportpakket", None)  — "s-line", "AMG Line", "M Sport", …
+      ("feature", key)       — een van de vaste opties ("trekhaak", "pano", …)
+      ("text", tekst)        — onbekend woord: val terug op tekst-zoeken
+      (None, None)           — lege invoer
+    """
+    if not (tekst or "").strip():
+        return None, None
+    n = _norm_req(tekst)
+    if n in _SPORT_SYNONIEMEN:
+        return "sportpakket", None
+    if n in _FEATURE_ALIASSEN:
+        return "feature", _FEATURE_ALIASSEN[n]
+    for key in FULL_OPTION_FEATURES:
+        if n == _norm_req(key):
+            return "feature", key
+    for key, naam in FEATURE_DISPLAY_NAMES.items():
+        if n == _norm_req(naam) and key in FULL_OPTION_FEATURES:
+            return "feature", key
+    return "text", tekst.strip()
+
+
+def requirement_label(soort: str, waarde) -> str:
+    """Leesbare weergave van een voorwaarde, voor Telegram."""
+    if soort == "sportpakket" or waarde == "sportpakket":
+        return "sportpakket (S line / AMG Line / M Sport …)"
+    if soort == "feature":
+        return FEATURE_DISPLAY_NAMES.get(waarde, waarde)
+    return f'tekst "{waarde}" in de advertentie'
+
 
 # Filter-schakelaars. De gebruiker filtert primair via de mobile.de-zoeklink zelf;
 # deze code-filters staan daarom standaard UIT (later per-klant instelbaar via config).
@@ -2379,6 +2444,7 @@ def _run_scrape():
         conn.close()
         return
     log.info("Actieve zoekopdrachten: %d", len(searches))
+    cfg_by_key = {c["url"]: c for c in searches}
 
     all_listings: list[Listing] = []
     seen_ids: set[str] = set()
@@ -2529,6 +2595,24 @@ def _run_scrape():
             save_listing(conn, listing)
             log.info("BASELINE: %s — opgeslagen zonder alert (eerste run van deze zoekopdracht)", listing.title[:50])
             continue
+
+        # Voorwaarde per zoekopdracht (bv. "alleen S-Line"): niet voldaan ->
+        # stil opslaan (voedt het zelflerende systeem), géén alert. Gecheckt ná
+        # de AI-scoring, want de voorwaarde gaat over de gescoorde opties.
+        cfg = cfg_by_key.get(getattr(listing, '_search_key', ''), {})
+        req = (cfg.get("require_feature") or "").strip()
+        # Alleen toepassen als de scoring slaagde: bij score<0 wéten we niet of de
+        # auto de optie heeft — dan liever de kale alert dan stilletjes droppen.
+        if req and listing.score >= 0:
+            if req == "sportpakket":
+                voldoet = (any(k in listing.features for k in SPORT_PACKAGE_FEATURES)
+                           or bool(listing.sport_detail))
+            else:
+                voldoet = req in listing.features
+            if not voldoet:
+                save_listing(conn, listing)
+                log.info("[voorwaarde] Geen '%s' — stil opgeslagen: %s", req, listing.title[:40])
+                continue
 
         # Altijd pushen — ook als de AI-scoring mislukte (send_telegram maakt dan een kale alert)
         sent = send_telegram(listing)
