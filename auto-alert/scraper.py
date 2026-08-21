@@ -1447,6 +1447,9 @@ def detect_model(title: str):
 
     if "mercedes" in title_lower or "benz" in title_lower:
         brand = "mercedes"
+        # Mercedes schrijft de stationwagon vaak als losse "T" ("C 300e T AMG")
+        if re.search(r"\bt\b", title_lower):
+            is_touring = True
         if "glc" in title_lower:
             model_tag = f"Mercedes GLC{engine_suffix}"
             model_key = "glc"
@@ -1460,16 +1463,51 @@ def detect_model(title: str):
             else:
                 model_tag = f"Mercedes E{engine_suffix}"
                 model_key = "e_klasse_sedan"
+        elif "gle" in title_lower:
+            model_tag = f"Mercedes GLE{engine_suffix}"
+            model_key = "gle"
+        elif "gls" in title_lower:
+            model_tag = f"Mercedes GLS{engine_suffix}"
+            model_key = "gls"
+        elif "glb" in title_lower:
+            model_tag = f"Mercedes GLB{engine_suffix}"
+            model_key = "glb"
+        elif "gla" in title_lower:
+            model_tag = f"Mercedes GLA{engine_suffix}"
+            model_key = "gla"
+        elif "s-klasse" in title_lower or "s-class" in title_lower or re.search(r"\bs\s?\d{2,3}e?\b", title_lower):
+            model_tag = f"Mercedes S{engine_suffix}"
+            model_key = "s_klasse"
+        elif "a-klasse" in title_lower or "a-class" in title_lower or re.search(r"\ba\s?\d{3}e?\b", title_lower):
+            model_tag = f"Mercedes A{engine_suffix}"
+            model_key = "a_klasse"
+        elif "b-klasse" in title_lower or re.search(r"\bb\s?\d{3}e?\b", title_lower):
+            model_tag = f"Mercedes B{engine_suffix}"
+            model_key = "b_klasse"
         elif is_touring:
             model_tag = f"Mercedes C Estate{engine_suffix}"
             model_key = "c_klasse_touring"
-        else:
+        elif "c-klasse" in title_lower or "c-class" in title_lower or re.search(r"\bc\s?\d{3}e?\b", title_lower):
             model_tag = f"Mercedes C{engine_suffix}"
             model_key = "c_klasse_sedan"
+        else:
+            # Onbekend Mercedes-model: NIET op C-klasse gokken (dat vervuilde de
+            # vergelijkingsgroep) — generieke sleutel uit de titel.
+            token = re.sub(r"[^a-z0-9]", "", title_lower.replace("mercedes-benz", "").replace("mercedes", "").strip().split(" ")[0] if title_lower else "")
+            model_key = f"mb_{token[:16]}" if token else "mb_onbekend"
+            model_tag = f"Mercedes{engine_suffix}"
         display_names = {**FEATURE_DISPLAY_NAMES, **FEATURE_DISPLAY_NAMES_MERCEDES}
     elif "bmw" in title_lower or "330e" in title_lower:
         brand = "bmw"
-        if is_touring:
+        x_match = re.search(r"\bx([1-7])", title_lower)  # 'X3xDrive30e' schrijft zonder spatie
+        if x_match:
+            xn = x_match.group(1)
+            model_tag = f"BMW X{xn}{engine_suffix}"
+            model_key = f"x{xn}"
+        elif re.search(r"\b5\d0e\b", title_lower):
+            model_tag = f"BMW 5-serie{engine_suffix}"
+            model_key = "5er_touring" if is_touring else "5er_sedan"
+        elif is_touring:
             model_tag = f"BMW Touring{engine_suffix}" if engine else "BMW 330e Touring"
             model_key = "330e_touring"
         else:
