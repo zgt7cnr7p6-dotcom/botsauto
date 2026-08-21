@@ -41,6 +41,11 @@ gebruikers-invoer ("s-line"/"AMG"/"M Sport" → sportpakket-check op vakjes óf
 Gecheckt ná de AI-scoring en alleen bij `score >= 0` (mislukte scoring → kale alert,
 niet stilletjes droppen). Bespaart geen credits, wel ruis.
 
+**Uitsluiten** kan ook: `/add <link> geen sportback` of gecombineerd
+`s-line zonder sportback` (kolommen `exclude_feature`/`exclude_text`).
+Sportback checkt de AI-vlag ÓF de titel; sportback/sportpakket/tekst-uitsluiting
+werkt ook zonder geslaagde scoring, optie-uitsluiting alleen bij `score >= 0`.
+
 Nu staan er **2** in (Audi + BMW, hybride + panoramadak) — een momentopname; de
 eigenaar wil er mogelijk **10+** draaien.
 
