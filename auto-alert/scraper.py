@@ -227,7 +227,8 @@ def init_db():
     )
     # Migratie: nieuwe kolommen toevoegen aan bestaande (gecachte) DB's
     existing = {r[1] for r in conn.execute("PRAGMA table_info(listings)")}
-    for col in ("model_key", "brand", "color", "listing_date", "location"):
+    for col in ("model_key", "brand", "color", "listing_date", "location",
+                "raw_text", "feature_terms", "extra_options"):
         if col not in existing:
             conn.execute(f"ALTER TABLE listings ADD COLUMN {col} TEXT")
     # Baseline-status per zoekopdracht: bij de EERSTE run van een (nieuwe/gewijzigde)
@@ -401,8 +402,9 @@ def save_listing(conn, listing: "Listing"):
             """INSERT INTO listings
                  (id, source, title, price, year, km, url, score, features,
                   model_key, brand, color, listing_date, location,
+                  raw_text, feature_terms, extra_options,
                   first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing.id,
                 listing.source,
@@ -418,6 +420,11 @@ def save_listing(conn, listing: "Listing"):
                 listing.color,
                 listing.listing_date,
                 listing.location,
+                # Rauwe advertentietekst: hiermee kan elke toekomstige verbetering
+                # aan de extractie met terugwerkende kracht worden toegepast.
+                (listing.description or "")[:20000],
+                json.dumps(listing.feature_terms, ensure_ascii=False),
+                json.dumps(listing.extra_options, ensure_ascii=False),
                 now,
                 now,
             ),
@@ -445,6 +452,8 @@ class Listing:
     features: list = field(default_factory=list)
     detail_incomplete: bool = False
     sport_detail: str = ""  # letterlijke sportpakket-term uit de advertentie (weergave)
+    feature_terms: dict = field(default_factory=dict)  # optie-key -> letterlijke term uit de advertentie
+    extra_options: list = field(default_factory=list)  # opvallende opties buiten de vaste lijst
 
 
 # ── Hybrid detectie ───────────────────────────────────────────────────────
@@ -759,6 +768,8 @@ BELANGRIJK: De "Ausstattung" lijst kan HEEL lang zijn (50+ items). Lees ELKE reg
        - s_line_exterieur=true → ALLEEN bij een EXPLICIETE exterieur-aanwijzing: "S line Exterieur"/"außen" (idem AMG Line Exterieur, M Sportpaket exterieur)
        - Staat er alleen "S line" / "S-Line" / "S line Sportpaket" / "S line Paket" / "AMG Line" / "M Sportpaket" / "VZ" / "R-Line" ZONDER int/ext-aanwijzing → LAAT BEIDE false. Een "Sportpaket/Paket" impliceert NIET automatisch beide.
      • sportpakket_detail → geef ALTIJD de letterlijke sportpakket-term terug die je zag (bijv. "S line", "S line Interieur", "AMG Line", "M Sportpaket", "VZ"), of "" als er geen sportpakket genoemd is. Dit is puur voor weergave — verzin niks bij.
+     • optie_termen → voor elke optie die je op true zet: de LETTERLIJKE term zoals die in de advertentie staat, bv. {"keyless": "KEYLESS-GO", "audio_premium": "Burmester 3D", "matrix_led": "DIGITAL LIGHT"}. Kort citeren, exact overnemen, niets verzinnen. Alleen opties die true zijn.
+     • extra_opties → maximaal 8 opvallende, waarde-toevoegende opties die WEL in de advertentie staan maar NIET in de vaste lijst hierboven passen (bv. "Standheizung", "Nachtsichtassistent", "AHK schwenkbar", "Carbon Paket"). NIET opnemen: dingen die al een eigen veld hebben, garantie/service/financiering/inspectie, en gewone standaarduitrusting (airco, radio, centrale vergrendeling, elektrische ramen, isofix). Lege lijst [] als er niks bijzonders is.
 
 6. ZOEK BREED — features kunnen overal staan:
    • In de titel ("S line", "AMG", "M-Sport", "Panorama")
@@ -850,6 +861,8 @@ Antwoord ALLEEN met JSON, geen uitleg:
   "standverwarming": false,
   "sportback": false,
   "sportpakket_detail": "",
+  "optie_termen": {},
+  "extra_opties": [],
   "color": ""
 }"""
 
@@ -923,6 +936,18 @@ def score_listing_ai(listing: Listing) -> Listing | None:
             listing.color = features_dict.get("color", "")
         # Letterlijke sportpakket-term uit de advertentie (weergave; nooit gokken)
         listing.sport_detail = (features_dict.get("sportpakket_detail") or "").strip()
+
+        # Merk-eigen termen per aangevinkte optie + opvallende opties buiten de
+        # vaste lijst. Defensief geparsed: Haiku-output is nooit gegarandeerd.
+        terms = features_dict.get("optie_termen")
+        if isinstance(terms, dict):
+            listing.feature_terms = {
+                k: str(v).strip()[:60] for k, v in terms.items()
+                if k in found and str(v).strip()
+            }
+        extra = features_dict.get("extra_opties")
+        if isinstance(extra, list):
+            listing.extra_options = [str(x).strip()[:60] for x in extra if str(x).strip()][:8]
 
         missing = [f for f in FULL_OPTION_FEATURES if f not in found]
         log.info(
@@ -1570,6 +1595,11 @@ def send_telegram(listing: Listing):
         name = display_names.get(f, f)
         star = " ⭐" if f in MUST_HAVE_FEATURES else ""
         if f in listing.features:
+            # Merk-eigen term uit de advertentie erbij (geleerd, niet gemapt):
+            # "Keyless entry — KEYLESS-GO". Alleen als de term iets toevoegt.
+            term = (listing.feature_terms or {}).get(f, "")
+            if term and term.lower() != name.lower():
+                name = f"{name} — <i>{term}</i>"
             if f in MUST_HAVE_FEATURES:
                 found_star.append(f"  ✅ {name}{star}")
             else:
@@ -1590,6 +1620,11 @@ def send_telegram(listing: Listing):
 
     found_lines = found_star + found_normal
     missing_lines = missing_star + missing_normal
+
+    # Bijzondere opties die buiten de vaste lijst vallen (door de AI gespot):
+    # juist bij duurdere auto's zit dáár de waarde. Alleen tonen als er iets is.
+    if listing.extra_options:
+        found_lines.append("  ➕ <i>Verder: " + ", ".join(listing.extra_options[:6]) + "</i>")
 
     # Tijdstip van plaatsing
     date_line = ""
@@ -2419,8 +2454,13 @@ def _run_scrape():
                     pass
             # Te oud om nog een melding waard te zijn (zie MAX_LISTING_AGE_HOURS).
             # Vroeg filteren: scheelt ook een detailpagina-fetch (10 credits).
+            # UITZONDERING: tijdens de baseline-run van een nieuwe zoeklink laten
+            # we oude auto's WEL door naar detail + AI-scoring — dat is precies de
+            # startdata waar het zelflerende systeem (leverbaar-per-model,
+            # markt-score) van leert. Alerts blijven onderdrukt door de baseline.
             leeftijd = _listing_age_hours(lst)
-            if leeftijd is not None and leeftijd > MAX_LISTING_AGE_HOURS:
+            if (search_key not in baseline_searches
+                    and leeftijd is not None and leeftijd > MAX_LISTING_AGE_HOURS):
                 log.info("[%s] Overgeslagen (%.0f uur online, > %d uur): %s",
                          url_label, leeftijd, MAX_LISTING_AGE_HOURS, lst.title[:40])
                 if not listing_exists(conn, lst.id):
