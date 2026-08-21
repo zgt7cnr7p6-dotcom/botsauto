@@ -1718,11 +1718,10 @@ def send_telegram(listing: Listing):
         name = display_names.get(f, f)
         star = " ⭐" if f in MUST_HAVE_FEATURES else ""
         if f in listing.features:
-            # Merk-eigen term uit de advertentie erbij (geleerd, niet gemapt):
-            # "Keyless entry — KEYLESS-GO". Alleen als de term iets toevoegt.
-            term = (listing.feature_terms or {}).get(f, "")
-            if term and term.lower() != name.lower():
-                name = f"{name} — <i>{term}</i>"
+            # Bewust alléén de Nederlandse naam — de merk-term erachter maakte
+            # het bericht te druk. De letterlijke termen worden wel opgeslagen
+            # (feature_terms) als leerdata; alleen sportpakket toont de merk-term
+            # (daar is de exacte formulering juist de informatie).
             if f in MUST_HAVE_FEATURES:
                 found_star.append(f"  ✅ {name}{star}")
             else:
