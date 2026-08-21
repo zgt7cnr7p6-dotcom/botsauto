@@ -173,7 +173,14 @@ def _parse_voorwaarden(tekst: str):
 
 
 def _resolve(deel: str):
-    """Voorwaarde-tekst -> (feature, text) voor opslag."""
+    """Voorwaarde-tekst -> (feature, text) voor opslag.
+
+    Vulwoorden vooraan ("met s-line", "alleen s-line", "enkel met s-line")
+    worden gestript — anders valt een prima voorwaarde terug op een letterlijk
+    tekst-filter dat in Duitse advertenties nooit matcht.
+    """
+    deel = re.sub(r"^(?:(?:alleen|enkel|met|mét|mit|incl\w*|inclusief)\s+)+", "",
+                  (deel or "").strip(), flags=re.I)
     soort, waarde = core.resolve_requirement(deel)
     if soort == "sportpakket":
         return "sportpakket", ""

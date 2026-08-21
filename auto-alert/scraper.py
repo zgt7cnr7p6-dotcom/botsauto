@@ -1046,8 +1046,11 @@ SPORT_PACKAGE_FEATURES = ("s_line", "s_line_exterieur")
 # s_line_exterieur alleen bij expliciet bewijs, maar zet de letterlijke term
 # ALTIJD in sport_detail. Een sportpakket-voorwaarde checkt dus beide.
 _SPORT_SYNONIEMEN = {
-    "sline", "s-line", "slinepaket", "amg", "amgline", "msport", "m-sport",
-    "msportpaket", "vz", "rline", "r-line", "rdesign", "sportpakket", "sportpaket",
+    "sline", "s-line", "slinepaket", "slinepakket", "slinesportpakket",
+    "amg", "amgline", "amgpakket", "amgpaket",
+    "msport", "m-sport", "msportpaket", "msportpakket", "mpakket", "mpaket",
+    "vz", "vzpakket", "rline", "r-line", "rlinepakket", "rdesign", "sportline",
+    "sportpakket", "sportpaket",
 }
 _FEATURE_ALIASSEN = {
     "pano": "panoramadak", "panodak": "panoramadak", "panoramadach": "panoramadak",
