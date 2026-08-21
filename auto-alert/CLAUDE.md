@@ -149,6 +149,13 @@ het er staat (`sportpakket_detail`, de letterlijke term uit de advertentie).
 - **`available_features`** (`:1184`) — leert per model welke opties écht leverbaar
   zijn: telt pas mee vanaf `AVAIL_MIN_PEERS = 30` soortgenoten en `AVAIL_MIN_COUNT = 2`
   bevestigingen (één foutieve vink telt dus niet). Voorkomt misleidende ❌.
+- **Zelflerende sterren** (`peer_option_stats`, 2026-08-21) — ⭐ = de auto heeft
+  een optie die < `RARE_SHARE` (25%) van de soortgenoten heeft (bijzonder voor dít
+  model); ⚠️ = hij mist een optie die > `COMMON_SHARE` (85%) wél heeft (echt
+  minpunt). Zelfde activatiedrempel als het markt-oordeel (≥ 10 peers); daaronder
+  terugval op de vaste `MUST_HAVE_FEATURES`-lijst. Eigen bewijs wint altijd: een
+  optie die de auto aantoonbaar heeft wordt nooit verborgen, ook niet door de
+  handmatige uitsluitlijst.
 - **Dataset-fundament** — élke gescrapete auto wordt opgeslagen, ook zonder alert.
   Dat is de brandstof voor bovenstaande.
 
