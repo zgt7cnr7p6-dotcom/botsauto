@@ -1368,16 +1368,18 @@ def market_spec_verdict(model_key: str, features: list):
     below = sum(1 for s in peer_scores if s <= car_score)
     pct = below / n
 
+    # Labels zeggen expliciet "Uitrusting" — dit oordeel gaat over opties,
+    # nooit over de prijs (daar is de NL-marge-regel voor).
     if pct >= 0.85:
-        verdict = "🟢 TOPPER — top van de markt!"
+        verdict = "🟢 Uitrusting: TOP — rijkste 15% van de markt"
     elif pct >= 0.70:
-        verdict = "🟢 High spec"
+        verdict = "🟢 Uitrusting: zeer compleet"
     elif pct >= 0.50:
-        verdict = "🟡 Bovengemiddeld uitgerust"
+        verdict = "🟡 Uitrusting: bovengemiddeld"
     elif pct >= 0.30:
-        verdict = "🟠 Gemiddeld uitgerust"
+        verdict = "🟠 Uitrusting: gemiddeld"
     else:
-        verdict = "🔴 Onder gemiddeld"
+        verdict = "🔴 Uitrusting: mager"
     return {"verdict": verdict, "pct": pct, "peers": n}
 
 
@@ -1609,23 +1611,23 @@ def send_telegram(listing: Listing):
     show_max = True
     if market:
         verdict_line = market["verdict"]
-        market_line = (f"📈 Beter uitgerust dan {market['pct'] * 100:.0f}% van "
-                       f"vergelijkbare ({market['peers']} vergeleken)\n")
+        market_line = (f"📈 Completer uitgerust dan {market['pct'] * 100:.0f}% van "
+                       f"{market['peers']} vergelijkbare auto's\n")
     elif calibrated:
         pct = listing.score / max_score if max_score else 0
         if pct >= 0.85:
-            verdict_line = "🟢 TOPPER — bijna full option!"
+            verdict_line = "🟢 Uitrusting: bijna alles erop"
         elif pct >= 0.70:
-            verdict_line = "🟢 High spec"
+            verdict_line = "🟢 Uitrusting: zeer compleet"
         elif pct >= 0.50:
-            verdict_line = "🟡 Redelijk uitgerust"
+            verdict_line = "🟡 Uitrusting: redelijk compleet"
         elif pct >= 0.35:
-            verdict_line = "🟠 Basis uitvoering"
+            verdict_line = "🟠 Uitrusting: basis"
         else:
-            verdict_line = "🔴 Kaal"
+            verdict_line = "🔴 Uitrusting: kaal"
     else:
         # Nieuw/onbekend model: nog geen vergelijkingsbasis. Geen "kaal" gokken.
-        verdict_line = "🔎 Uitrusting — nog te weinig vergelijkbare auto's voor een oordeel"
+        verdict_line = "🔎 Uitrusting: nog te weinig vergelijkbare auto's voor een oordeel"
         show_max = False
 
     # Prijs formatting
