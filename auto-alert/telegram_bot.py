@@ -83,8 +83,9 @@ def _token() -> str:
 
 HELP = (
     "👋 <b>Zo beheer je je zoekopdrachten</b>\n\n"
-    "➕ <b>Toevoegen:</b> plak gewoon een mobile.de-zoeklink in de chat.\n"
-    "   Ik test hem en vraag je om te bevestigen.\n\n"
+    "➕ <b>Toevoegen:</b> typ <code>/add</code> met daarachter je mobile.de-zoeklink.\n"
+    "   Ik test hem en vraag je om te bevestigen.\n"
+    "   <i>(Een link los plakken werkt ook, zodra de groeps-privacy van de bot uitstaat.)</i>\n\n"
     "📋 /links — bekijken en verwijderen\n"
     "📊 /status — draait alles goed?\n"
     "❓ /help — dit bericht"
@@ -215,6 +216,9 @@ def verwerk_bericht(msg):
         m = MOBILE_LINK.search(tekst)
         if m:
             verwerk_link(chat_id, m.group(0), msg.get("message_id"))
+        elif cmd == "/add":
+            stuur(chat_id, "➕ Zet de link er direct achter, bijvoorbeeld:\n"
+                           "<code>/add https://suchen.mobile.de/fahrzeuge/search.html?...</code>")
         elif tekst.startswith("/"):
             stuur(chat_id, "🤔 Dat commando ken ik niet. Typ /help voor de mogelijkheden.")
 
