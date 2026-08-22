@@ -2097,6 +2097,14 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
         log.info("mobile.de body (2000 chars): %s", body[:2000])
         return listings
 
+    # Eigen db-verbinding per aanroep: de zoekpagina's draaien in PARALLELLE
+    # threads en één gedeelde sqlite-verbinding verdraagt geen gelijktijdig
+    # gebruik ("bad parameter or other API misuse" — kostte sporadisch een kaart
+    # per ronde sinds er 4 zoeklinks parallel draaien). WAL staat aan, dus
+    # meerdere verbindingen naast elkaar zijn veilig en goedkoop.
+    db = sqlite3.connect(DB_PATH, timeout=30)
+    db.execute("PRAGMA busy_timeout=30000")
+
     kaart_fouten = 0
     for card in cards[:50]:
         try:
@@ -2139,7 +2147,7 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
             _idm = re.search(r"[?&]id=(\d+)", href)
             clean_href = f"https://suchen.mobile.de/fahrzeuge/details.html?id={_idm.group(1)}" if _idm else href
 
-            if listing_exists(conn, listing_id):
+            if listing_exists(db, listing_id):
                 log.info("Bekende listing overgeslagen: %s", title[:50])
                 continue
 
@@ -2202,13 +2210,14 @@ def scrape_mobile_de(conn, search_url: str = "", fetch_details: bool = False) ->
     # zouden we anders stilletjes "0 nieuw" blijven melden. Direct alarmeren.
     if kaart_fouten >= 10:
         alarm_once(
-            conn, "parser_kapot",
+            db, "parser_kapot",
             f"🚨 <b>Botsauto: parser-probleem</b>\n"
             f"{kaart_fouten} van {len(cards)} auto-kaarten konden niet gelezen worden — "
             f"er komen nu waarschijnlijk GEEN meldingen door.\n"
             f"Check: <code>journalctl -u botsauto.service -n 50</code>",
         )
 
+    db.close()
     log.info("mobile.de: %d nieuwe listings gevonden", len(listings))
     return listings
 
