@@ -139,7 +139,12 @@ en een "➕ Verder: …"-regel. Dit is de opmaat naar een zelflerende woordensch
 het er staat (`sportpakket_detail`, de letterlijke term uit de advertentie).
 
 **Implicaties afgedwongen in code:** `camera_360 → camera_achteruit` ·
-`luchtvering → adaptief_onderstel` · `acc + lane_assist ↔ travel_assist`.
+`luchtvering → adaptief_onderstel` · `acc + lane_assist ↔ travel_assist` ·
+**`sport_detail` gevuld → `s_line`** (2026-08-22): een sportlijn zonder int/ext-
+aanwijzing vinkt geen van beide vakjes aan (niet gokken), maar telt wél mee in
+score en statistiek — anders scoorde elke zulke auto een punt te laag en leek
+sportpakket zeldzaam, wat markt-percentiel én de sterren vertekende.
+`sport_detail` wordt opgeslagen als kolom.
 
 ## Zelflerende delen (het commerciële hart)
 
