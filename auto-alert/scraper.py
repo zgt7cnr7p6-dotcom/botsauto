@@ -228,7 +228,7 @@ def init_db():
     # Migratie: nieuwe kolommen toevoegen aan bestaande (gecachte) DB's
     existing = {r[1] for r in conn.execute("PRAGMA table_info(listings)")}
     for col in ("model_key", "brand", "color", "listing_date", "location",
-                "raw_text", "feature_terms", "extra_options"):
+                "raw_text", "feature_terms", "extra_options", "sport_detail"):
         if col not in existing:
             conn.execute(f"ALTER TABLE listings ADD COLUMN {col} TEXT")
     # Baseline-status per zoekopdracht: bij de EERSTE run van een (nieuwe/gewijzigde)
@@ -416,9 +416,9 @@ def save_listing(conn, listing: "Listing"):
             """INSERT INTO listings
                  (id, source, title, price, year, km, url, score, features,
                   model_key, brand, color, listing_date, location,
-                  raw_text, feature_terms, extra_options,
+                  raw_text, feature_terms, extra_options, sport_detail,
                   first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing.id,
                 listing.source,
@@ -439,6 +439,7 @@ def save_listing(conn, listing: "Listing"):
                 (listing.description or "")[:20000],
                 json.dumps(listing.feature_terms, ensure_ascii=False),
                 json.dumps(listing.extra_options, ensure_ascii=False),
+                listing.sport_detail,
                 now,
                 now,
             ),
@@ -940,6 +941,19 @@ def score_listing_ai(listing: Listing) -> Listing | None:
         if features_dict.get("travel_assist", False):
             features_dict["acc"] = True
             features_dict["lane_assist"] = True
+
+        # Sportlijn genoemd (S line / AMG Line / M Sport / VZ …) zonder int/ext-
+        # aanwijzing: de prompt vinkt dan bewust géén van beide vakjes aan (niet
+        # gokken). Voor de TELLING is er wél een sportpakket — anders scoort elke
+        # zulke auto een punt te laag en lijkt sportpakket zeldzamer dan het is,
+        # wat markt-percentiel én de zelflerende sterren vertekent. Zelfde soort
+        # regel als "360°-camera impliceert achteruitrijcamera".
+        # Weergave verandert niet: nog steeds één regel met de letterlijke term.
+        if (features_dict.get("sportpakket_detail") or "").strip():
+            if not (features_dict.get("s_line") or features_dict.get("s_line_exterieur")):
+                features_dict["s_line"] = True
+                log.info("[AI] Sportpakket afgeleid uit '%s' (geen int/ext-aanwijzing)",
+                         features_dict["sportpakket_detail"][:40])
 
         found = [f for f in FULL_OPTION_FEATURES if features_dict.get(f, False)]
         # sportback is een carrosserie-vlag (geen uitrusting) — apart voor display
